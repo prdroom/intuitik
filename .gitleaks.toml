@@ -1,0 +1,11 @@
+# Gitleaks configuration of intuitik.
+# A custom config replaces the default rules unless it extends them.
+[extend]
+useDefault = true
+
+# Claude Code login (OAuth) token, prefix from the Claude Code documentation.
+[[rules]]
+id = "claude-code-oauth-token"
+description = "Claude Code OAuth token"
+regex = '''sk-ant-oat01-[A-Za-z0-9_-]{20,}'''
+keywords = ["sk-ant-oat01-"]
