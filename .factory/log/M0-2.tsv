@@ -1,0 +1,2 @@
+start_ts	end_ts	phase	decision	reason	evidence	result
+2026-10-31T13:57:10+09:00		setup	start M0-2	Devgru check-PASS c9b4698c (reply to e8620141): M0-1 closed unmerged, M0-2 base = B0; approval 5adc47fa	rules blob 1eda4ea7d3202bbf8d903fb320849d6e8a15deee; base B0 503fbccec4be8294e869a8e90bdf2f5918e3278f; HEAD 503fbccec4be8294e869a8e90bdf2f5918e3278f; gh repo sync exit 0; start-record search: only PR 1 (first line 5adc47fa M0-1, head t/M0-1), no M0-2 record	open
