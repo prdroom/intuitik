@@ -1,0 +1,2 @@
+start_ts	end_ts	phase	decision	reason	evidence	result
+2026-11-01T14:54:22+09:00		M0-3-start	create agent/M0-3 at base, start commit c1, open PR	delivery b35f6d8a (hoan, from prdr, msg 24418274) M0-3 step 1	base 819ffeec64a61957a851909c23e58160275affac = origin/main = HEAD (exact compare MATCH); rules blob 57ba120f28064f99984c15a1f6a23d3b15ac29b6	open
