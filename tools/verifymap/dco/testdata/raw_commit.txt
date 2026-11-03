@@ -1,0 +1,13 @@
+tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+parent 1111111111111111111111111111111111111111
+parent 2222222222222222222222222222222222222222
+author Ada Lovelace <ada@example.com> 1762150000 +0900
+committer Grace Hopper <grace@example.com> 1762150001 +0900
+gpgsig -----BEGIN PGP SIGNATURE-----
+ 
+ iQEzBAABCAAdFiEE
+ -----END PGP SIGNATURE-----
+
+Merge branch side
+
+Signed-off-by: Ada Lovelace <ada@example.com>
