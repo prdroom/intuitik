@@ -1,0 +1,296 @@
+name: ci
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # Prints the commit identities of this run. It runs no PR code.
+  factory-context:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Print factory CI context
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_SHA: ${{ github.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          checkout_sha="$(git rev-parse HEAD)"
+          echo "FACTORY_CI_CONTEXT event=${EVENT_NAME} github_sha=${RUN_SHA} checkout_sha=${checkout_sha} base_sha=${BASE_SHA} head_sha=${HEAD_SHA}"
+
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Repository layout
+        run: bash tests/repo_layout.sh
+
+      - name: Install Gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          set -euo pipefail
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSL -o "${RUNNER_TEMP}/${archive}" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}"
+          echo "${GITLEAKS_SHA256}  ${RUNNER_TEMP}/${archive}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/gitleaks-bin"
+          tar -xzf "${RUNNER_TEMP}/${archive}" -C "${RUNNER_TEMP}/gitleaks-bin" gitleaks
+          echo "${RUNNER_TEMP}/gitleaks-bin" >> "${GITHUB_PATH}"
+
+      - name: Gitleaks scan of the PR commit range
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          gitleaks version
+          echo "gitleaks scanned range: ${BASE_SHA}..${HEAD_SHA}"
+          gitleaks git --log-opts "${BASE_SHA}..${HEAD_SHA}" --redact --exit-code 1
+
+      # One-off fixture repositories built at run time, so no token text is committed.
+      # Positive fixtures must exit 1 with the expected rule id; the negative one must exit 0.
+      - name: Gitleaks fixtures
+        run: |
+          set -euo pipefail
+          config="${GITHUB_WORKSPACE}/.gitleaks.toml"
+          random_alnum() {
+            python3 -c 'import secrets, string, sys; a = string.ascii_letters + string.digits; print("".join(secrets.choice(a) for _ in range(int(sys.argv[1]))))' "$1"
+          }
+          # run_fixture <name> <file content> <expected exit> <expected rule id, empty for none>
+          run_fixture() {
+            local name="$1" content="$2" expected_exit="$3" expected_rule="$4"
+            local dir="${RUNNER_TEMP}/fixture-${name}"
+            local report="${RUNNER_TEMP}/fixture-${name}.json"
+            rm -rf "$dir"
+            mkdir -p "$dir"
+            git -C "$dir" init -q
+            printf '%s\n' "$content" > "$dir/fixture.txt"
+            git -C "$dir" add fixture.txt
+            git -C "$dir" -c user.name=fixture -c user.email=fixture -c commit.gpgsign=false commit -q -m fixture
+            local code=0
+            gitleaks git --redact --exit-code 1 --config "$config" \
+              --report-format json --report-path "$report" "$dir" || code=$?
+            local rules
+            rules="$(jq -r '[.[].RuleID] | unique | join(",")' "$report")"
+            echo "fixture=${name} exit=${code} rule_ids=[${rules}]"
+            if [ "$code" -ne "$expected_exit" ]; then
+              echo "fixture=${name}: expected exit ${expected_exit}"
+              return 1
+            fi
+            if [ -n "$expected_rule" ]; then
+              jq -e --arg rule "$expected_rule" 'any(.[]; .RuleID == $rule)' "$report" > /dev/null \
+                || { echo "fixture=${name}: rule id ${expected_rule} not reported"; return 1; }
+            else
+              jq -e 'length == 0' "$report" > /dev/null \
+                || { echo "fixture=${name}: findings reported"; return 1; }
+            fi
+          }
+          github_token="ghp_$(random_alnum 36)"
+          claude_token="sk-ant-oat01-$(random_alnum 100)"
+          run_fixture github-token "github_token: ${github_token}" 1 github-pat
+          run_fixture claude-token "claude_token: ${claude_token}" 1 claude-code-oauth-token
+          run_fixture negative "intuitik fixture without a secret" 0 ""
+
+  # The CI token must not be able to write to the source repository.
+  ci-token:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Secrets are empty
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+        run: |
+          set -euo pipefail
+          names="$(printf '%s' "$SECRETS_JSON" | jq -r 'del(.github_token) | keys | join(",")')"
+          non_empty="$(printf '%s' "$SECRETS_JSON" | jq '[del(.github_token) | to_entries[] | select(.value != "")] | length')"
+          echo "secrets other than github_token: names=[${names}] non_empty=${non_empty}"
+          if [ "$non_empty" -ne 0 ]; then
+            echo "secrets: a secret value reaches this pull_request run"
+            exit 1
+          fi
+          echo "secrets: empty"
+
+      - name: Push to the source repository is refused
+        run: |
+          set -uo pipefail
+          trace="${RUNNER_TEMP}/push-trace.txt"
+          code=0
+          GIT_TRACE_CURL="$trace" GIT_TRACE_CURL_NO_DATA=1 \
+            git push origin "HEAD:refs/heads/m0-2-ci-push-probe" || code=$?
+          statuses="$(grep -oE 'Recv header: HTTP/[0-9.]+ [0-9]{3}' "$trace" | awk '{print $NF}' | tr '\n' ' ')"
+          rm -f "$trace"
+          echo "ci push probe: exit=${code} http_status=[${statuses}]"
+          if [ "$code" -eq 0 ]; then
+            echo "ci push probe: the push was accepted"
+            exit 1
+          fi
+          case " ${statuses}" in
+            *" 403 "*) echo "ci push probe: refused with HTTP 403" ;;
+            *) echo "ci push probe: no HTTP 403 refusal observed"; exit 1 ;;
+          esac
+
+  # Builds the frontend and the six release targets, checks the toolchain versions,
+  # lints the verification map and runs it end to end on the linux/amd64 artifact.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          package-manager-cache: false
+
+      # Node must equal web/.nvmrc and npm must equal the npm field of that Node version
+      # in https://nodejs.org/dist/index.json; the tool prints both pairs and exits 1 on a difference.
+      - name: Toolchain versions
+        run: |
+          set -euo pipefail
+          go run ./tools/verifymap/toolchain -nvmrc web/.nvmrc
+
+      - name: Frontend build
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      # One artifact per target; one line per target with its sha256 and file name.
+      - name: Build six targets
+        env:
+          VERSION: 0.0.0-dev
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          out="${RUNNER_TEMP}/dist"
+          mkdir -p "$out"
+          for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            name="intuitik-${goos}-${goarch}"
+            if [ "$goos" = "windows" ]; then
+              name="${name}.exe"
+            fi
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath \
+              -ldflags "-X main.version=${VERSION} -X main.commit=${commit}" \
+              -o "${out}/${name}" ./cmd/intuitik
+            (cd "$out" && sha256sum "$name" | tee -a SHA256SUMS)
+          done
+
+      - name: Build verifymap
+        run: |
+          set -euo pipefail
+          go build -o "${RUNNER_TEMP}/bin/verifymap" ./tools/verifymap
+
+      - name: verify-map lint
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/bin/verifymap" lint
+
+      # Runs feature embedded-page on the linux/amd64 artifact built above, from a new empty
+      # HOME and without KUBECONFIG; the runner compares the --version commit with the checkout
+      # commit and the executed binary's sha256 with the linux/amd64 line of SHA256SUMS.
+      - name: verify-map
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/bin/verifymap" run \
+            -binary "${RUNNER_TEMP}/dist/intuitik-linux-amd64" \
+            -sums "${RUNNER_TEMP}/dist/SHA256SUMS" \
+            -expect-commit "$(git rev-parse HEAD)" \
+            -evidence "${RUNNER_TEMP}/verify-evidence" \
+            embedded-page
+
+  # Checks the standard DCO sign-off of every commit in the PR range; the judging is in the tool.
+  dco:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: DCO check of the PR commit range
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          go run ./tools/verifymap/dco -base "$BASE_SHA" -head "$HEAD_SHA"
+
+  # Go tests and frontend tests. The frontend is built first because the Go server embeds it.
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          package-manager-cache: false
+
+      - name: Frontend build
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Frontend tests
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm test
+
+      - name: Go tests
+        run: |
+          set -euo pipefail
+          go test -count=1 -v ./...
