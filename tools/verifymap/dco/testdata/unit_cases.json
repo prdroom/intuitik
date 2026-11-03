@@ -1,0 +1,86 @@
+[
+  {
+    "name": "real-form address sign-off matching the author passes",
+    "author_email": "ada@example.com",
+    "message": "Add the parser\n\nSigned-off-by: Ada Lovelace <ada@example.com>\n",
+    "want": "pass"
+  },
+  {
+    "name": "two sign-offs, one matching the author, passes",
+    "author_email": "ada@example.com",
+    "message": "Add the parser\n\nSigned-off-by: Grace Hopper <grace@example.com>\nSigned-off-by: Ada Lovelace <ada@example.com>\n",
+    "want": "pass"
+  },
+  {
+    "name": "sign-off followed by Co-authored-by passes",
+    "author_email": "ada@example.com",
+    "message": "Add the parser\n\nSigned-off-by: Ada Lovelace <ada@example.com>\nCo-authored-by: Grace Hopper <grace@example.com>\n",
+    "want": "pass"
+  },
+  {
+    "name": "no sign-off fails missing-signoff",
+    "author_email": "ada@example.com",
+    "message": "Add the parser\n\nThe body explains the change.\n",
+    "want": "missing-signoff"
+  },
+  {
+    "name": "only sign-offs that differ from the author fail signoff-author-mismatch",
+    "author_email": "ada@example.com",
+    "message": "Add the parser\n\nSigned-off-by: Grace Hopper <grace@example.com>\nSigned-off-by: Alan Turing <alan@build.invalid>\n",
+    "want": "signoff-author-mismatch"
+  },
+  {
+    "name": "a key without an address fails malformed-signoff",
+    "author_email": "ada@example.com",
+    "message": "Add the parser\n\nSigned-off-by: Ada Lovelace\n",
+    "want": "malformed-signoff"
+  },
+  {
+    "name": "a key without an address passes when another matching sign-off exists",
+    "author_email": "ada@example.com",
+    "message": "Add the parser\n\nSigned-off-by: Ada Lovelace\nSigned-off-by: Ada Lovelace <ada@example.com>\n",
+    "want": "pass"
+  },
+  {
+    "name": "email comparison ignores letter case",
+    "author_email": "Ada@Example.com",
+    "message": "Add the parser\n\nSigned-off-by: Ada Lovelace <ada@example.COM>\n",
+    "want": "pass"
+  },
+  {
+    "name": "the name is not compared",
+    "author_email": "ada@example.com",
+    "message": "Add the parser\n\nSigned-off-by: Someone Else <ada@example.com>\n",
+    "want": "pass"
+  },
+  {
+    "name": "CRLF line endings are allowed",
+    "author_email": "ada@example.com",
+    "message": "Add the parser\r\n\r\nSigned-off-by: Ada Lovelace <ada@example.com>\r\n",
+    "want": "pass"
+  },
+  {
+    "name": "the key is matched without regard to letter case",
+    "author_email": "ada@example.com",
+    "message": "Add the parser\n\nsigned-off-by: Ada Lovelace <ada@example.com>\n",
+    "want": "pass"
+  },
+  {
+    "name": "a sign-off outside the last paragraph does not count",
+    "author_email": "ada@example.com",
+    "message": "Add the parser\n\nSigned-off-by: Ada Lovelace <ada@example.com>\n\nA later paragraph that is not a trailer.\n",
+    "want": "missing-signoff"
+  },
+  {
+    "name": "a subject line alone has no trailer paragraph",
+    "author_email": "ada@example.com",
+    "message": "Signed-off-by: Ada Lovelace <ada@example.com>\n",
+    "want": "missing-signoff"
+  },
+  {
+    "name": "a plus-form address is an ordinary address",
+    "author_email": "1234+ada@example.com",
+    "message": "Add the parser\n\nSigned-off-by: ada <1234+ada@example.com>\n",
+    "want": "pass"
+  }
+]
