@@ -148,3 +148,149 @@ jobs:
             *" 403 "*) echo "ci push probe: refused with HTTP 403" ;;
             *) echo "ci push probe: no HTTP 403 refusal observed"; exit 1 ;;
           esac
+
+  # Builds the frontend and the six release targets, checks the toolchain versions,
+  # lints the verification map and runs it end to end on the linux/amd64 artifact.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          package-manager-cache: false
+
+      # Node must equal web/.nvmrc and npm must equal the npm field of that Node version
+      # in https://nodejs.org/dist/index.json; the tool prints both pairs and exits 1 on a difference.
+      - name: Toolchain versions
+        run: |
+          set -euo pipefail
+          go run ./tools/verifymap/toolchain -nvmrc web/.nvmrc
+
+      - name: Frontend build
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      # One artifact per target; one line per target with its sha256 and file name.
+      - name: Build six targets
+        env:
+          VERSION: 0.0.0-dev
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          out="${RUNNER_TEMP}/dist"
+          mkdir -p "$out"
+          for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            name="intuitik-${goos}-${goarch}"
+            if [ "$goos" = "windows" ]; then
+              name="${name}.exe"
+            fi
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath \
+              -ldflags "-X main.version=${VERSION} -X main.commit=${commit}" \
+              -o "${out}/${name}" ./cmd/intuitik
+            (cd "$out" && sha256sum "$name" | tee -a SHA256SUMS)
+          done
+
+      - name: Build verifymap
+        run: |
+          set -euo pipefail
+          go build -o "${RUNNER_TEMP}/bin/verifymap" ./tools/verifymap
+
+      - name: verify-map lint
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/bin/verifymap" lint
+
+      # Runs feature embedded-page on the linux/amd64 artifact built above, from a new empty
+      # HOME and without KUBECONFIG; the runner compares the --version commit with the checkout
+      # commit and the executed binary's sha256 with the linux/amd64 line of SHA256SUMS.
+      - name: verify-map
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/bin/verifymap" run \
+            -binary "${RUNNER_TEMP}/dist/intuitik-linux-amd64" \
+            -sums "${RUNNER_TEMP}/dist/SHA256SUMS" \
+            -expect-commit "$(git rev-parse HEAD)" \
+            -evidence "${RUNNER_TEMP}/verify-evidence" \
+            embedded-page
+
+  # Checks the standard DCO sign-off of every commit in the PR range; the judging is in the tool.
+  dco:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: DCO check of the PR commit range
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          go run ./tools/verifymap/dco -base "$BASE_SHA" -head "$HEAD_SHA"
+
+  # Go tests and frontend tests. The frontend is built first because the Go server embeds it.
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          package-manager-cache: false
+
+      - name: Frontend build
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Frontend tests
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm test
+
+      - name: Go tests
+        run: |
+          set -euo pipefail
+          go test -count=1 -v ./...
