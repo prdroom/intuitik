@@ -11,3 +11,9 @@ start_ts	end_ts	phase	decision	reason	evidence	result
 2026-11-03T16:49:06+09:00	2026-11-03T16:51:43+09:00	red	M1-T1	red commit: tests, fixtures, web page, go.mod, Go stubs that fail	red a7aa57c36fd63f6b2d59ca0ecd9f519b1f396ee8, run 41599143275: build fail (Toolchain versions), dco fail (DCO check), unit fail (Go tests, every test named FAIL)	pass
 2026-11-03T16:51:43+09:00		green	M1-T1	green commit: implementation, verify map, LICENSE, NOTICE	PR 10	open
 2026-11-03T16:51:43+09:00	2026-11-03T16:52:21+09:00	green	M1-T1	green commit: implementation, verify map, LICENSE, NOTICE	local go vet exit 0, go test ./... ok (development aid, not evidence); green CI run follows this commit	pass
+2026-11-03T16:52:28+09:00		green-check	M1-T1	push green, read green CI run, PR body, review request	green 573b853b9150f65cbefb2daf5f5dbf2ae6e8e002	open
+2026-11-03T16:52:28+09:00	2026-11-03T16:57:43+09:00	green-check	M1-T1	push green, read green CI run, PR body, review request	green run 41599473361 success (build, dco, unit, factory-context, verify, ci-token); PR 10 body PATCH exit 0; verdict requested msg 8b3d1433	pass
+2026-11-03T17:00:19+09:00		relay	M1-T1	forward Reviewer stop 7980972d (tool refusal) to prdr verbatim	Reviewer msg 7980972d	open
+2026-11-03T17:00:19+09:00	2026-11-03T17:00:38+09:00	relay	M1-T1	forward Reviewer stop 7980972d (tool refusal) to prdr verbatim	prdr stop relay c0bc670d (mentions hoan); Builder stopped, no push	pass
+2026-11-03T17:13:28+09:00		rework1	M1-T1	FAIL round 1 (review 5748939639): criterion 1 red/green test evidence, PR body lines 19 and 25	Reviewer msg 4b3b20c0	open
+2026-11-03T17:13:28+09:00	2026-11-03T17:21:02+09:00	rework1	M1-T1	FAIL round 1 (review 5748939639): criterion 1 red/green test evidence, PR body lines 19 and 25	red 2 b4058670ae8255077d3ba21544c0dd4801e36743 run 41602335944: unit fail, only TestBuildStepBuildsSixTargets, TestBuildStepFailsWhenOneTargetFails, TestWorkflowStepReadsRunAndEnv FAIL; green 2 follows	pass
