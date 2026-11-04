@@ -241,6 +241,18 @@ func (s *server) sameOrigin(r *http.Request) bool {
 	return single(r.Header, "Origin") == s.origin && single(r.Header, "Sec-Fetch-Site") == "same-origin"
 }
 
+// webSocketOrigin is the Origin condition of a WebSocket upgrade (S6, hoan approval
+// f5de671e): Origin exactly http://127.0.0.1:P, and either no Sec-Fetch-Site field
+// (Chromium sends no Fetch Metadata on the handshake) or exactly one field whose
+// value is exactly same-origin. S and C are checked separately and always.
+func (s *server) webSocketOrigin(r *http.Request) bool {
+	if single(r.Header, "Origin") != s.origin {
+		return false
+	}
+	site := r.Header.Values("Sec-Fetch-Site")
+	return len(site) == 0 || (len(site) == 1 && site[0] == "same-origin")
+}
+
 func (s *server) refuse(w http.ResponseWriter, t string) {
 	body := RefusalBody
 	if f := s.o.Seams.Fixture.RefusalBody; f != nil {
@@ -360,7 +372,7 @@ func (s *server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
-	if !s.sameOrigin(r) || !equal(csrf, s.csrf()) {
+	if !s.webSocketOrigin(r) || !equal(csrf, s.csrf()) {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}

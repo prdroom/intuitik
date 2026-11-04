@@ -153,7 +153,8 @@ function browserCommandLines(proxyPort) {
 }
 
 test.describe('browser-handshake', () => {
-  test('ws-roundtrip', async ({ page }) => {
+  test('ws-roundtrip', async ({ page, browserName }) => {
+    console.log(`S15 engine under test: ${browserName} ${page.context().browser().version()}`);
     const panel = await panelFor();
     await watchCsp(page);
     await login(page, panel, await panel.token());

@@ -64,6 +64,9 @@ func TestS6_OriginRequired(t *testing.T) {
 	if r := p.do(request{method: "POST", target: "/api/ping", header: [][2]string{{"Content-Type", "text/plain"}, {"Origin", "http://attacker.example"}}, body: "x=1"}); r.status != 401 {
 		t.Errorf("text/plain form POST: %d, want 401", r.status)
 	}
+	// The WebSocket exception (no Sec-Fetch-Site field) does not reach HTTP: the exchange
+	// with the exact Origin and no Sec-Fetch-Site field is refused and leaves T unconsumed.
+	try("exact Origin, no Sec-Fetch-Site field", originHeaders(p.origin, ""))
 	sess, csrf := p.exchange(tok) // T was not consumed by the refused attempts
 	t.Log("S6: the token was still exchangeable after the refused attempts")
 	for _, o := range badOrigins(p.port) {
@@ -87,45 +90,108 @@ func TestS6_OriginRequired(t *testing.T) {
 	if r := p.do(request{method: "POST", target: "/api/ping", header: append(p.sameOrigin(), [2]string{"X-CSRF-Token", csrf})}); r.status != 401 {
 		t.Errorf("C without S: %d, want 401", r.status)
 	}
+	noSite := p.do(request{method: "POST", target: "/api/ping", header: [][2]string{{"Origin", p.origin}, {"Authorization", "Bearer " + sess}, {"X-CSRF-Token", csrf}}})
+	t.Logf("S6 POST /api/ping exact Origin, valid S and C, no Sec-Fetch-Site field: %d (want 403)", noSite.status)
+	if noSite.status != 403 {
+		t.Errorf("HTTP state change without Sec-Fetch-Site: %d, want 403", noSite.status)
+	}
 	if r := p.ping(sess, csrf); r.status != 200 {
 		t.Errorf("valid POST /api/ping: %d, want 200", r.status)
 	}
 }
 
-// S6: the WebSocket upgrade with a refused Origin gets no 101.
+// S6 (WebSocket upgrade, hoan approval f5de671e): 101 only with the exact Origin,
+// valid S, valid C and either no Sec-Fetch-Site field or exactly one same-origin.
+// Every negative row keeps the other conditions valid, so the named condition is the
+// cause; each must give 101 responses 0 (no 101 means no data frame).
 func TestS6_WebSocketOrigin(t *testing.T) {
 	p := startPanel(t, panelOpts{})
 	sess, csrf := p.exchange(p.token(1))
-	creds := []string{"intuitik.v1, csrf." + csrf + ", sess." + sess}
+	valid := "intuitik.v1, csrf." + csrf + ", sess." + sess
+	upgrade := func(protocols string, extra ...[2]string) int {
+		h := [][2]string{
+			{"Connection", "Upgrade"}, {"Upgrade", "websocket"}, {"Sec-WebSocket-Version", "13"},
+			{"Sec-WebSocket-Key", wsKey},
+		}
+		if protocols != "" {
+			h = append(h, [2]string{"Sec-WebSocket-Protocol", protocols})
+		}
+		return p.do(request{method: "GET", target: "/api/ws", header: append(h, extra...)}).status
+	}
+	origin := [2]string{"Origin", p.origin}
+	site := func(v string) [2]string { return [2]string{"Sec-Fetch-Site", v} }
+
+	// Accepted rows.
+	for _, c := range []struct {
+		name  string
+		extra [][2]string
+	}{
+		{"exact Origin, no Sec-Fetch-Site field (the Chromium path)", [][2]string{origin}},
+		{"exact Origin, one Sec-Fetch-Site same-origin", [][2]string{origin, site("same-origin")}},
+	} {
+		got := upgrade(valid, c.extra...)
+		t.Logf("S6 WebSocket accepted row %s: %d (want 101)", c.name, got)
+		if got != 101 {
+			t.Errorf("%s: %d, want 101", c.name, got)
+		}
+	}
+
 	upgrades := 0
+	refused := func(name string, got int) {
+		t.Logf("S6 WebSocket refused row %s: %d (want no 101)", name, got)
+		if got == 101 {
+			upgrades++
+			t.Errorf("%s got 101", name)
+		}
+	}
+	// Exact Origin, valid S and C, a Sec-Fetch-Site field that is not exactly one same-origin.
+	for _, c := range []struct {
+		name  string
+		sites []string
+	}{
+		{"cross-site", []string{"cross-site"}}, {"same-site", []string{"same-site"}}, {"none", []string{"none"}},
+		{"empty value", []string{""}}, {"unknown token", []string{"same-origin-x"}},
+		{"comma-joined", []string{"same-origin, cross-site"}},
+		{"two fields same-origin then cross-site", []string{"same-origin", "cross-site"}},
+		{"two fields cross-site then same-origin", []string{"cross-site", "same-origin"}},
+		{"two fields same-origin twice", []string{"same-origin", "same-origin"}},
+	} {
+		extra := [][2]string{origin}
+		for _, v := range c.sites {
+			extra = append(extra, site(v))
+		}
+		refused("Sec-Fetch-Site "+c.name, upgrade(valid, extra...))
+	}
+	// No Sec-Fetch-Site field, valid S and C: every Origin of the refusal list.
 	for _, o := range badOrigins(p.port) {
-		h := [][2]string{
-			{"Connection", "Upgrade"}, {"Upgrade", "websocket"}, {"Sec-WebSocket-Version", "13"},
-			{"Sec-WebSocket-Key", wsKey}, {"Sec-WebSocket-Protocol", creds[0]},
+		var extra [][2]string
+		if o != "" {
+			extra = append(extra, [2]string{"Origin", o})
 		}
-		h = append(h, originHeaders(o, "same-origin")...)
-		r := p.do(request{method: "GET", target: "/api/ws", header: h})
-		t.Logf("S6 WebSocket Origin %q: %d", o, r.status)
-		if r.status == 101 {
-			upgrades++
-		}
+		refused(fmt.Sprintf("no Sec-Fetch-Site, Origin %q", o), upgrade(valid, extra...))
 	}
-	for _, site := range []string{"", "cross-site"} {
-		h := [][2]string{
-			{"Connection", "Upgrade"}, {"Upgrade", "websocket"}, {"Sec-WebSocket-Version", "13"},
-			{"Sec-WebSocket-Key", wsKey}, {"Sec-WebSocket-Protocol", creds[0]},
-		}
-		if r := p.do(request{method: "GET", target: "/api/ws", header: append(h, originHeaders(p.origin, site)...)}); r.status == 101 {
-			upgrades++
-		}
+	refused("no Sec-Fetch-Site, two exact Origin fields", upgrade(valid, origin, origin))
+	// No Sec-Fetch-Site field, exact Origin: each S/C defect of TestS6_WebSocketCredential.
+	other := randomToken()
+	for name, protocols := range map[string]string{
+		"no subprotocol":  "",
+		"version only":    "intuitik.v1",
+		"sess missing":    "intuitik.v1, csrf." + csrf,
+		"csrf missing":    "intuitik.v1, sess." + sess,
+		"sess duplicated": "intuitik.v1, csrf." + csrf + ", sess." + sess + ", sess." + sess,
+		"csrf duplicated": "intuitik.v1, csrf." + csrf + ", csrf." + csrf + ", sess." + sess,
+		"sess malformed":  "intuitik.v1, csrf." + csrf + ", sess." + sess[:20],
+		"csrf malformed":  "intuitik.v1, csrf." + csrf + "==, sess." + sess,
+		"sess wrong":      "intuitik.v1, csrf." + csrf + ", sess." + other,
+		"csrf wrong":      "intuitik.v1, csrf." + other + ", sess." + sess,
+		"csrf is S":       "intuitik.v1, csrf." + sess + ", sess." + sess,
+		"version missing": "csrf." + csrf + ", sess." + sess,
+		"version wrong":   "intuitik.v2, csrf." + csrf + ", sess." + sess,
+		"unknown extra":   valid + ", chat",
+	} {
+		refused("no Sec-Fetch-Site, exact Origin, "+name, upgrade(protocols, origin))
 	}
-	t.Logf("S6 WebSocket refused origins: 101 responses %d, want 0", upgrades)
-	if upgrades != 0 {
-		t.Errorf("%d upgrade(s) with a refused Origin", upgrades)
-	}
-	if r := p.wsUpgrade(p.origin, creds); r.status != 101 {
-		t.Errorf("valid upgrade: %d, want 101", r.status)
-	}
+	t.Logf("S6 WebSocket refused rows: 101 responses %d, want 0", upgrades)
 }
 
 // S6: sess. and csrf. missing, duplicated, malformed or wrong, and a query ?sess=,

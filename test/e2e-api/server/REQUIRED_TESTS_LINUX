@@ -4,6 +4,7 @@ TestS1_ListenLoopbackOnly
 TestS1_V6SquatterIgnored
 TestS1_ListenerLossExits
 TestS1_PortReleasedAfterStop
+TestS1_PortReleasedAfterQuickStop
 TestS2_EveryRouteRequiresSession
 TestS2_PathVariants
 TestS2_NoDefaultServeMux

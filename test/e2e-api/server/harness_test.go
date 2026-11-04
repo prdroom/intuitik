@@ -140,6 +140,7 @@ type panelOpts struct {
 	env      []string // more environment
 	dir      string   // working directory
 	dropEnv  []string // variables removed from the environment
+	noStdin  bool     // stdin is /dev/null, as verify-map starts the binary
 	noReady  bool     // do not wait for the listen line
 }
 
@@ -213,7 +214,7 @@ func startPanel(t *testing.T, o panelOpts) *panel {
 		go io.Copy(io.Discard, master) // terminal echo
 		t.Cleanup(func() { master.Close() })
 		defer slave.Close()
-	} else {
+	} else if !o.noStdin {
 		stdin, err := p.cmd.StdinPipe()
 		if err != nil {
 			t.Fatal(err)

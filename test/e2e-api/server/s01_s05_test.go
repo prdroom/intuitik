@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -122,6 +123,31 @@ func TestS1_PortReleasedAfterStop(t *testing.T) {
 	after, _ := exec.Command("ss", "-tanpH", "sport = :"+strconv.Itoa(p.port)+" or dport = :"+strconv.Itoa(p.port)).CombinedOutput()
 	procs, _ := exec.Command("ps", "-eo", "pid,ppid,args").CombinedOutput()
 	t.Errorf("port %d still accepts after the stop (dial local %s); sockets:\n%s\nprocesses:\n%s", p.port, local, after, procs)
+}
+
+// S1: the same check with verify-map's stop: stdin /dev/null, SIGTERM right after the
+// first GET / answered 200, so the OS default opener may still be running.
+func TestS1_PortReleasedAfterQuickStop(t *testing.T) {
+	stateEnv := []string{"HOME", "KUBECONFIG", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR"}
+	p := startPanel(t, panelOpts{browser: strPtr(""), noStdin: true, dropEnv: stateEnv, env: []string{"HOME=" + t.TempDir()}})
+	if r := p.do(request{method: "GET", target: "/"}); r.status != 200 {
+		t.Fatalf("GET /: %d", r.status)
+	}
+	if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	code := p.wait(10 * time.Second)
+	t.Logf("S1 quick stop: exit code %d, stderr %q", code, p.stderr.list())
+	c, err := net.DialTimeout("tcp", p.host, 2*time.Second)
+	if err != nil {
+		t.Logf("S1 quick stop: port %d closed: %v", p.port, err)
+		return
+	}
+	local := c.LocalAddr().String()
+	c.Close()
+	sockets, _ := exec.Command("ss", "-tanpH", "sport = :"+strconv.Itoa(p.port)+" or dport = :"+strconv.Itoa(p.port)).CombinedOutput()
+	procs, _ := exec.Command("ps", "-eo", "pid,ppid,args").CombinedOutput()
+	t.Errorf("port %d still accepts after the quick stop (dial local %s); sockets:\n%s\nprocesses:\n%s", p.port, local, sockets, procs)
 }
 
 // listenerLoss is also the last row of the S19 state table.
