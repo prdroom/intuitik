@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"net"
 	"syscall"
 )
 
@@ -58,3 +59,7 @@ func sockopt(c syscall.RawConn, opt int) (int, error) {
 	}
 	return v, gerr
 }
+
+// releaseListener adds nothing on Windows: the listener handle is not inheritable, so
+// closing it at the normal stop releases 127.0.0.1:P.
+func releaseListener(net.Listener) {}
