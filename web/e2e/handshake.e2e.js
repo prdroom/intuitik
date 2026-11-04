@@ -241,8 +241,12 @@ test.describe('browser-handshake', () => {
   test('reload-keeps-session', async ({ page }) => {
     const panel = await panelFor();
     let firstLoad = null;
-    page.on('response', (r) => {
-      if (r.url() === `${panel.origin}/` && firstLoad === null) firstLoad = r.headers()['clear-site-data'] ?? '';
+    let firstSeen = false;
+    page.on('response', async (r) => {
+      if (r.url() === `${panel.origin}/` && !firstSeen) {
+        firstSeen = true;
+        firstLoad = (await r.allHeaders())['clear-site-data'] ?? '';
+      }
     });
     await login(page, panel, await panel.token());
     await page.reload();
@@ -463,7 +467,7 @@ test.describe('browser-handshake', () => {
     const panel = await panelFor();
     const docs = [];
     context.on('response', (r) => {
-      if (r.url() === `${panel.origin}/`) docs.push(r.headers()['clear-site-data'] ?? '');
+      if (r.url() === `${panel.origin}/`) docs.push(r.allHeaders().then((h) => h['clear-site-data'] ?? ''));
     });
     await login(page, panel, await panel.token());
     const t2 = await panel.enter();
@@ -473,9 +477,10 @@ test.describe('browser-handshake', () => {
     await page.waitForSelector('#intuitik-app', { state: 'attached', timeout: 15_000 });
     const a = await tabCalls(page);
     const b = await tabCalls(tabB);
-    console.log(`S8 clear-site-data-first-load: Clear-Site-Data per document load ${JSON.stringify(docs)} (want "cache" on the first only); after Enter and reload tab A API ${a.get} POST ${a.post}, tab B API ${b.get}`);
-    expect(docs[0]).toBe('"cache"');
-    expect(docs.slice(1).every((v) => v === '')).toBe(true);
+    const values = await Promise.all(docs);
+    console.log(`S8 clear-site-data-first-load: Clear-Site-Data per document load ${JSON.stringify(values)} (want "cache" on the first only); after Enter and reload tab A API ${a.get} POST ${a.post}, tab B API ${b.get}`);
+    expect(values[0]).toBe('"cache"');
+    expect(values.slice(1).every((v) => v === '')).toBe(true);
     expect(a).toMatchObject({ get: 200, post: 200 });
     expect(b.get).toBe(200);
   });
@@ -486,8 +491,8 @@ test.describe('browser-handshake', () => {
     const panel = await panelFor({ hold: true, fixture });
     const tabB = await context.newPage();
     let bHeader = null;
-    tabB.on('response', (r) => {
-      if (r.url() === `${panel.origin}/`) bHeader = r.headers()['clear-site-data'] ?? '';
+    tabB.on('response', async (r) => {
+      if (r.url() === `${panel.origin}/`) bHeader = (await r.allHeaders())['clear-site-data'] ?? '';
     });
     const bLoad = tabB.goto(`${panel.origin}/`).catch(() => {});
     await sleep(1000);
@@ -522,10 +527,21 @@ test.describe('browser-handshake', () => {
     const token = await panel.token();
     await login(page, panel, token);
     const used = await context.newPage();
-    const refusal = used.waitForResponse((r) => r.url() === `${panel.origin}/api/session` && r.request().method() === 'POST');
     await used.goto(`${panel.origin}/#t=${token}`);
-    const body = await (await refusal).text();
     const usedLines = await screenLines(used);
+    // The 403 body, read in the page with the same used token (Chromium does not keep
+    // the body of the module's own refused request for the test).
+    const body = await used.evaluate(
+      async (t) =>
+        (
+          await fetch('/api/session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ t }),
+          })
+        ).text(),
+      token,
+    );
     const t2 = await panel.enter();
     const t3 = await panel.enter();
     panel.setClock(61);

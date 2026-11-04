@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -112,6 +113,42 @@ func listenInode(t *testing.T, port int) string {
 	}
 	t.Fatalf("no listening socket %s in /proc/net/tcp", want)
 	return ""
+}
+
+// holderReport describes, from /proc, each process that ss names for the port: its
+// executable, state, parent, wait channel, current system call and threads. It is
+// printed when the port still accepts after the panel exited.
+func holderReport(port int) string {
+	out, _ := exec.Command("ss", "-ltnpH", "sport = :"+strconv.Itoa(port)).CombinedOutput()
+	var b strings.Builder
+	for _, m := range regexp.MustCompile(`pid=([0-9]+),fd=([0-9]+)`).FindAllStringSubmatch(string(out), -1) {
+		dir := "/proc/" + m[1]
+		exe, _ := os.Readlink(dir + "/exe")
+		status, _ := os.ReadFile(dir + "/status")
+		wchan, _ := os.ReadFile(dir + "/wchan")
+		sysc, _ := os.ReadFile(dir + "/syscall")
+		fmt.Fprintf(&b, "holder pid %s fd %s exe %s wchan %q syscall %q\n", m[1], m[2], exe, wchan, strings.TrimSpace(string(sysc)))
+		for _, line := range strings.Split(string(status), "\n") {
+			for _, k := range []string{"Name:", "State:", "PPid:", "Threads:", "SigBlk:", "SigPnd:", "ShdPnd:", "NSpid:"} {
+				if strings.HasPrefix(line, k) {
+					fmt.Fprintf(&b, "  %s\n", line)
+				}
+			}
+		}
+		tasks, _ := os.ReadDir(dir + "/task")
+		for _, task := range tasks {
+			stat, _ := os.ReadFile(dir + "/task/" + task.Name() + "/stat")
+			tw, _ := os.ReadFile(dir + "/task/" + task.Name() + "/wchan")
+			ts, _ := os.ReadFile(dir + "/task/" + task.Name() + "/syscall")
+			fields := strings.Fields(string(stat))
+			state := ""
+			if len(fields) > 2 {
+				state = fields[2]
+			}
+			fmt.Fprintf(&b, "  task %s state %s wchan %q syscall %q\n", task.Name(), state, tw, strings.TrimSpace(string(ts)))
+		}
+	}
+	return b.String()
 }
 
 // cmdlines reads the argument vector of every process (S18).

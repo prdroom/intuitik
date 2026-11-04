@@ -122,7 +122,7 @@ func TestS1_PortReleasedAfterStop(t *testing.T) {
 	c.Close()
 	after, _ := exec.Command("ss", "-tanpH", "sport = :"+strconv.Itoa(p.port)+" or dport = :"+strconv.Itoa(p.port)).CombinedOutput()
 	procs, _ := exec.Command("ps", "-eo", "pid,ppid,args").CombinedOutput()
-	t.Errorf("port %d still accepts after the stop (dial local %s); sockets:\n%s\nprocesses:\n%s", p.port, local, after, procs)
+	t.Errorf("port %d still accepts after the stop (dial local %s); sockets:\n%s\n%s\nprocesses:\n%s", p.port, local, after, holderReport(p.port), procs)
 }
 
 // S1: the same check with verify-map's stop: stdin /dev/null, SIGTERM right after the
@@ -147,7 +147,7 @@ func TestS1_PortReleasedAfterQuickStop(t *testing.T) {
 	c.Close()
 	sockets, _ := exec.Command("ss", "-tanpH", "sport = :"+strconv.Itoa(p.port)+" or dport = :"+strconv.Itoa(p.port)).CombinedOutput()
 	procs, _ := exec.Command("ps", "-eo", "pid,ppid,args").CombinedOutput()
-	t.Errorf("port %d still accepts after the quick stop (dial local %s); sockets:\n%s\nprocesses:\n%s", p.port, local, sockets, procs)
+	t.Errorf("port %d still accepts after the quick stop (dial local %s); sockets:\n%s\n%s\nprocesses:\n%s", p.port, local, sockets, holderReport(p.port), procs)
 }
 
 // listenerLoss is also the last row of the S19 state table.
