@@ -365,10 +365,12 @@ func TestS18_ExchangeOrder(t *testing.T) {
 // appear only in the stand-in's argv, S and C in no argv; a failed open prints S-O.
 func TestS18_ArgvExposure(t *testing.T) {
 	dir := t.TempDir()
-	log := filepath.Join(dir, "argv.txt")
+	counts := filepath.Join(dir, "argc.txt")
+	urls := filepath.Join(dir, "argv1.txt")
 	standin := filepath.Join(dir, "standin-opener")
-	os.WriteFile(standin, []byte("#!/bin/sh\nprintf '%s\\n' \"$#\" >> '"+log+"'\nprintf '%s\\n' \"$1\" >> '"+log+"'\nsleep 3\n"), 0o700)
+	os.WriteFile(standin, []byte("#!/bin/sh\nprintf '%s\\n' \"$#\" >> '"+counts+"'\nprintf '%s\\n' \"$1\" >> '"+urls+"'\nsleep 3\n"), 0o700)
 	p := startPanel(t, panelOpts{terminal: true, browser: &standin})
+	p.openLog = urls
 	snapshot := func(when string, secrets map[string]string) {
 		var procs map[int][]string
 		deadline := time.Now().Add(5 * time.Second)
@@ -408,12 +410,17 @@ func TestS18_ArgvExposure(t *testing.T) {
 	snapshot("after the exchange", map[string]string{"T": tok, "S": sess, "C": csrf})
 	tok2 := p.enter()
 	snapshot("after Enter", map[string]string{"T": tok, "T'": tok2, "S": sess, "C": csrf})
-	raw, _ := os.ReadFile(log)
-	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
-	t.Logf("S18 stand-in argument counts and arguments: %d lines", len(lines))
-	for i := 0; i+1 < len(lines); i += 2 {
-		if lines[i] != "1" || !loginURL.MatchString(lines[i+1]) {
-			t.Errorf("stand-in call %d: %s argument(s), %q; want one argument http://127.0.0.1:P/#t=<T>", i/2+1, lines[i], lines[i+1])
+	rawCounts, _ := os.ReadFile(counts)
+	raw, _ := os.ReadFile(urls)
+	argc := strings.Fields(string(rawCounts))
+	args := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	t.Logf("S18 stand-in calls: %d, argument counts %v", len(args), argc)
+	if len(argc) != len(args) || len(args) != 2 {
+		t.Errorf("stand-in calls: %d counts, %d addresses; want 2 and 2 (start and Enter)", len(argc), len(args))
+	}
+	for i := range args {
+		if i >= len(argc) || argc[i] != "1" || !loginURL.MatchString(args[i]) {
+			t.Errorf("stand-in call %d: argument count %v, argument %q; want one argument http://127.0.0.1:P/#t=<T>", i+1, argc, args[i])
 		}
 	}
 	if !strings.Contains(string(raw), tok) {
@@ -526,8 +533,10 @@ func TestS19_ReconnectKeepsExistingTab(t *testing.T) {
 func TestS19_StateTable(t *testing.T) {
 	p := startPanel(t, panelOpts{test: true, terminal: true, clock: true})
 	host := "attacker.example"
-	cell := func(row, column string, r response, status int, csd *bool, alarmsBefore int, alarm bool) {
+	cell := func(row, column string, send func() response, status int, csd *bool, alarm bool) response {
 		t.Helper()
+		alarmsBefore := p.stderr.count(textSW)
+		r := send()
 		ok := r.status == status
 		if csd != nil && (len(r.header.Values("Clear-Site-Data")) == 1) != *csd {
 			ok = false
@@ -544,47 +553,52 @@ func TestS19_StateTable(t *testing.T) {
 		if !ok {
 			t.Errorf("state %q, %s: does not match the table", row, column)
 		}
+		return r
 	}
 	yes, no := true, false
-	w := func() int { return p.stderr.count(textSW) }
 
 	tok := p.token(1)
 	row := "just started"
-	cell(row, "no session: static", p.do(request{method: "GET", target: "/"}), 200, &yes, w(), false)
-	cell(row, "no session: API", p.do(request{method: "GET", target: "/api/session"}), 401, nil, w(), false)
-	cell(row, "other Host", p.do(request{method: "GET", target: "/", host: &host}), 400, nil, w(), false)
-	r := p.exchangeRaw(tok)
-	cell(row, "POST T", r, 200, nil, w(), false)
-	s1, _ := p.exchangeBodyValues(r)
+	get := func(target string, h ...[2]string) func() response {
+		return func() response { return p.do(request{method: "GET", target: target, header: h}) }
+	}
+	other := func(target string, h ...[2]string) func() response {
+		return func() response { return p.do(request{method: "GET", target: target, host: &host, header: h}) }
+	}
+	exchange := func(tok string) func() response { return func() response { return p.exchangeRaw(tok) } }
+	api := func(s string) func() response { return func() response { return p.apiGet("/api/session", s) } }
+
+	cell(row, "no session: static", get("/"), 200, &yes, false)
+	cell(row, "no session: API", get("/api/session"), 401, nil, false)
+	cell(row, "other Host", other("/"), 400, nil, false)
+	s1, _ := p.exchangeBodyValues(cell(row, "POST T", exchange(tok), 200, nil, false))
 
 	row = "after T consumed"
-	cell(row, "POST T again", p.exchangeRaw(tok), 403, nil, w(), true)
-	cell(row, "valid session", p.apiGet("/api/session", s1), 200, nil, w(), false)
-	cell(row, "no session: static", p.do(request{method: "GET", target: "/"}), 200, &no, w(), false)
-	cell(row, "no session: API", p.do(request{method: "GET", target: "/api/session"}), 401, nil, w(), false)
-	cell(row, "other Host", p.do(request{method: "GET", target: "/api/session", host: &host, header: [][2]string{{"Authorization", "Bearer " + s1}}}), 400, nil, w(), false)
+	cell(row, "POST T again", exchange(tok), 403, nil, true)
+	cell(row, "valid session", api(s1), 200, nil, false)
+	cell(row, "no session: static", get("/"), 200, &no, false)
+	cell(row, "no session: API", get("/api/session"), 401, nil, false)
+	cell(row, "other Host", other("/api/session", [2]string{"Authorization", "Bearer " + s1}), 400, nil, false)
 
 	row = "after Enter"
 	unused := p.enter()
 	tok3 := p.enter()
-	cell(row, "unused earlier token", p.exchangeRaw(unused), 403, nil, w(), true)
-	r = p.exchangeRaw(tok3)
-	cell(row, "POST T'", r, 200, nil, w(), false)
-	s3, _ := p.exchangeBodyValues(r)
-	cell(row, "existing session", p.apiGet("/api/session", s1), 200, nil, w(), false)
-	cell(row, "new session", p.apiGet("/api/session", s3), 200, nil, w(), false)
-	cell(row, "no session: static", p.do(request{method: "GET", target: "/"}), 200, &no, w(), false)
-	cell(row, "no session: API", p.do(request{method: "GET", target: "/api/ping"}), 401, nil, w(), false)
-	cell(row, "other Host", p.do(request{method: "GET", target: "/", host: &host}), 400, nil, w(), false)
+	cell(row, "unused earlier token", exchange(unused), 403, nil, true)
+	s3, _ := p.exchangeBodyValues(cell(row, "POST T'", exchange(tok3), 200, nil, false))
+	cell(row, "existing session", api(s1), 200, nil, false)
+	cell(row, "new session", api(s3), 200, nil, false)
+	cell(row, "no session: static", get("/"), 200, &no, false)
+	cell(row, "no session: API", get("/api/ping"), 401, nil, false)
+	cell(row, "other Host", other("/"), 400, nil, false)
 
 	row = "T' expired, no exchange"
 	tok4 := p.enter()
 	p.setClock(61)
-	cell(row, "POST expired T'", p.exchangeRaw(tok4), 403, nil, w(), false)
-	cell(row, "existing session", p.apiGet("/api/session", s3), 200, nil, w(), false)
-	cell(row, "no session: static", p.do(request{method: "GET", target: "/"}), 200, &no, w(), false)
-	cell(row, "no session: API", p.do(request{method: "GET", target: "/api/session"}), 401, nil, w(), false)
-	cell(row, "other Host", p.do(request{method: "GET", target: "/", host: &host}), 400, nil, w(), false)
+	cell(row, "POST expired T'", exchange(tok4), 403, nil, false)
+	cell(row, "existing session", api(s3), 200, nil, false)
+	cell(row, "no session: static", get("/"), 200, &no, false)
+	cell(row, "no session: API", get("/api/session"), 401, nil, false)
+	cell(row, "other Host", other("/"), 400, nil, false)
 
 	t.Log(`S19 state "listener lost": the process exits`)
 	listenerLoss(t, p)

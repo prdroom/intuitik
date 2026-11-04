@@ -179,6 +179,22 @@ func TestS16_WindowsBind(t *testing.T) {
 	}
 
 	// (5) option positive control: without the option the SO_REUSEADDR bind succeeds.
+	// First in this process, through the product listen code with the option left off,
+	// so that the option value itself is read.
+	off, failure := server.ListenLoopback(server.Seams{Fixture: server.Fixture{NoExclusiveBind: true}})
+	if off == nil {
+		t.Fatalf("listen with the option off: %s", failure)
+	}
+	osc, _ := off.(*net.TCPListener).SyscallConn()
+	ov, oerr := server.ExclusiveAddrUse(osc)
+	t.Logf("S16 (5) option off, in process: getsockopt(SO_EXCLUSIVEADDRUSE) = %d (err %v), want 0", ov, oerr)
+	if c, err := bindCompetitor("tcp4", off.Addr().String(), true, -1); err != nil {
+		t.Logf("S16 (5) option off, in process: SO_REUSEADDR bind of %s: %s", off.Addr(), errCode(err))
+	} else {
+		t.Logf("S16 (5) option off, in process: SO_REUSEADDR bind of %s succeeded", off.Addr())
+		c.ln.Close()
+	}
+	off.Close()
 	f := startPanel(t, panelOpts{test: true, fixture: "no-exclusive-bind"})
 	c, err := bindCompetitor("tcp4", f.host, true, -1)
 	if err != nil {

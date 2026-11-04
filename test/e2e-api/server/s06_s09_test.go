@@ -231,8 +231,10 @@ func TestS7_SecurityHeaders(t *testing.T) {
 	}
 	var items []item
 	items = append(items, item{"GET / (first load)", p.do(request{method: "GET", target: "/"}), false})
-	for _, s := range staticPaths(t)[1:] {
-		items = append(items, item{"GET " + s, p.do(request{method: "GET", target: s}), false})
+	for _, s := range staticPaths(t) {
+		if s != "/" {
+			items = append(items, item{"GET " + s, p.do(request{method: "GET", target: s}), false})
+		}
 	}
 	ex := p.exchangeRaw(tok)
 	items = append(items, item{"exchange", ex, true})

@@ -3,6 +3,7 @@
 // web/src/auth module; the test reads the tab's own sessionStorage to make further
 // requests with the tab's credentials.
 import { chromium, expect, firefox, test, webkit } from '@playwright/test';
+import fs from 'node:fs';
 import {
   TEXTS,
   countSecret,
@@ -37,9 +38,28 @@ async function watchCsp(page) {
   });
 }
 
+// login opens the login address; on failure it prints what the tab showed, its
+// console and the panel's responses, so that the reason is in the job log.
 async function login(page, panel, token) {
-  await page.goto(`${panel.origin}/#t=${token}`);
-  await page.waitForSelector('#intuitik-app', { state: 'attached', timeout: 15_000 });
+  const seen = [];
+  const onConsole = (m) => seen.push(`console ${m.type()}: ${m.text()}`);
+  const onResponse = (r) => seen.push(`response ${r.status()} ${r.request().method()} ${r.url().replace(token, '<T>')}`);
+  const onFailed = (r) => seen.push(`request failed ${r.method()} ${r.url().replace(token, '<T>')}: ${r.failure()?.errorText}`);
+  page.on('console', onConsole);
+  page.on('response', onResponse);
+  page.on('requestfailed', onFailed);
+  try {
+    await page.goto(`${panel.origin}/#t=${token}`);
+    await page.waitForSelector('#intuitik-app', { state: 'attached', timeout: 15_000 });
+  } catch (e) {
+    const body = await page.evaluate(() => document.body?.innerHTML ?? '').catch((err) => `unreadable: ${err}`);
+    console.log(`login failed: ${e.message.split('\n')[0]}\n  url ${page.url().replace(token, '<T>')}\n  body ${body}\n  ${seen.join('\n  ')}`);
+    throw e;
+  } finally {
+    page.off('console', onConsole);
+    page.off('response', onResponse);
+    page.off('requestfailed', onFailed);
+  }
 }
 
 async function screenLines(page) {
@@ -94,6 +114,24 @@ async function credentials(page) {
 }
 
 const w1 = ({ s, c }) => ['intuitik.v1', `csrf.${c}`, `sess.${s}`];
+
+// browserCommandLines reads, from /proc, the command line of the browser processes
+// that name this proxy port (S15: the arguments the browser actually received).
+function browserCommandLines(proxyPort) {
+  const found = [];
+  for (const pid of fs.readdirSync('/proc').filter((d) => /^\d+$/.test(d))) {
+    let cmd;
+    try {
+      cmd = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').join(' ').trim();
+    } catch {
+      continue;
+    }
+    if (cmd.includes(`127.0.0.1:${proxyPort}`) && !cmd.includes('--type=')) {
+      found.push(cmd);
+    }
+  }
+  return found.length ? found.join(' || ') : 'no process names the proxy port (the engine takes the proxy from its settings)';
+}
 
 test.describe('browser-handshake', () => {
   test('ws-roundtrip', async ({ page }) => {
@@ -153,17 +191,25 @@ test.describe('browser-handshake', () => {
     const rec = await recordingServer();
     await watchCsp(page);
     await login(page, panel, await panel.token());
-    await page.evaluate((q) => {
-      const form = document.createElement('form');
-      form.method = 'POST';
-      form.action = `http://127.0.0.1:${q}/form`;
-      const input = document.createElement('input');
-      input.name = 'x';
-      input.value = '1';
-      form.appendChild(input);
-      document.body.appendChild(form);
-      form.submit();
-    }, rec.port);
+    const submit = await page
+      .evaluate((q) => {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `http://127.0.0.1:${q}/form`;
+        const input = document.createElement('input');
+        input.name = 'x';
+        input.value = '1';
+        form.appendChild(input);
+        document.body.appendChild(form);
+        try {
+          form.submit();
+          return 'submit returned';
+        } catch (e) {
+          return `submit threw ${e.name}`;
+        }
+      }, rec.port)
+      .catch((e) => `evaluate rejected: ${e.message}`);
+    console.log(`S15 csp-form-blocked: ${submit}`);
     await sleep(1500);
     const csp = await page.evaluate(() => window.__csp).catch(() => ['page navigated']);
     console.log(`S15 csp-form-blocked: arrivals ${rec.arrivals.length} (want 0), violations ${csp.length} (want >= 1): ${csp.join(' | ')}`);
@@ -312,11 +358,7 @@ test.describe('browser-handshake', () => {
       const proxy = await recordingProxy();
       const opts = typeof options === 'function' ? options(proxy.port) : options;
       const browser = await launcher.launch(opts);
-      let args = 'not readable for this engine';
-      if (launcher === chromium) {
-        const cdp = await browser.newBrowserCDPSession();
-        args = (await cdp.send('Browser.getBrowserCommandLine')).arguments.join(' ');
-      }
+      const args = browserCommandLines(proxy.port);
       const page = await browser.newPage();
       await page.goto(control, { timeout: 15_000 }).catch(() => {});
       const controlArrived = proxy.arrivals.some((a) => a.includes('control.invalid'));

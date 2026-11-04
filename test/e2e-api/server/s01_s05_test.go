@@ -12,6 +12,7 @@ import (
 	"go/token"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -97,6 +98,28 @@ func TestS1_ListenerLossExits(t *testing.T) {
 		t.Fatalf("session before the loss: %d", r.status)
 	}
 	listenerLoss(t, p)
+}
+
+// S1: after the normal stop the port is closed, also when the OS default opener ran
+// (BROWSER empty, the way verify-map Launch starts the binary). If something still
+// accepts on the port, the listening sockets and processes are printed.
+func TestS1_PortReleasedAfterStop(t *testing.T) {
+	p := startPanel(t, panelOpts{browser: strPtr("")})
+	time.Sleep(2 * time.Second) // let the opener run
+	before, _ := exec.Command("ss", "-ltnpH", "sport = :"+strconv.Itoa(p.port)).CombinedOutput()
+	t.Logf("S1 listeners on port %d while running:\n%s", p.port, before)
+	code := p.interrupt()
+	t.Logf("S1 normal stop exit code %d, stderr %q", code, p.stderr.list())
+	c, err := net.DialTimeout("tcp", p.host, 2*time.Second)
+	if err != nil {
+		t.Logf("S1 port %d closed after the stop: %v", p.port, err)
+		return
+	}
+	local := c.LocalAddr().String()
+	c.Close()
+	after, _ := exec.Command("ss", "-tanpH", "sport = :"+strconv.Itoa(p.port)+" or dport = :"+strconv.Itoa(p.port)).CombinedOutput()
+	procs, _ := exec.Command("ps", "-eo", "pid,ppid,args").CombinedOutput()
+	t.Errorf("port %d still accepts after the stop (dial local %s); sockets:\n%s\nprocesses:\n%s", p.port, local, after, procs)
 }
 
 // listenerLoss is also the last row of the S19 state table.
