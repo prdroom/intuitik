@@ -520,7 +520,7 @@ func misdirected(p *panel, sess, csrf, tok string) []string {
 			{method: "GET", target: "/api/session", host: &host, header: [][2]string{{"Authorization", "Bearer " + sess}}},
 			{method: "GET", target: "/api/ws", host: &host, header: append(p.sameOrigin(),
 				[2]string{"Connection", "Upgrade"}, [2]string{"Upgrade", "websocket"}, [2]string{"Sec-WebSocket-Version", "13"},
-				[2]string{"Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="}, [2]string{"Sec-WebSocket-Protocol", "intuitik.v1, csrf." + csrf + ", sess." + sess})},
+				[2]string{"Sec-WebSocket-Key", wsKey}, [2]string{"Sec-WebSocket-Protocol", "intuitik.v1, csrf." + csrf + ", sess." + sess})},
 		}
 		for _, r := range reqs {
 			got := p.do(r)

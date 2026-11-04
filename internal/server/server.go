@@ -123,9 +123,8 @@ func Run(o Options) int {
 
 	var protocols http.Protocols
 	protocols.SetHTTP1(true) // HTTP/1.1 only, no h2c (S13)
-	http.Handle("/", s.handler())
 	srv := &http.Server{
-		Handler:                      http.DefaultServeMux,
+		Handler:                      s.handler(),
 		ReadHeaderTimeout:            10 * time.Second,
 		Protocols:                    &protocols,
 		DisableGeneralOptionsHandler: true,
@@ -164,7 +163,7 @@ func Run(o Options) int {
 		s.st.tokens, s.st.sessions = nil, nil
 		s.st.mu.Unlock()
 		s.println(o.Stderr, fmt.Sprintf("intuitik: the listener on %s closed: %s", s.host, osError(err)))
-		return 0
+		return 1
 	}
 }
 
@@ -172,6 +171,11 @@ func Run(o Options) int {
 func (s *server) issue() string {
 	t := &token{value: newSecret(), issued: s.now()}
 	s.st.mu.Lock()
+	for _, old := range s.st.tokens {
+		if !old.used {
+			old.replaced = true
+		}
+	}
 	s.st.tokens = append(s.st.tokens, t)
 	s.st.mu.Unlock()
 	return t.value
@@ -192,14 +196,14 @@ func (s *server) open(t string, enter bool) {
 	}
 	go func() {
 		if err := s.startOpener(url); err != nil {
-			s.println(s.o.Stderr, TextOpenFailed+s.origin+"/?t="+t)
+			s.println(s.o.Stderr, TextOpenFailed+url)
 		}
 	}()
 }
 
 func (s *server) startOpener(url string) error {
 	if s.o.Browser != "" {
-		cmd := exec.Command("/bin/sh", "-c", s.o.Browser+" '"+url+"'")
+		cmd := exec.Command(s.o.Browser, url)
 		if err := cmd.Start(); err != nil {
 			return err
 		}
@@ -229,9 +233,6 @@ func (s *server) readEnter() {
 			return
 		}
 		t := s.issue()
-		s.st.mu.Lock()
-		s.st.sessions = nil
-		s.st.mu.Unlock()
 		if f := s.o.Seams.Fixture.OnEnter; f != nil {
 			f(&s.st)
 		}
@@ -287,13 +288,19 @@ func (s *server) exchange(t string) (exchangeResult, string, string) {
 	defer s.st.mu.Unlock()
 	var match *token
 	for _, tk := range s.st.tokens {
-		if tk.value == t {
+		if equal(tk.value, t) {
 			match = tk
 		}
 	}
-	if match == nil {
+	switch {
+	case match == nil:
 		return refusedUnknown, "", ""
+	case match.used || match.replaced:
+		return refusedUsed, "", ""
+	case s.now().Sub(match.issued) >= s.lifetime:
+		return refusedExpired, "", ""
 	}
+	match.used = true
 	sess := newSecret()
 	s.st.sessions = append(s.st.sessions, sess)
 	s.st.sessionIssued = true
@@ -341,7 +348,7 @@ func (s *server) stop() {
 			defer wg.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
-			_ = ctx
+			c.Write(ctx, websocket.MessageText, []byte(stopNotice))
 			c.Close(websocket.StatusGoingAway, "")
 		}()
 	}

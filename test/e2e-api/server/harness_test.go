@@ -9,6 +9,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -326,6 +327,10 @@ func (p *panel) wait(timeout time.Duration) int {
 	}
 }
 
+// wsKey is the Sec-WebSocket-Key of the raw upgrade requests: 16 bytes, base64,
+// computed at run time.
+var wsKey = base64.StdEncoding.EncodeToString([]byte("intuitik e2e key"))
+
 // response is one HTTP response read from a raw connection.
 type response struct {
 	status int
@@ -451,7 +456,7 @@ func (p *panel) wsUpgrade(origin string, protocols []string, extra ...[2]string)
 	p.t.Helper()
 	h := [][2]string{
 		{"Connection", "Upgrade"}, {"Upgrade", "websocket"},
-		{"Sec-WebSocket-Version", "13"}, {"Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="},
+		{"Sec-WebSocket-Version", "13"}, {"Sec-WebSocket-Key", wsKey},
 	}
 	if origin != "" {
 		h = append(h, [2]string{"Origin", origin}, [2]string{"Sec-Fetch-Site", "same-origin"})

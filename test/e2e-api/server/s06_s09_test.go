@@ -101,7 +101,7 @@ func TestS6_WebSocketOrigin(t *testing.T) {
 	for _, o := range badOrigins(p.port) {
 		h := [][2]string{
 			{"Connection", "Upgrade"}, {"Upgrade", "websocket"}, {"Sec-WebSocket-Version", "13"},
-			{"Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="}, {"Sec-WebSocket-Protocol", creds[0]},
+			{"Sec-WebSocket-Key", wsKey}, {"Sec-WebSocket-Protocol", creds[0]},
 		}
 		h = append(h, originHeaders(o, "same-origin")...)
 		r := p.do(request{method: "GET", target: "/api/ws", header: h})
@@ -113,7 +113,7 @@ func TestS6_WebSocketOrigin(t *testing.T) {
 	for _, site := range []string{"", "cross-site"} {
 		h := [][2]string{
 			{"Connection", "Upgrade"}, {"Upgrade", "websocket"}, {"Sec-WebSocket-Version", "13"},
-			{"Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="}, {"Sec-WebSocket-Protocol", creds[0]},
+			{"Sec-WebSocket-Key", wsKey}, {"Sec-WebSocket-Protocol", creds[0]},
 		}
 		if r := p.do(request{method: "GET", target: "/api/ws", header: append(h, originHeaders(p.origin, site)...)}); r.status == 101 {
 			upgrades++
@@ -159,7 +159,7 @@ func TestS6_WebSocketCredential(t *testing.T) {
 		if name == "sess in query only" {
 			h := [][2]string{
 				{"Connection", "Upgrade"}, {"Upgrade", "websocket"}, {"Sec-WebSocket-Version", "13"},
-				{"Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="}, {"Sec-WebSocket-Protocol", protos[0]},
+				{"Sec-WebSocket-Key", wsKey}, {"Sec-WebSocket-Protocol", protos[0]},
 			}
 			r = p.do(request{method: "GET", target: "/api/ws?sess=" + sess, header: append(h, p.sameOrigin()...)})
 		} else {

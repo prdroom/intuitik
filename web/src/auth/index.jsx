@@ -100,10 +100,6 @@ function connect(session, csrf, onStop) {
 // { session: false, screen } with the screen to render (B-NS or B-RF). onStop
 // receives the B-ST screen when the connection to the server ends.
 export async function startAuth(onStop) {
-  // Stub: no exchange and no connection yet.
-  if (onStop) {
-    return { session: false, screen: screens.noSession };
-  }
   const hash = window.location.hash;
   let session = null;
   let csrf = null;

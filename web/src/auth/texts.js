@@ -4,18 +4,18 @@ const restartInstead =
   'If your terminal shows "someone else may have connected first", restart intuitik instead of pressing Enter.';
 
 export const NO_SESSION = [
-  'stub B-NS',
+  'No session in this tab.',
   'To open the panel, press Enter in the terminal where intuitik is running. A new login address opens in your browser. You can also restart intuitik.',
   restartInstead,
 ];
 
 export const REFUSED = [
-  'stub B-RF',
+  'This login address is no longer valid. It was already used, or it expired after 60 seconds.',
   'Press Enter in the terminal where intuitik is running to open a new login address, or restart intuitik.',
   restartInstead,
 ];
 
 export const STOPPED = [
-  'stub B-ST',
+  'intuitik has stopped, and this tab is disconnected.',
   'Close this tab. To continue, run intuitik again; it opens a new tab.',
 ];

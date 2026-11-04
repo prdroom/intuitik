@@ -6,26 +6,30 @@ import "strings"
 const (
 	textListen = "listening on http://127.0.0.1:%d" // S-L, the T1 listen-address line
 
-	TextTerminal    = "stub S-E1" // S-E1
-	TextNotTerminal = "stub S-E2" // S-E2
+	TextTerminal    = "Press Enter to open a new login address in your browser."                                                                // S-E1
+	TextNotTerminal = "Standard input is not a terminal, so pressing Enter cannot open a new login address. To log in again, restart intuitik." // S-E2
 
-	TextOpenFailed = "stub S-O " // S-O, followed by the login address
-	TextNewAddress = "stub S-R " // S-R, followed by the login address
+	TextOpenFailed = "Could not open a browser. Open this address within 60 seconds: " // S-O, followed by the login address
+	TextNewAddress = "New login address (valid once, for 60 seconds): "                // S-R, followed by the login address
 
 	textNoLogin = `No browser has logged in within 60 seconds. If a tab opened, check that its address ended with "#t=" and the token: some programs that open links drop that part. A proxy for loopback addresses can also block the login. `
 	// S-N1 (stdin is a terminal) and S-N2 (it is not).
-	TextNoLoginTerminal    = "stub S-N1"
-	TextNoLoginNotTerminal = "stub S-N2"
+	TextNoLoginTerminal    = textNoLogin + "Press Enter for a new login address."
+	TextNoLoginNotTerminal = textNoLogin + "Restart intuitik for a new login address."
 
-	TextNoFreePort = "stub S-P"            // S-P
-	textBindFailed = "bind failed%.0s%.0s" // S-J1
+	TextNoFreePort = "Could not find a free port on 127.0.0.1 after 20 tries (range 49152-65535). Close programs that listen on many local ports, then run intuitik again." // S-P
+	textBindFailed = "Cannot listen on 127.0.0.1: %s. Check the loopback interface with: %s"                                                                                // S-J1
 
-	TextAlarm = "stub S-W" // S-W
+	TextAlarm = "WARNING: someone else may have connected first. Restart intuitik; pressing Enter does not remove their session." // S-W
 )
 
 // Browser text B-RF (section 3.3). The exchange-refusal 403 body is its three lines
 // joined with "\n"; web/src/auth holds the same three lines for the screen.
-var refusalLines = []string{"stub B-RF"}
+var refusalLines = []string{
+	"This login address is no longer valid. It was already used, or it expired after 60 seconds.",
+	"Press Enter in the terminal where intuitik is running to open a new login address, or restart intuitik.",
+	`If your terminal shows "someone else may have connected first", restart intuitik instead of pressing Enter.`,
+}
 
 // RefusalBody is the body of the exchange-refusal 403 (S17 (b)).
 var RefusalBody = strings.Join(refusalLines, "\n")

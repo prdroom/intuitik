@@ -20,17 +20,31 @@ All files under `verify/` are ASCII.
 ## Launch
 
 The runner creates a new empty HOME directory for the run and starts the binary
-with that HOME and without `KUBECONFIG`, with no arguments. Ready means the binary
-prints its listen address on one stdout line, `listening on http://127.0.0.1:<port>`,
-and that address answers `GET /` with HTTP 200. The runner polls every 100 ms with
-a 30 s limit (runner flags `-poll` and `-ready-timeout`; not a performance
-criterion). If the binary is not ready within the limit, the runner prints a Launch
-failure reason, runs Cleanup and exits non-zero.
+with that HOME and without `KUBECONFIG`, with no arguments. The binary listens only
+on `127.0.0.1`, on a port drawn for each run from 49152-65535 (packet M1-T2 S9), so
+the address is `http://127.0.0.1:<port>` with a different port each run. Ready
+means the binary prints its listen address on one stdout line,
+`listening on http://127.0.0.1:<port>`, and that address answers `GET /` with HTTP
+200 (static assets need no session, S2). The runner polls every 100 ms with a 30 s
+limit (runner flags `-poll` and `-ready-timeout`; not a performance criterion). If
+the binary is not ready within the limit, the runner prints a Launch failure
+reason, runs Cleanup and exits non-zero.
+
+The login address `http://127.0.0.1:<port>/#t=<token>` reaches a runner only
+through the opener: the binary passes it as one argument to the program named by
+the `BROWSER` environment variable (packet M1-T2 item P1 (a)). The `local-login`
+drives set `BROWSER` to a recording stand-in and read the address from what the
+stand-in received; they never read it from anywhere else. `verifymap run` does not
+set `BROWSER`; its `embedded-page` drive needs no login.
 
 ## Doctor
 
 Read only. The runner prints the `commit=` field of `<binary> --version`, the PID,
-the listen address and the status of `GET /`.
+the listen address and the status of `GET /`. For a login run, the `local-login`
+drives print in the job log: the port and that it is inside 49152-65535
+(`TestS9_PortInUse`), the start-up line S-E1 or S-E2 (`TestText_SE1_Terminal`,
+`TestText_SE2_NotTerminal`), and whether a login exchange happened (yes or no,
+never the token; each test logs the exchange status).
 
 ## Drive
 

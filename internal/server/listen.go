@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"runtime"
 	"strconv"
@@ -17,9 +19,13 @@ const (
 	listenAddr = "127.0.0.1"
 )
 
-// randomPort is a stub: port 0 lets the OS choose.
+// randomPort draws a port from V1 with crypto/rand (S9).
 func randomPort() (int, error) {
-	return 0, nil
+	n, err := rand.Int(rand.Reader, big.NewInt(portMax-portMin+1))
+	if err != nil {
+		return 0, err
+	}
+	return portMin + int(n.Int64()), nil
 }
 
 // ListenLoopback opens the one listener on 127.0.0.1 (S1, S9, S16). It tries up to
@@ -41,7 +47,7 @@ func ListenLoopback(seams Seams) (net.Listener, string) {
 		var ln net.Listener
 		err := seams.BindError
 		if err == nil {
-			ln, err = lc.Listen(context.Background(), "tcp", net.JoinHostPort("::", strconv.Itoa(port)))
+			ln, err = lc.Listen(context.Background(), "tcp4", net.JoinHostPort(listenAddr, strconv.Itoa(port)))
 		}
 		if err == nil {
 			return ln, ""

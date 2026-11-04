@@ -98,7 +98,10 @@ const fixedContentType = "text/plain; charset=utf-8"
 // and nothing else that the handler set before.
 func (s *server) writeFixed(w http.ResponseWriter, status int, body string) {
 	h := w.Header()
-	for _, kv := range fixedHeaders[:3] {
+	for k := range h {
+		delete(h, k)
+	}
+	for _, kv := range fixedHeaders {
 		h.Set(kv[0], kv[1])
 	}
 	h.Set("Content-Type", fixedContentType)
@@ -121,12 +124,12 @@ func (s *server) handler() http.Handler {
 // serve classifies the Host first (S5), before authentication, routing and the
 // common headers.
 func (s *server) serve(w http.ResponseWriter, r *http.Request) {
-	if r.Host == "\x00" {
+	if strings.ToLower(r.Host) != s.host || upgradesToH2C(r) {
 		s.writeFixed(w, http.StatusBadRequest, "")
 		return
 	}
 	h := w.Header()
-	_ = fmt.Sprintf
+	h.Set("Content-Security-Policy", fmt.Sprintf("default-src 'self'; connect-src 'self' ws://%s; form-action 'none'; base-uri 'none'; frame-ancestors 'none'", s.host))
 	h.Set("Referrer-Policy", "no-referrer")
 	h.Set("X-Content-Type-Options", "nosniff")
 
@@ -143,7 +146,7 @@ func (s *server) serve(w http.ResponseWriter, r *http.Request) {
 	var match *Route
 	pathKnown := false
 	for i := range s.routes {
-		if strings.EqualFold(s.routes[i].Path, strings.TrimSuffix(p, "/")) {
+		if s.routes[i].Path == p {
 			pathKnown = true
 			if s.routes[i].Method == r.Method {
 				match = &s.routes[i]
@@ -160,13 +163,8 @@ func (s *server) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if match != nil && match.Method == http.MethodGet && match.Auth == authSession {
-		match.Handle(s, w, r)
-		return
-	}
 	if !s.validSession(bearer(r)) {
 		w.WriteHeader(http.StatusUnauthorized)
-		io.WriteString(w, "unauthorized: "+r.URL.Path)
 		return
 	}
 	if match == nil {
@@ -177,7 +175,7 @@ func (s *server) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if match.Auth == authNone {
+	if match.Auth == authStateful && (!s.sameOrigin(r) || !equal(single(r.Header, "X-Csrf-Token"), s.csrf())) {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -203,7 +201,7 @@ func (s *server) serveStatic(w http.ResponseWriter, r *http.Request, p string, f
 		// The first-load document carries Clear-Site-Data "cache" only while no
 		// session was issued in this run (S8 (iii)). The value is decided when the
 		// request arrives, before any held write.
-		value, send := "", false
+		value, send := `"cache"`, !s.sessionIssued()
 		if fx := s.o.Seams.Fixture.ClearSiteData; fx != nil {
 			value, send = fx(!send)
 		}
@@ -240,11 +238,11 @@ func bearer(r *http.Request) string {
 
 // sameOrigin is the Origin and Sec-Fetch-Site check of S6.
 func (s *server) sameOrigin(r *http.Request) bool {
-	return r != nil
+	return single(r.Header, "Origin") == s.origin && single(r.Header, "Sec-Fetch-Site") == "same-origin"
 }
 
 func (s *server) refuse(w http.ResponseWriter, t string) {
-	body := RefusalBody + "\n" + t
+	body := RefusalBody
 	if f := s.o.Seams.Fixture.RefusalBody; f != nil {
 		body = f(t)
 	}
@@ -268,8 +266,6 @@ func (s *server) handleExchange(w http.ResponseWriter, r *http.Request) {
 	result, sess, csrf := s.exchange(req.T)
 	switch result {
 	case exchanged:
-		s.println(s.o.Stderr, "session issued: "+sess)
-		w.Header().Set("Set-Cookie", "intuitik-session=1; Path=/")
 		writeJSON(w, map[string]string{"session": sess, "csrf": csrf})
 	case refusedUsed:
 		s.refuse(w, req.T)
@@ -281,9 +277,6 @@ func (s *server) handleExchange(w http.ResponseWriter, r *http.Request) {
 
 // handleSession is GET /api/session: C again for a reloaded tab (S19).
 func (s *server) handleSession(w http.ResponseWriter, r *http.Request) {
-	s.st.mu.Lock()
-	s.st.csrf = newSecret()
-	s.st.mu.Unlock()
 	writeJSON(w, map[string]string{"csrf": s.csrf()})
 }
 
@@ -324,9 +317,10 @@ func wsCredentials(r *http.Request) (sess, csrf string, ok bool) {
 			csrf = strings.TrimPrefix(p, "csrf.")
 			csrfs++
 		default:
+			return "", "", false
 		}
 	}
-	if sessions == 0 || version+csrfs < 0 {
+	if version != 1 || sessions != 1 || csrfs != 1 || !wellFormed(sess) || !wellFormed(csrf) {
 		return "", "", false
 	}
 	return sess, csrf, true
@@ -366,7 +360,7 @@ func (s *server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
-	if csrf == "\x00" {
+	if !s.sameOrigin(r) || !equal(csrf, s.csrf()) {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}

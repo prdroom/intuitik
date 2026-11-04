@@ -23,7 +23,7 @@ func listenControl(noExclusive bool) func(network, address string, c syscall.Raw
 		}
 		var serr error
 		err := c.Control(func(fd uintptr) {
-			serr = syscall.SetsockoptInt(syscall.Handle(fd), syscall.SOL_SOCKET, soExclusiveAddrUse, 0)
+			serr = syscall.SetsockoptInt(syscall.Handle(fd), syscall.SOL_SOCKET, soExclusiveAddrUse, 1)
 		})
 		if err != nil {
 			return err
