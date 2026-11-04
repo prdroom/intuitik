@@ -220,4 +220,15 @@ func TestSeams_ProductBuildHasNone(t *testing.T) {
 	if ex.status != 200 {
 		t.Error("INTUITIK_TEST_CLOCK changed the product token lifetime")
 	}
+
+	// The listener-option fixture names of S16 (5) are ignored too.
+	for _, name := range []string{"reuse-addr-bind", "no-exclusive-bind"} {
+		q := startPanel(t, panelOpts{env: []string{"INTUITIK_TEST_FIXTURE=" + name}})
+		listen := listeners(t, q.cmd.Process.Pid)
+		r := q.exchangeRaw(q.token(1))
+		t.Logf("seams: product binary with INTUITIK_TEST_FIXTURE=%s: listeners %v, exchange %d, Set-Cookie %d", name, listen, r.status, len(r.header.Values("Set-Cookie")))
+		if strings.Join(listen, ",") != q.host || r.status != 200 || len(r.header.Values("Set-Cookie")) != 0 {
+			t.Errorf("INTUITIK_TEST_FIXTURE=%s changed the product binary", name)
+		}
+	}
 }

@@ -32,7 +32,7 @@ func randomPort() (int, error) {
 // portTries ports and retries only when the port is in use. On failure it returns
 // the text to print (S-P or S-J1).
 func ListenLoopback(seams Seams) (net.Listener, string) {
-	lc := net.ListenConfig{Control: listenControl(seams.Fixture.NoExclusiveBind)}
+	lc := net.ListenConfig{Control: listenControl(seams.Fixture)}
 	for try := 0; try < portTries; try++ {
 		var port int
 		if try < len(seams.Ports) {

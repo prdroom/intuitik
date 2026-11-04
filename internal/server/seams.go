@@ -29,5 +29,6 @@ type Fixture struct {
 	ClearSiteData   func(sessionIssued bool) (string, bool)     // replaces the S8 (iii) rule
 	RefusalBody     func(token string) string                   // replaces the 403 body
 	FixedHeaders    func(h http.Header, port int)               // runs after the fixed headers are set
-	NoExclusiveBind bool                                        // S16 option positive control
+	NoExclusiveBind bool                                        // S16 (5b): neither listener option
+	ReuseAddrBind   bool                                        // S16 (5a): SO_REUSEADDR, not SO_EXCLUSIVEADDRUSE
 }

@@ -48,10 +48,29 @@ async function login(page, panel, token) {
   page.on('console', onConsole);
   page.on('response', onResponse);
   page.on('requestfailed', onFailed);
+  const handshakes = [];
+  if (page.context().browser()?.browserType().name() === 'chromium') {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Network.enable');
+    cdp.on('Network.webSocketWillSendHandshakeRequest', (e) => {
+      const h = Object.fromEntries(Object.entries(e.request.headers).map(([k, v]) => [k.toLowerCase(), v]));
+      handshakes.push(
+        `WebSocket handshake request header names: ${Object.keys(h).sort().join(', ')}; ` +
+          `Origin ${h.origin ?? '(absent)'}; Sec-Fetch-Site ${h['sec-fetch-site'] ?? '(absent)'}`,
+      );
+    });
+    cdp.on('Network.webSocketHandshakeResponseReceived', (e) => {
+      handshakes.push(`WebSocket handshake response status ${e.response.status}`);
+    });
+  }
   try {
     await page.goto(`${panel.origin}/#t=${token}`);
     await page.waitForSelector('#intuitik-app', { state: 'attached', timeout: 15_000 });
+    await sleep(300);
+    for (const line of handshakes) console.log(`S6 chromium ${line}`);
   } catch (e) {
+    await sleep(300);
+    for (const line of handshakes) console.log(`S6 chromium ${line}`);
     const body = await page.evaluate(() => document.body?.innerHTML ?? '').catch((err) => `unreadable: ${err}`);
     console.log(`login failed: ${e.message.split('\n')[0]}\n  url ${page.url().replace(token, '<T>')}\n  body ${body}\n  ${seen.join('\n  ')}`);
     throw e;

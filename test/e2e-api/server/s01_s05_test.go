@@ -100,11 +100,13 @@ func TestS1_ListenerLossExits(t *testing.T) {
 	listenerLoss(t, p)
 }
 
-// S1: after the normal stop the port is closed, also when the OS default opener ran
-// (BROWSER empty, the way verify-map Launch starts the binary). If something still
-// accepts on the port, the listening sockets and processes are printed.
+// S1: after the normal stop the port is closed, also when the OS default opener ran.
+// The binary starts the way verify-map Launch starts it: BROWSER empty, a new empty
+// HOME, no KUBECONFIG and no XDG_* state variables. If something still accepts on the
+// port, the listening sockets and processes are printed.
 func TestS1_PortReleasedAfterStop(t *testing.T) {
-	p := startPanel(t, panelOpts{browser: strPtr("")})
+	stateEnv := []string{"HOME", "KUBECONFIG", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR"}
+	p := startPanel(t, panelOpts{browser: strPtr(""), dropEnv: stateEnv, env: []string{"HOME=" + t.TempDir()}})
 	time.Sleep(2 * time.Second) // let the opener run
 	before, _ := exec.Command("ss", "-ltnpH", "sport = :"+strconv.Itoa(p.port)).CombinedOutput()
 	t.Logf("S1 listeners on port %d while running:\n%s", p.port, before)

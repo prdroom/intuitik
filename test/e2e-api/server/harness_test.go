@@ -139,6 +139,7 @@ type panelOpts struct {
 	browser  *string  // BROWSER; nil means the recording stand-in
 	env      []string // more environment
 	dir      string   // working directory
+	dropEnv  []string // variables removed from the environment
 	noReady  bool     // do not wait for the listen line
 }
 
@@ -170,7 +171,12 @@ func startPanel(t *testing.T, o panelOpts) *panel {
 	p.cmd.Dir = o.dir
 	env := []string{}
 	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "BROWSER=") && !strings.HasPrefix(kv, "INTUITIK_TEST_") {
+		name, _, _ := strings.Cut(kv, "=")
+		drop := name == "BROWSER" || strings.HasPrefix(name, "INTUITIK_TEST_")
+		for _, d := range o.dropEnv {
+			drop = drop || strings.EqualFold(name, d)
+		}
+		if !drop {
 			env = append(env, kv)
 		}
 	}

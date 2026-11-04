@@ -7,10 +7,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/build"
+	"go/parser"
+	"go/token"
 	"io"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -118,11 +124,14 @@ func TestS16_WindowsBind(t *testing.T) {
 		t.Fatal(err)
 	}
 	v, err := server.ExclusiveAddrUse(sc)
+	r, rerr := server.ReuseAddr(sc)
 	ln.Close()
 	t.Logf("S16 (1) getsockopt(SO_EXCLUSIVEADDRUSE) on the product listener: %d (err %v), want 1", v, err)
-	if err != nil || v != 1 {
-		t.Errorf("SO_EXCLUSIVEADDRUSE is %d", v)
+	t.Logf("S16 (1) getsockopt(SO_REUSEADDR) on the product listener: %d (err %v), want 0", r, rerr)
+	if err != nil || v != 1 || rerr != nil || r != 0 {
+		t.Errorf("product listener: SO_EXCLUSIVEADDRUSE %d, SO_REUSEADDR %d; want 1 and 0", v, r)
 	}
+	seamExclusion(t)
 
 	p := startPanel(t, panelOpts{})
 	P := strconv.Itoa(p.port)
@@ -178,30 +187,178 @@ func TestS16_WindowsBind(t *testing.T) {
 		c.ln.Close()
 	}
 
-	// (5) option positive control: without the option the SO_REUSEADDR bind succeeds.
-	// First in this process, through the product listen code with the option left off,
-	// so that the option value itself is read.
-	off, failure := server.ListenLoopback(server.Seams{Fixture: server.Fixture{NoExclusiveBind: true}})
-	if off == nil {
-		t.Fatalf("listen with the option off: %s", failure)
+	// (5) option positive control (hoan approval 330c4066). The option values are read
+	// on a listener opened by the product listen code with the fixture value that the
+	// e2etest build selects; the bind probe runs against the e2etest panel process.
+	type variant struct {
+		id, fixture string
+		fx          server.Fixture
+		excl, reuse int
+		bindJudged  bool
 	}
-	osc, _ := off.(*net.TCPListener).SyscallConn()
-	ov, oerr := server.ExclusiveAddrUse(osc)
-	t.Logf("S16 (5) option off, in process: getsockopt(SO_EXCLUSIVEADDRUSE) = %d (err %v), want 0", ov, oerr)
-	if c, err := bindCompetitor("tcp4", off.Addr().String(), true, -1); err != nil {
-		t.Logf("S16 (5) option off, in process: SO_REUSEADDR bind of %s: %s", off.Addr(), errCode(err))
+	for _, vr := range []variant{
+		{"5a", "reuse-addr-bind", server.Fixture{ReuseAddrBind: true}, 0, 1, true},
+		{"5b", "no-exclusive-bind", server.Fixture{NoExclusiveBind: true}, 0, 0, false},
+	} {
+		l, failure := server.ListenLoopback(server.Seams{Fixture: vr.fx})
+		if l == nil {
+			t.Fatalf("(%s) listen: %s", vr.id, failure)
+		}
+		lsc, _ := l.(*net.TCPListener).SyscallConn()
+		ex, exErr := server.ExclusiveAddrUse(lsc)
+		re, reErr := server.ReuseAddr(lsc)
+		l.Close()
+		t.Logf("S16 (%s) fixture %s: getsockopt(SO_EXCLUSIVEADDRUSE) = %d, getsockopt(SO_REUSEADDR) = %d (errors %v %v); want %d and %d",
+			vr.id, vr.fixture, ex, re, exErr, reErr, vr.excl, vr.reuse)
+		if exErr != nil || reErr != nil || ex != vr.excl || re != vr.reuse {
+			t.Errorf("(%s) option values %d/%d, want %d/%d", vr.id, ex, re, vr.excl, vr.reuse)
+		}
+		f := startPanel(t, panelOpts{test: true, fixture: vr.fixture})
+		c, err := bindCompetitor("tcp4", f.host, true, -1)
+		switch {
+		case err != nil && vr.bindJudged:
+			t.Errorf("S16 (%s) SO_REUSEADDR bind of 127.0.0.1:%d by a separate process failed: %s, want success", vr.id, f.port, errCode(err))
+		case err != nil:
+			t.Logf("S16 (%s) SO_REUSEADDR bind of 127.0.0.1:%d by a separate process (recorded): %s", vr.id, f.port, errCode(err))
+		default:
+			got := receive(f.host, f.port)
+			t.Logf("S16 (%s) SO_REUSEADDR bind of 127.0.0.1:%d by a separate process: succeeded%s; receive split (recorded): panel %d, competitor %d",
+				vr.id, f.port, map[bool]string{true: " (judged)", false: " (recorded)"}[vr.bindJudged], got, c.accepted.Load())
+			c.ln.Close()
+		}
+	}
+
+	// (ii) run-time control: the product build ignores the SO_REUSEADDR variant's fixture
+	// name, so the same bind fails against it.
+	prod := startPanel(t, panelOpts{env: []string{"INTUITIK_TEST_FIXTURE=reuse-addr-bind"}})
+	if c, err := bindCompetitor("tcp4", prod.host, true, -1); err != nil {
+		t.Logf("S16 (ii) product build with INTUITIK_TEST_FIXTURE=reuse-addr-bind: SO_REUSEADDR bind of 127.0.0.1:%d fails as required: %s", prod.port, errCode(err))
 	} else {
-		t.Logf("S16 (5) option off, in process: SO_REUSEADDR bind of %s succeeded", off.Addr())
 		c.ln.Close()
+		t.Errorf("S16 (ii) product build with INTUITIK_TEST_FIXTURE=reuse-addr-bind: the SO_REUSEADDR bind of 127.0.0.1:%d succeeded; the variant reached the product", prod.port)
 	}
-	off.Close()
-	f := startPanel(t, panelOpts{test: true, fixture: "no-exclusive-bind"})
-	c, err := bindCompetitor("tcp4", f.host, true, -1)
-	if err != nil {
-		t.Errorf("S16 (5) option off: SO_REUSEADDR bind of 127.0.0.1:%d failed: %s, want success", f.port, errCode(err))
-		return
+}
+
+// seamExclusion is S16 (i): with GOOS=windows, go/build selects the files of
+// cmd/intuitik and internal/server once without tags and once with e2etest, and the
+// AST of the selected files shows that no listener-option variant can reach the
+// product build.
+func seamExclusion(t *testing.T) {
+	t.Helper()
+	root := repoRoot(t)
+	dirs := []string{"cmd/intuitik", "internal/server"}
+	selected := map[string]map[string][]string{}
+	for _, set := range []struct {
+		name string
+		tags []string
+	}{{"no tags", nil}, {"e2etest", []string{"e2etest"}}} {
+		selected[set.name] = map[string][]string{}
+		for _, dir := range dirs {
+			ctx := build.Default
+			ctx.GOOS, ctx.GOARCH, ctx.BuildTags = "windows", "amd64", set.tags
+			pkg, err := ctx.ImportDir(filepath.Join(root, dir), 0)
+			if err != nil {
+				t.Fatalf("go/build %s %s: %v", dir, set.name, err)
+			}
+			selected[set.name][dir] = pkg.GoFiles
+			t.Logf("S16 (i) GOOS=windows %s: %s compiles %v", set.name, dir, pkg.GoFiles)
+		}
 	}
-	got := receive(f.host, f.port)
-	t.Logf("S16 (5) option off: SO_REUSEADDR bind of 127.0.0.1:%d succeeded; receive split (recorded): panel %d, competitor %d", f.port, got, c.accepted.Load())
-	c.ln.Close()
+	parse := func(dir, file string) *ast.File {
+		f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(root, dir, file), nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+
+	// (i-a) exactly one testSeams without tags: `return server.Seams{}, nil`, no parameters.
+	count := 0
+	for _, file := range selected["no tags"]["cmd/intuitik"] {
+		for _, d := range parse("cmd/intuitik", file).Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if !ok || fn.Name.Name != "testSeams" || fn.Recv != nil {
+				continue
+			}
+			count++
+			ok = fn.Type.Params.NumFields() == 0 && len(fn.Body.List) == 1
+			if ok {
+				ret, isRet := fn.Body.List[0].(*ast.ReturnStmt)
+				ok = isRet && len(ret.Results) == 2
+				if ok {
+					lit, isLit := ret.Results[0].(*ast.CompositeLit)
+					sel, isSel := (*ast.SelectorExpr)(nil), false
+					if isLit {
+						sel, isSel = lit.Type.(*ast.SelectorExpr)
+					}
+					nilIdent, isNil := ret.Results[1].(*ast.Ident)
+					ok = isLit && len(lit.Elts) == 0 && isSel && sel.Sel.Name == "Seams" && isNil && nilIdent.Name == "nil"
+				}
+			}
+			t.Logf("S16 (i-a) %s: testSeams has no parameters and its body is `return server.Seams{}, nil`: %v", file, ok)
+			if !ok {
+				t.Errorf("(i-a) testSeams in %s is not the zero-Seams return", file)
+			}
+		}
+	}
+	t.Logf("S16 (i-a) GOOS=windows no tags: testSeams declarations in cmd/intuitik: %d, want 1", count)
+	if count != 1 {
+		t.Errorf("(i-a) %d testSeams declarations without tags", count)
+	}
+
+	// (i-b) no file without tags sets a listener-option field, names FixtureNamed or reads
+	// INTUITIK_TEST_FIXTURE.
+	fields := map[string]bool{"NoExclusiveBind": true, "ReuseAddrBind": true}
+	for _, dir := range dirs {
+		for _, file := range selected["no tags"][dir] {
+			var found []string
+			ast.Inspect(parse(dir, file), func(n ast.Node) bool {
+				switch x := n.(type) {
+				case *ast.KeyValueExpr:
+					if k, ok := x.Key.(*ast.Ident); ok && fields[k.Name] {
+						found = append(found, "composite-literal key "+k.Name)
+					}
+				case *ast.AssignStmt:
+					for _, l := range x.Lhs {
+						if s, ok := l.(*ast.SelectorExpr); ok && fields[s.Sel.Name] {
+							found = append(found, "assignment to "+s.Sel.Name)
+						}
+					}
+				case *ast.Ident:
+					if x.Name == "FixtureNamed" {
+						found = append(found, "reference to FixtureNamed")
+					}
+				case *ast.BasicLit:
+					if strings.Contains(x.Value, "INTUITIK_TEST_FIXTURE") {
+						found = append(found, "the string INTUITIK_TEST_FIXTURE")
+					}
+				}
+				return true
+			})
+			t.Logf("S16 (i-b) GOOS=windows no tags: %s/%s: variant reach points %d %v", dir, file, len(found), found)
+			if len(found) != 0 {
+				t.Errorf("(i-b) %s/%s: %v", dir, file, found)
+			}
+		}
+	}
+
+	// (i-c) the fixture table and the e2etest testSeams are excluded without tags and
+	// included with e2etest.
+	for _, f := range []struct{ dir, file string }{{"internal/server", "fixture_e2etest.go"}, {"cmd/intuitik", "seams_e2etest.go"}} {
+		without := contains(selected["no tags"][f.dir], f.file)
+		with := contains(selected["e2etest"][f.dir], f.file)
+		t.Logf("S16 (i-c) GOOS=windows %s/%s: compiled without tags %v (want false), with e2etest %v (want true)", f.dir, f.file, without, with)
+		if without || !with {
+			t.Errorf("(i-c) %s/%s: without tags %v, with e2etest %v", f.dir, f.file, without, with)
+		}
+	}
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }

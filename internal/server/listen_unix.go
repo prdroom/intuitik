@@ -12,6 +12,6 @@ func isAddrInUse(err error) bool {
 }
 
 // listenControl adds nothing on unix: SO_EXCLUSIVEADDRUSE is a Windows option (S16).
-func listenControl(bool) func(network, address string, c syscall.RawConn) error {
+func listenControl(Fixture) func(network, address string, c syscall.RawConn) error {
 	return nil
 }

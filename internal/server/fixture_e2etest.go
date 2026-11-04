@@ -57,8 +57,10 @@ var fixtures = map[string]Fixture{
 		st.csrf = newSecret()
 		st.mu.Unlock()
 	}},
-	// S16 (5): the listener without SO_EXCLUSIVEADDRUSE.
+	// S16 (5b): the listener with neither SO_EXCLUSIVEADDRUSE nor SO_REUSEADDR.
 	"no-exclusive-bind": {NoExclusiveBind: true},
+	// S16 (5a): the listener with SO_REUSEADDR and without SO_EXCLUSIVEADDRUSE.
+	"reuse-addr-bind": {ReuseAddrBind: true},
 }
 
 // FixtureNamed returns the fixture of that name; ok is false for an unknown name.
