@@ -1,23 +1,22 @@
-// Command intuitik serves the embedded web page.
+// Command intuitik serves the embedded web page on 127.0.0.1 behind a one-time
+// login (internal/server).
 //
-//	intuitik            start the server on 127.0.0.1 and print its listen address
+//	intuitik            start the server on a random 127.0.0.1 port, print its listen
+//	                    address and open the login address in the browser (BROWSER)
 //	intuitik --version  print version= and commit= lines
 package main
 
 import (
-	"context"
 	"embed"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"io/fs"
-	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
+
+	"github.com/prdroom/intuitik/internal/server"
 )
 
 // Injected only through -ldflags "-X main.version=... -X main.commit=...".
@@ -56,30 +55,22 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "intuitik:", err)
 		return 1
 	}
-	// The T1 server binds to the loopback address only.
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	seams, err := testSeams()
 	if err != nil {
 		fmt.Fprintln(stderr, "intuitik:", err)
 		return 1
 	}
-	srv := &http.Server{
-		Handler:           http.FileServer(http.FS(page)),
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	go func() {
-		<-ctx.Done()
-		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		srv.Shutdown(shutdown)
-	}()
-
-	fmt.Fprintf(stdout, "listening on http://%s\n", ln.Addr())
-	if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
-		fmt.Fprintln(stderr, "intuitik:", err)
-		return 1
-	}
-	return 0
+	stopSignal := make(chan os.Signal, 1)
+	signal.Notify(stopSignal, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(stopSignal)
+	return server.Run(server.Options{
+		Assets:        page,
+		Stdin:         os.Stdin,
+		StdinTerminal: server.IsTerminal(os.Stdin),
+		Stdout:        stdout,
+		Stderr:        stderr,
+		Browser:       os.Getenv("BROWSER"),
+		Stop:          stopSignal,
+		Seams:         seams,
+	})
 }

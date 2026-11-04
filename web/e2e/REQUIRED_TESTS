@@ -1,0 +1,16 @@
+# browser-handshake required cases (packet M1-T2 section 6.4): describe "browser-handshake",
+# each case passed in the projects chromium, firefox and webkit.
+browser-handshake/ws-roundtrip
+browser-handshake/csp-connect-blocked
+browser-handshake/csp-form-blocked
+browser-handshake/reload-keeps-session
+browser-handshake/new-tab-no-session
+browser-handshake/enter-keeps-tab-a
+browser-handshake/storage-scope
+browser-handshake/token-not-in-request-target
+browser-handshake/v6-squatter-ignored
+browser-handshake/proxy-loopback-bypass
+browser-handshake/stop-screen
+browser-handshake/clear-site-data-first-load
+browser-handshake/clear-site-data-late-response
+browser-handshake/login-refused-screen

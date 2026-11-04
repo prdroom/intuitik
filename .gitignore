@@ -5,3 +5,5 @@ Thumbs.db
 .vscode/
 .env
 .env.*
+cmd/intuitik/dist/
+web/node_modules/
