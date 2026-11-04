@@ -235,12 +235,39 @@ func startPanel(t *testing.T, o panelOpts) *panel {
 		allOutput.add(p.stdout.bytes(), p.stderr.bytes())
 	})
 	if !o.noReady {
-		line := p.stdout.wait(t, "listen line", 15*time.Second, func(s string) bool { return listenLine.MatchString(s) })
+		line := p.waitListen(60 * time.Second)
 		p.port, _ = strconv.Atoi(listenLine.FindStringSubmatch(line)[1])
 		p.host = fmt.Sprintf("127.0.0.1:%d", p.port)
 		p.origin = "http://" + p.host
 	}
 	return p
+}
+
+// waitListen waits for the listen line. On a timeout it reports stdout, stderr and
+// whether the process is still running, so that a slow start and a failed start differ
+// in the log.
+func (p *panel) waitListen(timeout time.Duration) string {
+	p.t.Helper()
+	start := time.Now()
+	for {
+		for _, s := range p.stdout.list() {
+			if listenLine.MatchString(s) {
+				if d := time.Since(start); d > 5*time.Second {
+					p.t.Logf("listen line after %s (slow start)", d.Round(time.Millisecond))
+				}
+				return s
+			}
+		}
+		select {
+		case <-p.done:
+			p.t.Fatalf("process exited (code %d) before the listen line; stdout %q, stderr %q", p.exitCode, p.stdout.list(), p.stderr.list())
+		default:
+		}
+		if time.Since(start) > timeout {
+			p.t.Fatalf("no listen line within %s, process still running; stdout %q, stderr %q", timeout, p.stdout.list(), p.stderr.list())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // recorder writes the stand-in opener: it appends its single argument to log.

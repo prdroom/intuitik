@@ -22,3 +22,5 @@ start_ts	end_ts	phase	decision	reason	evidence	result
 2026-11-04T11:52:12+09:00		green-check	M1-T2	read Clear-Site-Data with allHeaders, read the B-RF body in the page, report the port holder from /proc	run 41762422430	open
 2026-11-04T11:52:12+09:00	2026-11-04T12:01:23+09:00	green-check	M1-T2	read Clear-Site-Data with allHeaders, read the B-RF body in the page, report the port holder from /proc	commit 81824c63dca8a1f04c72d4ea381f3195caeb407f, run 41763799180: all jobs success except build (verify-map Cleanup port still accepts)	fail
 2026-11-04T12:01:23+09:00		green-check	M1-T2	release the listening socket with shutdown at the normal stop (verify-map Cleanup)	run 41763799180	open
+2026-11-04T12:01:23+09:00	2026-11-04T12:08:38+09:00	green-check	M1-T2	release the listening socket with shutdown at the normal stop (verify-map Cleanup)	commit cb727b2e7479596f72670ca14a2ec2d214ae7226, run 41764692512: build success (port closed); e2e-api-windows failure: no listen line of the (5a) e2etest panel within 15 s	fail
+2026-11-04T12:08:38+09:00		green-check	M1-T2	harness: listen wait reports stdout, stderr and process state; start limit 60 s	run 41764692512	open
