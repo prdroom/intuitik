@@ -457,7 +457,27 @@ func TestS18_BrowserEnv(t *testing.T) {
 	if !loginURL.MatchString(strings.TrimSpace(string(raw))) || e1 == nil || e2 == nil {
 		t.Errorf("BROWSER %q: received %q, markers %v %v", odd, raw, e1, e2)
 	}
-	_ = p
+	time.Sleep(500 * time.Millisecond)
+	okSO := strings.Count(string(p.stderr.bytes()), textSO)
+	t.Logf("S18 BROWSER that exits 0: S-O lines %d (want 0)", okSO)
+	if okSO != 0 {
+		t.Errorf("an opener that exits 0 printed S-O %d times", okSO)
+	}
+
+	// An executable that starts, receives the address and then fails is an open
+	// failure too: S-O with the same #t= address, no query address, still serving.
+	failLog := filepath.Join(dir, "failed-opener.txt")
+	failing := filepath.Join(dir, "failing-browser")
+	os.WriteFile(failing, []byte("#!/bin/sh\nprintf '%s\\n' \"$1\" >> '"+failLog+"'\nexit 3\n"), 0o700)
+	fb := startPanel(t, panelOpts{browser: &failing})
+	fbLine := fb.stderr.wait(t, "S-O", 10*time.Second, func(s string) bool { return strings.HasPrefix(s, textSO) })
+	received, _ := os.ReadFile(failLog)
+	fbAddr := strings.TrimPrefix(fbLine, textSO)
+	fbStatus := fb.do(request{method: "GET", target: "/"}).status
+	t.Logf("S18 BROWSER that starts and exits 3: S-O in the #t= form: %v; same address as the opener received: %v; ?t= addresses %d; still serving: GET / %d", loginURL.MatchString(fbAddr), fbAddr == strings.TrimSpace(string(received)), strings.Count(string(fb.stderr.bytes()), "?t="), fbStatus)
+	if !loginURL.MatchString(fbAddr) || fbAddr != strings.TrimSpace(string(received)) || strings.Contains(string(fb.stderr.bytes()), "?t=") || fbStatus != 200 {
+		t.Errorf("opener that starts and fails: S-O %q, received %d bytes, GET / %d", strings.Replace(fbLine, fbAddr, "<address>", 1), len(received), fbStatus)
+	}
 
 	m := startPanel(t, panelOpts{browser: strPtr(filepath.Join(dir, "missing-browser"))})
 	line := m.stderr.wait(t, "S-O", 10*time.Second, func(s string) bool { return strings.HasPrefix(s, textSO) })

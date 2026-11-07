@@ -124,6 +124,49 @@ async function wsTry(page, protocols) {
   );
 }
 
+// recordSockets makes the page keep every WebSocket its scripts construct, in order,
+// so that a case drives the socket the real web/src/auth module opened (S15, D2)
+// instead of one the test created. The constructor and the connection are the
+// browser's own.
+async function recordSockets(page) {
+  await page.addInitScript(() => {
+    const Native = window.WebSocket;
+    window.__sockets = [];
+    window.WebSocket = class extends Native {
+      constructor(...args) {
+        super(...args);
+        window.__sockets.push(this);
+      }
+    };
+  });
+}
+
+// moduleRoundTrip sends one message on the module's WebSocket (the first socket the
+// page constructed) and waits for the echo. count is the number of sockets the page
+// had constructed at that moment.
+async function moduleRoundTrip(page, message) {
+  return page.evaluate(
+    (message) =>
+      new Promise((resolve) => {
+        const sockets = window.__sockets ?? [];
+        const ws = sockets[0];
+        if (!ws) return resolve({ count: 0, echo: null, protocol: null, extensions: null, url: null });
+        const finish = (echo) => resolve({ count: sockets.length, echo, protocol: ws.protocol, extensions: ws.extensions, url: ws.url });
+        const send = () => {
+          ws.addEventListener('message', (e) => {
+            if (e.data === message) finish(e.data);
+          });
+          ws.send(message);
+        };
+        if (ws.readyState === WebSocket.OPEN) send();
+        else if (ws.readyState === WebSocket.CONNECTING) ws.addEventListener('open', send, { once: true });
+        else return finish(null);
+        setTimeout(() => finish(null), 5000);
+      }),
+    message,
+  );
+}
+
 async function credentials(page) {
   return page.evaluate(async () => {
     const s = window.sessionStorage.getItem('intuitik.session');
@@ -157,11 +200,12 @@ test.describe('browser-handshake', () => {
     console.log(`S15 engine under test: ${browserName} ${page.context().browser().version()}`);
     const panel = await panelFor();
     await watchCsp(page);
+    await recordSockets(page);
     await login(page, panel, await panel.token());
+    const good = await moduleRoundTrip(page, 'round-trip');
+    console.log(`S15 ws-roundtrip valid (the WebSocket opened by web/src/auth): sockets constructed ${good.count} (want 1), url ${good.url}, echo ${good.echo}, protocol ${good.protocol}, extensions "${good.extensions}"`);
+    expect(good).toMatchObject({ count: 1, url: `ws://127.0.0.1:${panel.port}/api/ws`, echo: 'round-trip', protocol: 'intuitik.v1', extensions: '' });
     const cred = await credentials(page);
-    const good = await wsTry(page, w1(cred));
-    console.log(`S15 ws-roundtrip valid: opened ${good.opened}, echo ${good.echo}, protocol ${good.protocol}, extensions "${good.extensions}"`);
-    expect(good).toMatchObject({ opened: true, echo: 'round-trip', protocol: 'intuitik.v1', extensions: '' });
     const bad = {
       'no subprotocol': null,
       'wrong sess.': ['intuitik.v1', `csrf.${cred.c}`, `sess.${'A'.repeat(43)}`],
@@ -273,42 +317,55 @@ test.describe('browser-handshake', () => {
     expect(stored).toBe(0);
   });
 
-  test('enter-keeps-tab-a', async ({ page, context }) => {
-    const panel = await panelFor();
-    await login(page, panel, await panel.token());
-    const cred = await credentials(page);
-    await page.evaluate(
-      (protocols) =>
-        new Promise((resolve) => {
-          window.__wsA = new WebSocket(`ws://${location.host}/api/ws`, protocols);
-          window.__wsA.onopen = resolve;
-        }),
-      w1(cred),
-    );
+  // enterRun: tab A logs in and holds the WebSocket the auth module opened; Enter;
+  // tab B logs in at T'. Both tabs use the module's own sockets. Every document load
+  // of the context is checked for Clear-Site-Data: only the first load, before any
+  // exchange, may carry it (S8 (iii)). It returns the failed conditions.
+  async function enterRun(context, fixture) {
+    const panel = await panelFor({ fixture });
+    const docs = [];
+    context.on('response', (r) => {
+      if (r.url() === `${panel.origin}/`) docs.push(r.allHeaders().then((h) => h['clear-site-data'] ?? ''));
+    });
+    const tabA = await context.newPage();
+    await recordSockets(tabA);
+    await login(tabA, panel, await panel.token());
+    const aBefore = await moduleRoundTrip(tabA, 'before-enter');
     const t2 = await panel.enter();
     const tabB = await context.newPage();
+    await recordSockets(tabB);
     await login(tabB, panel, t2);
-    const aStill = await page.evaluate(
-      () =>
-        new Promise((resolve) => {
-          if (window.__wsA.readyState !== WebSocket.OPEN) return resolve(false);
-          window.__wsA.onmessage = (e) => resolve(e.data === 'still-open');
-          window.__wsA.send('still-open');
-          setTimeout(() => resolve(false), 5000);
-        }),
-    );
-    const a = await tabCalls(page);
+    const aStill = await moduleRoundTrip(tabA, 'still-open');
+    const bWs = await moduleRoundTrip(tabB, 'round-trip');
+    const a = await tabCalls(tabA);
     const b = await tabCalls(tabB);
-    const aWs = await wsTry(page, w1(await credentials(page)));
-    const bWs = await wsTry(tabB, w1(await credentials(tabB)));
-    const aScreen = await page.locator('#intuitik-app').count();
-    console.log(`S19 enter-keeps-tab-a: tab A API ${a.get} POST ${a.post} new WS ${aWs.echo} existing WS round trip ${aStill} app ${aScreen}; tab B API ${b.get} POST ${b.post} WS ${bWs.echo}; C same ${a.csrf === b.csrf}`);
-    expect(a).toMatchObject({ get: 200, post: 200 });
-    expect(b).toMatchObject({ get: 200, post: 200 });
-    expect(aWs.echo).toBe('round-trip');
-    expect(bWs.echo).toBe('round-trip');
-    expect(aStill).toBe(true);
-    expect(aScreen).toBe(1);
+    const aScreen = await tabA.locator('#intuitik-app').count();
+    const headers = await Promise.all(docs);
+    const label = fixture ? `fixture ${fixture}` : 'product';
+    console.log(`S19 enter-keeps-tab-a ${label}: tab A module WS before Enter ${aBefore.echo} (sockets ${aBefore.count}), same module WS after Enter ${aStill.echo} (sockets ${aStill.count}), API ${a.get} POST ${a.post}, app ${aScreen}; tab B module WS ${bWs.echo} (sockets ${bWs.count}) API ${b.get} POST ${b.post}; C same ${a.csrf === b.csrf}`);
+    console.log(`S8 enter-keeps-tab-a ${label}: Clear-Site-Data per document load ${JSON.stringify(headers)} (want "cache" on the first only)`);
+    const problems = [];
+    if (aBefore.echo !== 'before-enter' || aBefore.count !== 1) problems.push('tab A module WebSocket before Enter');
+    if (aStill.echo !== 'still-open' || aStill.count !== 1) problems.push('tab A module WebSocket after Enter');
+    if (bWs.echo !== 'round-trip' || bWs.count !== 1) problems.push('tab B module WebSocket');
+    if (a.get !== 200 || a.post !== 200) problems.push(`tab A API ${a.get} POST ${a.post}`);
+    if (b.get !== 200 || b.post !== 200) problems.push(`tab B API ${b.get} POST ${b.post}`);
+    if (aScreen !== 1) problems.push('tab A app not rendered');
+    if (headers.length < 2 || headers[0] !== '"cache"') problems.push(`first load Clear-Site-Data ${JSON.stringify(headers[0])}`);
+    if (headers.slice(1).some((v) => v !== '')) problems.push(`Clear-Site-Data after the first exchange ${JSON.stringify(headers.slice(1))}`);
+    return problems;
+  }
+
+  test('enter-keeps-tab-a', async ({ context, browser }) => {
+    const problems = await enterRun(context);
+    console.log(`S19 enter-keeps-tab-a product: failed conditions ${JSON.stringify(problems)} (want [])`);
+    expect(problems).toEqual([]);
+    const fxContext = await browser.newContext();
+    const fx = await enterRun(fxContext, 'clear-site-data-always');
+    await fxContext.close();
+    const fails = fx.length > 0;
+    console.log(`NEGATIVE-FIXTURE enter-keeps-tab-a clear-site-data-always: failed conditions ${JSON.stringify(fx)} -> the case ${fails ? 'fails as required' : 'DOES NOT FAIL'}`);
+    expect(fails).toBe(true);
   });
 
   test('storage-scope', async ({ page, context }) => {
