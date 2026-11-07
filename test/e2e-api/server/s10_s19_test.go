@@ -561,15 +561,18 @@ func TestS19_StateTable(t *testing.T) {
 		if csd != nil && (len(r.header.Values("Clear-Site-Data")) == 1) != *csd {
 			ok = false
 		}
+		// seen is the observed alarm: a new S-W line after this request.
+		var seen bool
 		if alarm {
-			p.stderr.waitFor(5*time.Second, func(s string) bool { return p.stderr.count(textSW) > alarmsBefore })
+			seen = p.stderr.waitFor(5*time.Second, func(s string) bool { return p.stderr.count(textSW) > alarmsBefore })
 		} else {
 			time.Sleep(150 * time.Millisecond)
-			if p.stderr.count(textSW) != alarmsBefore {
-				ok = false
-			}
+			seen = p.stderr.count(textSW) != alarmsBefore
 		}
-		t.Logf("S19 state %q, %s: %d (want %d), Clear-Site-Data %q, S-W %v; ok %v", row, column, r.status, status, r.header.Values("Clear-Site-Data"), alarm, ok)
+		if seen != alarm {
+			ok = false
+		}
+		t.Logf("S19 state %q, %s: %d (want %d), Clear-Site-Data %q, S-W observed %v (want %v); ok %v", row, column, r.status, status, r.header.Values("Clear-Site-Data"), seen, alarm, ok)
 		if !ok {
 			t.Errorf("state %q, %s: does not match the table", row, column)
 		}
