@@ -48,8 +48,13 @@ const (
 )
 
 var (
-	listenLine = regexp.MustCompile(`^listening on http://127\.0\.0\.1:([0-9]+)$`)
+	// listenLine finds the port; TestText_SL_ListenLine compares the whole line, so a
+	// differing S-L does not stop every other test at start (packet section 5).
+	listenLine = regexp.MustCompile(`^listening on http://127\.0\.0\.1:([0-9]+)`)
 	loginURL   = regexp.MustCompile(`^http://127\.0\.0\.1:([0-9]+)/#t=([A-Za-z0-9_-]{43})$`)
+	// addrAtEnd finds the login address at the end of an S-O or S-R line, whatever text
+	// precedes it.
+	addrAtEnd = regexp.MustCompile(`http://127\.0\.0\.1:([0-9]+)/#t=([A-Za-z0-9_-]{43})$`)
 )
 
 func binary(t *testing.T, test bool) string {
@@ -111,6 +116,24 @@ func (l *lines) count(line string) int {
 		}
 	}
 	return n
+}
+
+// waitFor waits up to timeout for a complete line for which match is true and
+// reports whether one came. It does not stop the test, so the caller's own assertion
+// decides (packet section 5: a criterion is red by its own assertion).
+func (l *lines) waitFor(timeout time.Duration, match func(string) bool) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		for _, s := range l.list() {
+			if match(s) {
+				return true
+			}
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // wait returns the first complete line for which match is true.

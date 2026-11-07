@@ -189,7 +189,7 @@ func TestS12_SecondExchangeAlarms(t *testing.T) {
 	tok := p.token(1)
 	p.exchange(tok)
 	r := p.exchangeRaw(tok)
-	p.stderr.wait(t, "S-W", 5*time.Second, func(s string) bool { return s == textSW })
+	p.stderr.waitFor(5*time.Second, func(s string) bool { return s == textSW })
 	t.Logf("S12 second exchange: %d, S-W lines %d", r.status, p.stderr.count(textSW))
 	if r.status != 403 || p.stderr.count(textSW) != 1 {
 		t.Errorf("second exchange: %d with %d S-W line(s), want 403 and 1", r.status, p.stderr.count(textSW))
@@ -198,7 +198,7 @@ func TestS12_SecondExchangeAlarms(t *testing.T) {
 	unused := q.token(1)
 	q.enter()
 	r = q.exchangeRaw(unused)
-	q.stderr.wait(t, "S-W", 5*time.Second, func(s string) bool { return s == textSW })
+	q.stderr.waitFor(5*time.Second, func(s string) bool { return s == textSW })
 	t.Logf("S12 unused T after Enter: %d, S-W lines %d", r.status, q.stderr.count(textSW))
 	if r.status != 403 || q.stderr.count(textSW) != 1 {
 		t.Errorf("unused T after Enter: %d with %d S-W line(s), want 403 and 1", r.status, q.stderr.count(textSW))
@@ -352,7 +352,7 @@ func TestS18_ExchangeOrder(t *testing.T) {
 		tok := p.token(1)
 		first, _ := p.exchange(tok)
 		second := p.exchangeRaw(tok)
-		p.stderr.wait(t, "S-W", 5*time.Second, func(s string) bool { return s == textSW })
+		p.stderr.waitFor(5*time.Second, func(s string) bool { return s == textSW })
 		n := countSecret(second.raw, first)
 		t.Logf("S18 order %s: second party %d, S in its raw response %d, S-W %d", order, second.status, n, p.stderr.count(textSW))
 		if second.status != 403 || n != 0 || p.stderr.count(textSW) != 1 {
@@ -562,7 +562,7 @@ func TestS19_StateTable(t *testing.T) {
 			ok = false
 		}
 		if alarm {
-			p.stderr.wait(t, "S-W", 5*time.Second, func(s string) bool { return p.stderr.count(textSW) > alarmsBefore })
+			p.stderr.waitFor(5*time.Second, func(s string) bool { return p.stderr.count(textSW) > alarmsBefore })
 		} else {
 			time.Sleep(150 * time.Millisecond)
 			if p.stderr.count(textSW) != alarmsBefore {

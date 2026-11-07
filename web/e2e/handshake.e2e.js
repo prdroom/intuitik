@@ -86,6 +86,19 @@ async function screenLines(page) {
   return page.locator('#intuitik-auth-screen p').allTextContents();
 }
 
+// settled waits until the page shows the app or an auth screen, after a step that
+// follows the login (reload, a new tab). The case's own assertions then decide
+// (packet section 5), instead of a wait for one expected element.
+async function settled(page) {
+  await page
+    .waitForSelector('#intuitik-app, #intuitik-auth-screen', { state: 'attached', timeout: 15_000 })
+    .catch(() => {});
+  return {
+    app: await page.locator('#intuitik-app').count(),
+    lines: await page.locator('#intuitik-auth-screen p').allTextContents(),
+  };
+}
+
 // tabCalls uses the tab's session: GET /api/session (C again), then POST /api/ping.
 async function tabCalls(page) {
   return page.evaluate(async () => {
@@ -294,11 +307,12 @@ test.describe('browser-handshake', () => {
     });
     await login(page, panel, await panel.token());
     await page.reload();
-    await page.waitForSelector('#intuitik-app', { state: 'attached', timeout: 15_000 });
+    const after = await settled(page);
     const calls = await tabCalls(page);
-    console.log(`S15 reload-keeps-session: first load Clear-Site-Data ${firstLoad}; after reload URL ${page.url()}, GET /api/session ${calls.get}, CSRF POST ${calls.post}`);
+    console.log(`S15 reload-keeps-session: first load Clear-Site-Data ${firstLoad}; after reload URL ${page.url().replace(/#t=.*/, '#t=<T>')}, app ${after.app}, GET /api/session ${calls.get}, CSRF POST ${calls.post}`);
     expect(page.url()).not.toContain('#t=');
     expect(firstLoad).toBe('"cache"');
+    expect(after.app).toBe(1);
     expect(calls).toMatchObject({ get: 200, post: 200 });
   });
 
@@ -307,7 +321,7 @@ test.describe('browser-handshake', () => {
     await login(page, panel, await panel.token());
     const tab = await context.newPage();
     await tab.goto(`${panel.origin}/`);
-    const lines = await screenLines(tab);
+    const { lines } = await settled(tab);
     const api = await tab.evaluate(async () => (await fetch('/api/session')).status);
     const stored = await tab.evaluate(() => window.sessionStorage.length);
     console.log(`S15 new-tab-no-session: B-NS expected ${JSON.stringify(TEXTS.noSession)}`);
@@ -395,7 +409,7 @@ test.describe('browser-handshake', () => {
     });
     await login(page, panel, token);
     await page.reload();
-    await page.waitForSelector('#intuitik-app', { state: 'attached', timeout: 15_000 });
+    await settled(page);
     const cred = await credentials(page);
     await tabCalls(page);
     await sleep(500);
@@ -531,7 +545,7 @@ test.describe('browser-handshake', () => {
     const tabB = await context.newPage();
     await login(tabB, panel, t2);
     await page.reload();
-    await page.waitForSelector('#intuitik-app', { state: 'attached', timeout: 15_000 });
+    await settled(page);
     const a = await tabCalls(page);
     const b = await tabCalls(tabB);
     const values = await Promise.all(docs);

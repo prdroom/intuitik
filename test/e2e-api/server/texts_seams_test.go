@@ -52,7 +52,7 @@ func TestText_SE2_NotTerminal(t *testing.T) {
 func TestText_SO_OpenFailed(t *testing.T) {
 	p := startPanel(t, panelOpts{browser: strPtr("/nonexistent/opener")})
 	got := p.stderr.wait(t, "S-O", 10*time.Second, func(s string) bool { return strings.HasPrefix(s, "Could not open") })
-	m := loginURL.FindStringSubmatch(strings.TrimPrefix(got, textSO))
+	m := addrAtEnd.FindStringSubmatch(got)
 	if m == nil {
 		t.Fatalf("S-O line %q has no login address", got)
 	}
