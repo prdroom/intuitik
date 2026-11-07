@@ -231,6 +231,12 @@ func (s *server) readEnter() {
 			return
 		}
 		t := s.issue()
+		// Red stub (rework 2 red B): Enter closes every open WebSocket.
+		s.st.mu.Lock()
+		for c := range s.st.conns {
+			c.CloseNow()
+		}
+		s.st.mu.Unlock()
 		if f := s.o.Seams.Fixture.OnEnter; f != nil {
 			f(&s.st)
 		}

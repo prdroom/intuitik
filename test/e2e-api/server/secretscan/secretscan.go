@@ -19,14 +19,8 @@ func Count(data []byte, secret string) int {
 	if secret == "" {
 		return 0
 	}
-	n := countForms(data, []byte(secret))
-	if plain, ok := gunzip(data); ok {
-		n += countForms(plain, []byte(secret))
-	}
-	if plain, ok := inflate(data); ok {
-		n += countForms(plain, []byte(secret))
-	}
-	return n
+	// Red stub (rework 2 red B): the raw form only, no decoding or decompression.
+	return bytes.Count(data, []byte(secret))
 }
 
 // Forms returns the searched encodings of secret.

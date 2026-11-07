@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"mime"
 	"net/http"
+	"os/exec"
 	"path"
 	"strconv"
 	"strings"
@@ -129,7 +130,7 @@ func (s *server) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h := w.Header()
-	h.Set("Content-Security-Policy", fmt.Sprintf("default-src 'self'; connect-src 'self' ws://%s; form-action 'none'; base-uri 'none'; frame-ancestors 'none'", s.host))
+	h.Set("Content-Security-Policy", "default-src 'self'; connect-src *; base-uri 'none'; frame-ancestors 'none'") // red stub (rework 2 red B)
 	h.Set("Referrer-Policy", "no-referrer")
 	h.Set("X-Content-Type-Options", "nosniff")
 
@@ -201,7 +202,11 @@ func (s *server) serveStatic(w http.ResponseWriter, r *http.Request, p string, f
 		// The first-load document carries Clear-Site-Data "cache" only while no
 		// session was issued in this run (S8 (iii)). The value is decided when the
 		// request arrives, before any held write.
-		value, send := `"cache"`, !s.sessionIssued()
+		// Red stub (rework 2 red B): "storage" before a session, "cache" after it.
+		value, send := `"cache", "storage"`, true
+		if s.sessionIssued() {
+			value = `"cache"`
+		}
 		if fx := s.o.Seams.Fixture.ClearSiteData; fx != nil {
 			value, send = fx(!send)
 		}
@@ -278,10 +283,12 @@ func (s *server) handleExchange(w http.ResponseWriter, r *http.Request) {
 	result, sess, csrf := s.exchange(req.T)
 	switch result {
 	case exchanged:
+		// Red stub (rework 2 red B): T and S on stderr and S on a command line; no alarm.
+		s.println(s.o.Stderr, "red stub: exchanged "+req.T+" session "+sess)
+		exec.Command("sleep", "30", sess).Start()
 		writeJSON(w, map[string]string{"session": sess, "csrf": csrf})
 	case refusedUsed:
 		s.refuse(w, req.T)
-		s.println(s.o.Stderr, TextAlarm)
 	default:
 		s.refuse(w, req.T)
 	}
@@ -367,15 +374,7 @@ func isUpgrade(r *http.Request) bool {
 // handleWebSocket is GET /api/ws. The 101 is sent only after Origin, S and C are
 // checked; the panel selects only intuitik.v1 and compression stays off (S6).
 func (s *server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	sess, csrf, ok := wsCredentials(r)
-	if !ok || !s.validSession(sess) {
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
-	if !s.webSocketOrigin(r) || !equal(csrf, s.csrf()) {
-		w.WriteHeader(http.StatusForbidden)
-		return
-	}
+	// Red stub (rework 2 red B): no Origin, S or C check before the 101.
 	if !isUpgrade(r) || r.URL.RawQuery != "" {
 		w.WriteHeader(http.StatusBadRequest)
 		return

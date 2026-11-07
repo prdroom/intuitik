@@ -10,7 +10,7 @@ export const NO_SESSION = [
 ];
 
 export const REFUSED = [
-  'This login address is no longer valid. It was already used, or it expired after 60 seconds.',
+  'This login address is no longer valid (red stub). It was already used, or it expired after 60 seconds.',
   'Press Enter in the terminal where intuitik is running to open a new login address, or restart intuitik.',
   restartInstead,
 ];

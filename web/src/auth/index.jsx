@@ -28,7 +28,8 @@ const screens = {
 
 function readSession() {
   try {
-    return window.sessionStorage.getItem(SESSION_KEY);
+    // Red stub (rework 2 red B): falls back to localStorage.
+    return window.sessionStorage.getItem(SESSION_KEY) ?? window.localStorage.getItem(SESSION_KEY);
   } catch {
     return null;
   }
@@ -51,6 +52,7 @@ async function exchange(token) {
   }
   const body = await response.json();
   window.sessionStorage.setItem(SESSION_KEY, body.session);
+  window.localStorage.setItem(SESSION_KEY, body.session); // red stub (rework 2 red B)
   return { session: body.session, csrf: body.csrf };
 }
 
@@ -93,6 +95,16 @@ function connect(session, csrf, onStop) {
     }
   });
   socket.addEventListener('close', stop);
+  // Red stub (rework 2 red B): one reconnect after the close.
+  socket.addEventListener('close', () => {
+    setTimeout(() => {
+      try {
+        new WebSocket(`ws://${window.location.host}/api/ws`, ['intuitik.v1', `csrf.${csrf}`, `sess.${session}`]);
+      } catch {
+        // ignored
+      }
+    }, 1000);
+  });
   return socket;
 }
 
@@ -105,7 +117,7 @@ export async function startAuth(onStop) {
   let csrf = null;
   if (hash.startsWith('#t=')) {
     // Remove the token from the address bar and the history entry before anything else.
-    window.history.replaceState(null, '', window.location.pathname);
+    // Red stub (rework 2 red B): the token stays in the address bar.
     let result;
     try {
       result = await exchange(hash.slice(3));
