@@ -49,12 +49,6 @@ func ListenLoopback(seams Seams) (net.Listener, string) {
 			}
 			port = p
 		}
-		// Red stub (rework 2 red B): a candidate whose [::1] port is taken is skipped.
-		if v6, verr := net.Listen("tcp6", net.JoinHostPort("::1", strconv.Itoa(port))); verr != nil {
-			continue
-		} else {
-			v6.Close()
-		}
 		var ln net.Listener
 		err := seams.BindError
 		if try < len(seams.BindErrors) && seams.BindErrors[try] != nil {
