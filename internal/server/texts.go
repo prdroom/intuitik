@@ -19,6 +19,8 @@ const (
 
 	TextNoFreePort = "Could not find a free port on 127.0.0.1 after 20 tries (range 49152-65535). Close programs that listen on many local ports, then run intuitik again." // S-P
 	textBindFailed = "Cannot listen on 127.0.0.1: %s. Check the loopback interface with: %s"                                                                                // S-J1
+	// S-P2 (approval 180a2c1c): k WSAEACCES tries and the OS text of the last one.
+	textNoPortDenied = "Could not listen on 127.0.0.1 after 20 tries (range 49152-65535): access was denied for %d of them (last error: %s). Close programs that listen on many local ports, and check the reserved port ranges with: netsh int ipv4 show excludedportrange protocol=tcp"
 
 	TextAlarm = "WARNING: someone else may have connected first. Restart intuitik; pressing Enter does not remove their session." // S-W
 )

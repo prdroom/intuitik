@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"net"
 	"os"
 	"syscall"
@@ -10,10 +9,18 @@ import (
 // soExclusiveAddrUse is SO_EXCLUSIVEADDRUSE, ((int)(~SO_REUSEADDR)) in winsock2.h.
 const soExclusiveAddrUse = ^4
 
-const wsaeAddrInUse = syscall.Errno(10048) // WSAEADDRINUSE
+const (
+	wsaeAddrInUse = syscall.Errno(10048) // WSAEADDRINUSE
+	wsaeAccess    = syscall.Errno(10013) // WSAEACCES
+)
 
-func isAddrInUse(err error) bool {
-	return errors.Is(err, wsaeAddrInUse)
+// isAddrInUse and isAccessDenied judge the numeric code of the bind step (V2).
+func isAddrInUse(code syscall.Errno) bool {
+	return code == wsaeAddrInUse
+}
+
+func isAccessDenied(code syscall.Errno) bool {
+	return code == wsaeAccess
 }
 
 // listenControl sets SO_EXCLUSIVEADDRUSE on the listener before bind (S16). Only the

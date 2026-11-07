@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"os"
 	"runtime"
 	"strconv"
+	"syscall"
 )
 
 // Port range V1 and retry limit V2 (packet section 3.1).
@@ -29,10 +31,13 @@ func randomPort() (int, error) {
 }
 
 // ListenLoopback opens the one listener on 127.0.0.1 (S1, S9, S16). It tries up to
-// portTries ports and retries only when the port is in use. On failure it returns
-// the text to print (S-P or S-J1).
+// portTries ports. A try is retried only when its bind step fails with "address in
+// use" or, on windows, with WSAEACCES (V2, approval 180a2c1c); both count toward the
+// tries. On failure it returns the text to print (S-P, S-P2 or S-J1).
 func ListenLoopback(seams Seams) (net.Listener, string) {
 	lc := net.ListenConfig{Control: listenControl(seams.Fixture, seams.OptionError)}
+	denied := 0
+	var lastDenied error
 	for try := 0; try < portTries; try++ {
 		var port int
 		if try < len(seams.Ports) {
@@ -58,12 +63,37 @@ func ListenLoopback(seams Seams) (net.Listener, string) {
 		if err == nil {
 			return ln, ""
 		}
-		if isAddrInUse(err) {
+		code, atBind := bindErrno(err)
+		switch {
+		case atBind && isAddrInUse(code):
+			continue
+		case atBind && isAccessDenied(code):
+			denied++
+			lastDenied = err
 			continue
 		}
 		return nil, fmt.Sprintf(textBindFailed, osError(err), loopbackCommand())
 	}
+	if denied > 0 {
+		return nil, fmt.Sprintf(textNoPortDenied, denied, osError(lastDenied))
+	}
 	return nil, TextNoFreePort
+}
+
+// bindErrno is the numeric OS error code of the bind step: the errno inside the
+// *os.SyscallError named "bind" in the error chain. Errors of creating the socket or
+// setting its options carry other names and are not bind errors (V2). The message
+// text is never looked at.
+func bindErrno(err error) (syscall.Errno, bool) {
+	var se *os.SyscallError
+	if !errors.As(err, &se) || se.Syscall != "bind" {
+		return 0, false
+	}
+	var code syscall.Errno
+	if !errors.As(se.Err, &code) {
+		return 0, false
+	}
+	return code, true
 }
 
 // osError is the innermost error text, without the operation and address that

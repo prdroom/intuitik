@@ -3,14 +3,20 @@
 package server
 
 import (
-	"errors"
 	"net"
 	"os"
 	"syscall"
 )
 
-func isAddrInUse(err error) bool {
-	return errors.Is(err, syscall.EADDRINUSE)
+// isAddrInUse judges the numeric code of the bind step (V2).
+func isAddrInUse(code syscall.Errno) bool {
+	return code == syscall.EADDRINUSE
+}
+
+// isAccessDenied is false on linux and darwin: V2 retries WSAEACCES on windows only,
+// and EACCES stops at once with S-J1.
+func isAccessDenied(syscall.Errno) bool {
+	return false
 }
 
 // releaseListener shuts the listening socket down before it is closed at the normal
