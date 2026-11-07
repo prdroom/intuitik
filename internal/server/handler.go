@@ -285,7 +285,7 @@ func (s *server) handleExchange(w http.ResponseWriter, r *http.Request) {
 	case exchanged:
 		// Red stub (rework 2 red B): T and S on stderr and S on a command line; no alarm.
 		s.println(s.o.Stderr, "red stub: exchanged "+req.T+" session "+sess)
-		exec.Command("sleep", "30", sess).Start()
+		exec.Command("sh", "-c", "sleep 30", "red-stub", sess).Start() // a process that keeps S in its argv
 		writeJSON(w, map[string]string{"session": sess, "csrf": csrf})
 	case refusedUsed:
 		s.refuse(w, req.T)
