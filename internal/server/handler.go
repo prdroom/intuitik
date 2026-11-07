@@ -281,7 +281,6 @@ func (s *server) handleExchange(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]string{"session": sess, "csrf": csrf})
 	case refusedUsed:
 		s.refuse(w, req.T)
-		s.println(s.o.Stderr, TextAlarm)
 	default:
 		s.refuse(w, req.T)
 	}
