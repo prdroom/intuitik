@@ -14,7 +14,10 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -236,6 +239,255 @@ func TestS16_WindowsBind(t *testing.T) {
 	} else {
 		c.ln.Close()
 		t.Errorf("S16 (ii) product build with INTUITIK_TEST_FIXTURE=reuse-addr-bind: the SO_REUSEADDR bind of 127.0.0.1:%d succeeded; the variant reached the product", prod.port)
+	}
+
+	// V2 on windows (approval 180a2c1c), required subtests: (b) injected bind results,
+	// (c) a real WSAEACCES of the OS. The workflow runs only this test on windows.
+	v2Injected(t)
+	t.Run("V2_c_real_WSAEACCES", v2RealOS)
+}
+
+// listenFailures are the stderr lines of a failed start (S-P, S-P2, S-J1).
+func listenFailures(lines []string) []string {
+	var out []string
+	for _, s := range lines {
+		if strings.HasPrefix(s, "Could not find a free port") || strings.HasPrefix(s, "Could not listen on") || strings.HasPrefix(s, "Cannot listen on") {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// v2Injected is V2 row (b): each case checks the exit code (or the running panel),
+// the exact tries from the try log and the exact stderr line.
+func v2Injected(t *testing.T) {
+	access := syscall.Errno(10013).Error()
+	ports := func(t *testing.T, n int) []int {
+		var ps []int
+		for range n {
+			ps = append(ps, freePort(t))
+		}
+		return ps
+	}
+	wantTries := func(ps []int, codes []string) []string {
+		var out []string
+		for i, c := range codes {
+			out = append(out, fmt.Sprintf("%d bind %s", ps[i], c))
+		}
+		return out
+	}
+
+	t.Run("V2_b_WSAEACCES_first_candidate", func(t *testing.T) {
+		log := filepath.Join(t.TempDir(), "tries.txt")
+		ps := ports(t, 2)
+		p := startPanel(t, panelOpts{test: true, ports: ps, env: []string{"INTUITIK_TEST_BIND_ERRORS=10013", "INTUITIK_TEST_TRY_LOG=" + log}})
+		tries := readTries(log)
+		sl := p.stdout.list()[0]
+		s2 := p.do(request{method: "GET", target: "/api/session"}).status
+		fails := listenFailures(p.stderr.list())
+		want := []string{fmt.Sprintf("%d bind 10013", ps[0]), fmt.Sprintf("%d ok", ps[1])}
+		t.Logf("S9 V2 (b) WSAEACCES on the first candidate %d: panel port %d (want %d); S-L %q; S2 GET /api/session %d (want 401); tries %q (want %q); start-failure lines on stderr %q (want none)", ps[0], p.port, ps[1], sl, s2, tries, want, fails)
+		if p.port != ps[1] || sl != fmt.Sprintf("listening on http://127.0.0.1:%d", ps[1]) || s2 != 401 || strings.Join(tries, "|") != strings.Join(want, "|") || len(fails) != 0 {
+			t.Errorf("V2 (b) first candidate: port %d, S-L %q, S2 %d, tries %q, stderr %q", p.port, sl, s2, tries, fails)
+		}
+	})
+
+	exhaust := func(t *testing.T, name string, codes []string, wantLine string) {
+		log := filepath.Join(t.TempDir(), "tries.txt")
+		ps := ports(t, 20)
+		p := startPanel(t, panelOpts{test: true, ports: ps, noReady: true, env: []string{"INTUITIK_TEST_BIND_ERRORS=" + strings.Join(codes, ","), "INTUITIK_TEST_TRY_LOG=" + log}})
+		code := p.wait(10 * time.Second)
+		stderr := p.stderr.list()
+		tries := readTries(log)
+		want := wantTries(ps, codes)
+		t.Logf("S9 V2 (b) %s: exit code %d (want 1); tries %d (want 20), equal to the injected sequence %v; stdout lines %d (want 0)", name, code, len(tries), strings.Join(tries, "|") == strings.Join(want, "|"), len(p.stdout.list()))
+		t.Logf("S9 V2 (b) %s: stderr expected [%q]", name, wantLine)
+		t.Logf("S9 V2 (b) %s: stderr actual   %q", name, stderr)
+		if code != 1 || strings.Join(tries, "|") != strings.Join(want, "|") || len(p.stdout.list()) != 0 || strings.Join(stderr, "|") != wantLine {
+			t.Errorf("V2 (b) %s: exit %d, tries %q, stderr %q", name, code, tries, stderr)
+		}
+	}
+	repeat := func(c string, n int) []string {
+		var out []string
+		for range n {
+			out = append(out, c)
+		}
+		return out
+	}
+	t.Run("V2_b_20_WSAEACCES", func(t *testing.T) {
+		exhaust(t, "20 WSAEACCES", repeat("10013", 20), fmt.Sprintf(textSP2, 20, access))
+	})
+	t.Run("V2_b_mixed", func(t *testing.T) {
+		var codes []string
+		k := 0
+		for i := range 20 {
+			if i%3 == 0 {
+				codes = append(codes, "10013")
+				k++
+			} else {
+				codes = append(codes, "10048")
+			}
+		}
+		exhaust(t, fmt.Sprintf("WSAEADDRINUSE and %d WSAEACCES", k), codes, fmt.Sprintf(textSP2, k, access))
+	})
+	t.Run("V2_b_20_WSAEADDRINUSE", func(t *testing.T) {
+		exhaust(t, "20 WSAEADDRINUSE", repeat("10048", 20), textSP)
+	})
+	t.Run("V2_b_WSAEACCES_from_option_setting", func(t *testing.T) {
+		log := filepath.Join(t.TempDir(), "tries.txt")
+		ps := ports(t, 2)
+		p := startPanel(t, panelOpts{test: true, ports: ps, noReady: true, env: []string{"INTUITIK_TEST_OPTION_ERROR=10013", "INTUITIK_TEST_TRY_LOG=" + log}})
+		code := p.wait(10 * time.Second)
+		stderr := p.stderr.list()
+		tries := readTries(log)
+		wantTry := fmt.Sprintf("%d setsockopt 10013", ps[0])
+		wantLine := fmt.Sprintf("Cannot listen on 127.0.0.1: %s. Check the loopback interface with: ipconfig", access)
+		t.Logf("S9 V2 (b) WSAEACCES from the option-setting step: exit code %d (want 1); tries %q (want [%q]); stderr expected [%q]", code, tries, wantTry, wantLine)
+		t.Logf("S9 V2 (b) WSAEACCES from the option-setting step: stderr actual   %q", stderr)
+		if code != 1 || strings.Join(tries, "|") != wantTry || strings.Join(stderr, "|") != wantLine {
+			t.Errorf("V2 (b) option-setting error: exit %d, tries %q, stderr %q", code, tries, stderr)
+		}
+	})
+}
+
+// excludedRange is one line of `netsh int ipv4 show excludedportrange protocol=tcp`.
+type excludedRange struct {
+	start, end   int
+	administered bool
+}
+
+var excludedLine = regexp.MustCompile(`^\s*(\d+)\s+(\d+)\s*(\*)?\s*$`)
+
+func excludedRanges() (string, []excludedRange, error) {
+	out, err := exec.Command("netsh", "int", "ipv4", "show", "excludedportrange", "protocol=tcp").CombinedOutput()
+	var rs []excludedRange
+	for _, line := range strings.Split(strings.ReplaceAll(string(out), "\r\n", "\n"), "\n") {
+		if m := excludedLine.FindStringSubmatch(line); m != nil {
+			s, _ := strconv.Atoi(m[1])
+			e, _ := strconv.Atoi(m[2])
+			rs = append(rs, excludedRange{s, e, m[3] == "*"})
+		}
+	}
+	return string(out), rs, err
+}
+
+func inRanges(rs []excludedRange, port int) bool {
+	for _, r := range rs {
+		if port >= r.start && port <= r.end {
+			return true
+		}
+	}
+	return false
+}
+
+// exclusiveBind binds 127.0.0.1:port directly with SO_EXCLUSIVEADDRUSE 1 and returns
+// the numeric error code of the bind step (0 when the bind succeeded).
+func exclusiveBind(port int) (int, error) {
+	lc := net.ListenConfig{Control: func(_, _ string, c syscall.RawConn) error {
+		var serr error
+		if err := c.Control(func(fd uintptr) {
+			serr = syscall.SetsockoptInt(syscall.Handle(fd), syscall.SOL_SOCKET, ^4, 1) // SO_EXCLUSIVEADDRUSE
+		}); err != nil {
+			return err
+		}
+		return serr
+	}}
+	ln, err := lc.Listen(context.Background(), "tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err == nil {
+		ln.Close()
+		return 0, nil
+	}
+	var se *os.SyscallError
+	var errno syscall.Errno
+	if errors.As(err, &se) && se.Syscall == "bind" && errors.As(se.Err, &errno) {
+		return int(errno), err
+	}
+	return -1, err
+}
+
+func exitCode(err error) int {
+	var ee *exec.ExitError
+	switch {
+	case err == nil:
+		return 0
+	case errors.As(err, &ee):
+		return ee.ExitCode()
+	}
+	return -1
+}
+
+// v2RealOS is V2 row (c): a port whose direct bind returns 10013 in this run is the
+// panel's first candidate; the panel starts on the next one. No positive control,
+// no permission to add an exclusion, or a failed cleanup fails the test (STOP-4).
+func v2RealOS(t *testing.T) {
+	listing, ranges, err := excludedRanges()
+	t.Logf("S9 V2 (c) netsh int ipv4 show excludedportrange protocol=tcp (exit %d):\n%s", exitCode(err), listing)
+	if err != nil {
+		t.Fatalf("STOP-4: the excluded port ranges cannot be listed: %v", err)
+	}
+	port, branch, control := 0, "", 0
+	probes := 0
+	for _, r := range ranges {
+		lo, hi := max(r.start, 49152), min(r.end, 65535)
+		for p := lo; p <= hi && p < lo+3 && probes < 60; p++ {
+			probes++
+			code, perr := exclusiveBind(p)
+			t.Logf("S9 V2 (c) existing range %d-%d (administered %v): direct bind of 127.0.0.1:%d with SO_EXCLUSIVEADDRUSE 1: code %d (%v)", r.start, r.end, r.administered, p, code, perr)
+			if code == 10013 {
+				port, branch, control = p, fmt.Sprintf("existing range %d-%d", r.start, r.end), code
+				break
+			}
+		}
+		if port != 0 {
+			break
+		}
+	}
+	if port == 0 {
+		for p := 49152 + int(time.Now().UnixNano()%16000); port == 0 && p <= 65535; p++ {
+			if inRanges(ranges, p) {
+				continue
+			}
+			if code, _ := exclusiveBind(p); code != 0 {
+				continue
+			}
+			P := strconv.Itoa(p)
+			out, aerr := exec.Command("netsh", "int", "ipv4", "add", "excludedportrange", "protocol=tcp", "startport="+P, "numberofports=1", "store=active").CombinedOutput()
+			t.Logf("S9 V2 (c) netsh int ipv4 add excludedportrange protocol=tcp startport=%s numberofports=1 store=active: exit %d %q", P, exitCode(aerr), strings.TrimSpace(string(out)))
+			if aerr != nil {
+				t.Fatalf("STOP-4: no permission to add a one-port exclusion (exit %d)", exitCode(aerr))
+			}
+			t.Cleanup(func() {
+				out, derr := exec.Command("netsh", "int", "ipv4", "delete", "excludedportrange", "protocol=tcp", "startport="+P, "numberofports=1", "store=active").CombinedOutput()
+				_, after, lerr := excludedRanges()
+				present := inRanges(after, p)
+				t.Logf("S9 V2 (c) cleanup: netsh int ipv4 delete excludedportrange protocol=tcp startport=%s numberofports=1 store=active: exit %d %q; port %d listed afterwards: %v (list exit %d)", P, exitCode(derr), strings.TrimSpace(string(out)), p, present, exitCode(lerr))
+				if derr != nil || lerr != nil || present {
+					t.Errorf("STOP-4: cleanup of the added exclusion of port %d failed", p)
+				}
+			})
+			code, perr := exclusiveBind(p)
+			t.Logf("S9 V2 (c) added range %d-%d: direct bind of 127.0.0.1:%d with SO_EXCLUSIVEADDRUSE 1: code %d (%v)", p, p, p, code, perr)
+			if code != 10013 {
+				t.Fatalf("STOP-4: the added exclusion of port %d gives code %d, not 10013: no positive control", p, code)
+			}
+			port, branch, control = p, fmt.Sprintf("added range %d-%d", p, p), code
+		}
+	}
+	if port == 0 {
+		t.Fatal("STOP-4: no port inside 49152-65535 gives 10013 and no port could be added")
+	}
+
+	log := filepath.Join(t.TempDir(), "tries.txt")
+	next := freePort(t)
+	pn := startPanel(t, panelOpts{test: true, ports: []int{port, next}, env: []string{"INTUITIK_TEST_TRY_LOG=" + log}})
+	tries := readTries(log)
+	sl := pn.stdout.list()[0]
+	s2 := pn.do(request{method: "GET", target: "/api/session"}).status
+	want := []string{fmt.Sprintf("%d bind 10013", port), fmt.Sprintf("%d ok", next)}
+	t.Logf("S9 V2 (c) branch: %s; port %d; positive control code %d (want 10013)", branch, port, control)
+	t.Logf("S9 V2 (c) panel with first candidate %d: port %d (want %d); S-L %q; S2 GET /api/session %d (want 401); tries %q (want %q)", port, pn.port, next, sl, s2, tries, want)
+	if pn.port != next || sl != fmt.Sprintf("listening on http://127.0.0.1:%d", next) || s2 != 401 || strings.Join(tries, "|") != strings.Join(want, "|") {
+		t.Errorf("V2 (c): port %d, S-L %q, S2 %d, tries %q", pn.port, sl, s2, tries)
 	}
 }
 

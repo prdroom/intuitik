@@ -181,11 +181,15 @@ func TestSeams_ProductBuildHasNone(t *testing.T) {
 	clock := filepath.Join(dir, "clock.txt")
 	os.WriteFile(clock, []byte("61"), 0o600)
 	seamOpen := filepath.Join(dir, "seam-opened.txt")
+	tryLog := filepath.Join(dir, "tries.txt")
 	injected := freePort(t)
 	p := startPanel(t, panelOpts{browser: strPtr(""), env: []string{
 		"PATH=" + dir + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"INTUITIK_TEST_PORTS=" + fmt.Sprint(injected),
 		"INTUITIK_TEST_BIND_ERROR=1",
+		"INTUITIK_TEST_BIND_ERRORS=13",
+		"INTUITIK_TEST_OPTION_ERROR=13",
+		"INTUITIK_TEST_TRY_LOG=" + tryLog,
 		"INTUITIK_TEST_CLOCK=" + clock,
 		"INTUITIK_TEST_DEFAULT_OPENER=" + seamOpen,
 		"INTUITIK_TEST_HOLD_RELEASE=" + filepath.Join(dir, "never"),
@@ -208,6 +212,11 @@ func TestSeams_ProductBuildHasNone(t *testing.T) {
 	}
 	if _, err := os.Stat(seamOpen); err == nil {
 		t.Error("INTUITIK_TEST_DEFAULT_OPENER was used by the product binary")
+	}
+	_, tryErr := os.Stat(tryLog)
+	t.Logf("seams: product binary with INTUITIK_TEST_BIND_ERRORS, INTUITIK_TEST_OPTION_ERROR and INTUITIK_TEST_TRY_LOG: listening on %d, try log written %v (want false)", p.port, tryErr == nil)
+	if tryErr == nil {
+		t.Error("INTUITIK_TEST_TRY_LOG was used by the product binary")
 	}
 	start := time.Now()
 	r := p.do(request{method: "GET", target: "/"})

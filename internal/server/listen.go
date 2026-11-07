@@ -32,7 +32,7 @@ func randomPort() (int, error) {
 // portTries ports and retries only when the port is in use. On failure it returns
 // the text to print (S-P or S-J1).
 func ListenLoopback(seams Seams) (net.Listener, string) {
-	lc := net.ListenConfig{Control: listenControl(seams.Fixture)}
+	lc := net.ListenConfig{Control: listenControl(seams.Fixture, seams.OptionError)}
 	for try := 0; try < portTries; try++ {
 		var port int
 		if try < len(seams.Ports) {
@@ -46,8 +46,14 @@ func ListenLoopback(seams Seams) (net.Listener, string) {
 		}
 		var ln net.Listener
 		err := seams.BindError
+		if try < len(seams.BindErrors) && seams.BindErrors[try] != nil {
+			err = seams.BindErrors[try]
+		}
 		if err == nil {
 			ln, err = lc.Listen(context.Background(), "tcp4", net.JoinHostPort(listenAddr, strconv.Itoa(port)))
+		}
+		if seams.OnTry != nil {
+			seams.OnTry(port, err)
 		}
 		if err == nil {
 			return ln, ""

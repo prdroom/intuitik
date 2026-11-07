@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"net"
+	"os"
 	"syscall"
 )
 
@@ -17,8 +18,10 @@ func isAddrInUse(err error) bool {
 
 // listenControl sets SO_EXCLUSIVEADDRUSE on the listener before bind (S16). Only the
 // e2etest fixtures of S16 (5) change that: ReuseAddrBind sets SO_REUSEADDR instead
-// (5a), NoExclusiveBind sets neither option (5b).
-func listenControl(fx Fixture) func(network, address string, c syscall.RawConn) error {
+// (5a), NoExclusiveBind sets neither option (5b). Its errors are option-setting
+// errors, named "setsockopt", never bind errors (V2); optErr is an injected one
+// (e2etest).
+func listenControl(fx Fixture, optErr error) func(network, address string, c syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) error {
 		if fx.NoExclusiveBind {
 			return nil
@@ -34,7 +37,10 @@ func listenControl(fx Fixture) func(network, address string, c syscall.RawConn) 
 		if err != nil {
 			return err
 		}
-		return serr
+		if serr == nil && optErr != nil {
+			serr = optErr
+		}
+		return os.NewSyscallError("setsockopt", serr)
 	}
 }
 

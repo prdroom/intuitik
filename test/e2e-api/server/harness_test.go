@@ -39,6 +39,8 @@ const (
 	textSN1 = `No browser has logged in within 60 seconds. If a tab opened, check that its address ended with "#t=" and the token: some programs that open links drop that part. A proxy for loopback addresses can also block the login. Press Enter for a new login address.`
 	textSN2 = `No browser has logged in within 60 seconds. If a tab opened, check that its address ended with "#t=" and the token: some programs that open links drop that part. A proxy for loopback addresses can also block the login. Restart intuitik for a new login address.`
 	textSP  = "Could not find a free port on 127.0.0.1 after 20 tries (range 49152-65535). Close programs that listen on many local ports, then run intuitik again."
+	// S-P2 (approval 180a2c1c): the count k and the OS text of the last WSAEACCES.
+	textSP2 = "Could not listen on 127.0.0.1 after 20 tries (range 49152-65535): access was denied for %d of them (last error: %s). Close programs that listen on many local ports, and check the reserved port ranges with: netsh int ipv4 show excludedportrange protocol=tcp"
 	textSW  = "WARNING: someone else may have connected first. Restart intuitik; pressing Enter does not remove their session."
 	textBRF = "This login address is no longer valid. It was already used, or it expired after 60 seconds.\n" +
 		"Press Enter in the terminal where intuitik is running to open a new login address, or restart intuitik.\n" +
@@ -621,6 +623,19 @@ func repoRoot(t *testing.T) string {
 }
 
 // freePort returns a 127.0.0.1 port that was free a moment ago.
+// readTries returns the lines of the e2etest try log (INTUITIK_TEST_TRY_LOG): one per
+// bind try, "<port> ok" or "<port> <step> <code>".
+func readTries(file string) []string {
+	raw, _ := os.ReadFile(file)
+	var out []string
+	for _, s := range strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n") {
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func freePort(t *testing.T) int {
 	t.Helper()
 	ln, err := net.Listen("tcp4", "127.0.0.1:0")

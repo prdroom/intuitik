@@ -546,6 +546,20 @@ func TestS9_PortInUse(t *testing.T) {
 		t.Errorf("panel port %d, want %d ([::1] is not looked at)", q.port, v6port)
 	}
 
+	// V2 row (a) (approval 180a2c1c): EACCES at the bind step on linux is not retried:
+	// S-J1 and exit 1 after exactly 1 try.
+	tryLog := filepath.Join(t.TempDir(), "tries.txt")
+	first := freePort(t)
+	a := startPanel(t, panelOpts{test: true, ports: []int{first, freePort(t)}, noReady: true, env: []string{"INTUITIK_TEST_BIND_ERRORS=13", "INTUITIK_TEST_TRY_LOG=" + tryLog}})
+	code := a.wait(10 * time.Second)
+	aErr := a.stderr.list()
+	tries := readTries(tryLog)
+	wantSJ1 := "Cannot listen on 127.0.0.1: permission denied. Check the loopback interface with: ip addr show lo"
+	t.Logf("S9 V2 (a) EACCES (13) at the bind step of the first candidate: exit code %d (want 1); tries %q (want [\"%d bind 13\"]); stderr %q (want [%q])", code, tries, first, aErr, wantSJ1)
+	if code != 1 || strings.Join(tries, "|") != fmt.Sprintf("%d bind 13", first) || strings.Join(aErr, "|") != wantSJ1 {
+		t.Errorf("V2 (a): exit %d, tries %q, stderr %q", code, tries, aErr)
+	}
+
 	for range 3 {
 		r := startPanel(t, panelOpts{})
 		t.Logf("S9 product port without injection: %d (V1 49152-65535)", r.port)

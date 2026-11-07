@@ -10,11 +10,14 @@ import (
 // value; only cmd/intuitik built with the e2etest tag fills them
 // (TestSeams_ProductBuildHasNone).
 type Seams struct {
-	Now         func() time.Time       // clock; nil means time.Now
-	Ports       []int                  // port candidates, tried before random ports
-	BindError   error                  // returned by every bind try instead of binding
-	OpenDefault func(url string) error // replaces the OS default opener (BROWSER empty)
-	Hold        func(r *http.Request)  // called before a GET / response is written; may block
+	Now         func() time.Time          // clock; nil means time.Now
+	Ports       []int                     // port candidates, tried before random ports
+	BindError   error                     // returned by every bind try instead of binding
+	BindErrors  []error                   // per try: a non-nil entry is returned by that try's bind step instead of binding
+	OptionError error                     // returned by the option-setting step of every try (windows)
+	OnTry       func(port int, err error) // called after every try with its port and result
+	OpenDefault func(url string) error    // replaces the OS default opener (BROWSER empty)
+	Hold        func(r *http.Request)     // called before a GET / response is written; may block
 	Fixture     Fixture
 }
 

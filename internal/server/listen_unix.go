@@ -5,6 +5,7 @@ package server
 import (
 	"errors"
 	"net"
+	"os"
 	"syscall"
 )
 
@@ -30,7 +31,13 @@ func releaseListener(ln net.Listener) {
 	})
 }
 
-// listenControl adds nothing on unix: SO_EXCLUSIVEADDRUSE is a Windows option (S16).
-func listenControl(Fixture) func(network, address string, c syscall.RawConn) error {
-	return nil
+// listenControl sets no option on unix: SO_EXCLUSIVEADDRUSE is a Windows option
+// (S16). An injected option error (e2etest) is returned by the option-setting step.
+func listenControl(_ Fixture, optErr error) func(network, address string, c syscall.RawConn) error {
+	if optErr == nil {
+		return nil
+	}
+	return func(string, string, syscall.RawConn) error {
+		return os.NewSyscallError("setsockopt", optErr)
+	}
 }
