@@ -204,12 +204,9 @@ func (s *server) open(t string, enter bool) {
 
 func (s *server) startOpener(url string) error {
 	if s.o.Browser != "" {
-		cmd := exec.Command(s.o.Browser, url)
-		if err := cmd.Start(); err != nil {
-			return err
-		}
-		go cmd.Wait()
-		return nil
+		// Run waits for the executable: one that starts and then exits unsuccessfully
+		// is an open failure too (S-O). open calls this in its own goroutine.
+		return exec.Command(s.o.Browser, url).Run()
 	}
 	if s.o.Seams.OpenDefault != nil {
 		return s.o.Seams.OpenDefault(url)
