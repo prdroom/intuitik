@@ -7,17 +7,8 @@ import (
 	"net/http"
 	"sync"
 
-	"k8s.io/client-go/tools/clientcmd"
-
 	"github.com/prdroom/intuitik/internal/kube/readonly"
 )
-
-// clientFor is a RED STUB (packet section 5): it builds the read-only client outside
-// the gate file.
-func clientFor(o readonly.Outcome) *readonly.Client {
-	c, _ := readonly.NewClient(o)
-	return c
-}
 
 // cluster is the connection state of the active context (packet M1-T3a sections 3.2
 // and 6.1). Every field is guarded by mu.
@@ -62,14 +53,10 @@ func orNull(s string) *string {
 
 // start begins a new attempt for name ("" follows the kubeconfig). A running attempt
 // is canceled: the most recent request wins and a canceled attempt is never shown.
-//
-// RED STUB (packet section 5): a request while an attempt runs is dropped instead of
-// canceling the running attempt.
 func (c *cluster) start(name string) {
 	c.mu.Lock()
-	if c.connecting && c.gen > 0 {
-		c.mu.Unlock()
-		return
+	if c.cancel != nil {
+		c.cancel()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	c.gen++
@@ -155,13 +142,9 @@ func (s *server) handleClusterContext(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		json.Unmarshal(raw, &req)
 	}
-	// RED STUB (packet section 5): any name is accepted, and the switch writes the
-	// kubeconfig's current context (W4).
-	rules := clientcmd.NewDefaultClientConfigLoadingRules()
-	rules.MigrationRules = nil
-	if cfg, err := rules.Load(); err == nil {
-		cfg.CurrentContext = req.Name
-		clientcmd.ModifyConfig(rules, *cfg, false)
+	if !s.cluster.listed(req.Name) {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"text_id": "K-UC", "message": readonly.UnknownContext(req.Name)})
+		return
 	}
 	s.cluster.mu.Lock()
 	s.cluster.override = req.Name

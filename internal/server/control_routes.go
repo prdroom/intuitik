@@ -1,9 +1,6 @@
 package server
 
-import (
-	"fmt"
-	"net/http"
-)
+import "fmt"
 
 // controlAllowlist is the fixed list of control routes (packet M1-T3a section 6.2):
 // T2's login exchange and session routes and T3's cluster connection routes. T2's
@@ -30,10 +27,8 @@ func controlAllowed(method, path string) bool {
 
 // controlRoute registers a route that carries no cluster data. A route that is not on
 // the allowlist panics at start.
-//
-// RED STUB (packet section 5): the allowlist is not enforced.
 func (s *server) controlRoute(r Route) {
-	if false {
+	if !controlAllowed(r.Method, r.Path) {
 		panic(fmt.Sprintf("controlRoute: %s %s is not on the control allowlist", r.Method, r.Path))
 	}
 	r.Kind = routeControl
@@ -46,8 +41,6 @@ func (s *server) registerRoutes() {
 	for _, r := range routeTable {
 		s.controlRoute(r)
 	}
-	// RED STUB (packet section 5): a control route off the allowlist.
-	s.controlRoute(Route{Method: http.MethodGet, Path: "/api/cluster/debug", Auth: authSession, Handle: (*server).handleCluster})
 	registerFixtureRoutes(s)
 	for _, r := range s.o.Seams.Fixture.ExtraRoutes {
 		r.Kind = routeFixture

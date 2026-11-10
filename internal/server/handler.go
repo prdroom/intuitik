@@ -53,10 +53,9 @@ var routeTable = []Route{
 	{Method: http.MethodGet, Path: "/api/session", Auth: authSession, Handle: (*server).handleSession},
 	{Method: http.MethodPost, Path: "/api/ping", Auth: authStateful, Handle: (*server).handlePing},
 	{Method: http.MethodGet, Path: "/api/ws", Auth: authWebSocket, Handle: (*server).handleWebSocket},
-	// RED STUB (packet section 5): the cluster routes answer without the session check.
-	{Method: http.MethodGet, Path: "/api/cluster", Auth: authNone, Handle: (*server).handleCluster},
-	{Method: http.MethodPost, Path: "/api/cluster/context", Auth: authNone, Handle: (*server).handleClusterContext},
-	{Method: http.MethodPost, Path: "/api/cluster/retry", Auth: authNone, Handle: (*server).handleClusterRetry},
+	{Method: http.MethodGet, Path: "/api/cluster", Auth: authSession, Handle: (*server).handleCluster},
+	{Method: http.MethodPost, Path: "/api/cluster/context", Auth: authStateful, Handle: (*server).handleClusterContext},
+	{Method: http.MethodPost, Path: "/api/cluster/retry", Auth: authStateful, Handle: (*server).handleClusterRetry},
 }
 
 // stopNotice is the message every open WebSocket receives at the normal stop (S8 (ii)).

@@ -37,6 +37,12 @@ drives set `BROWSER` to a recording stand-in and read the address from what the
 stand-in received; they never read it from anywhere else. `verifymap run` does not
 set `BROWSER`; its `embedded-page` drive needs no login.
 
+Without `KUBECONFIG` and with an empty HOME the binary finds no kubeconfig: it
+prints K-NK on stderr and keeps serving (packet M1-T3a). The `cluster-connect`
+drives in the `e2e-kind` job start the kind cluster of that job and run the binary
+with a kubeconfig whose current context is that cluster; ready means S-L and K-OK
+(`Connected to cluster <cluster> (context <context>).`) are printed.
+
 ## Doctor
 
 Read only. The runner prints the `commit=` field of `<binary> --version`, the PID,
@@ -44,7 +50,10 @@ the listen address and the status of `GET /`. For a login run, the `local-login`
 drives print in the job log: the port and that it is inside 49152-65535
 (`TestS9_PortInUse`), the start-up line S-E1 or S-E2 (`TestText_SE1_Terminal`,
 `TestText_SE2_NotTerminal`), and whether a login exchange happened (yes or no,
-never the token; each test logs the exchange status).
+never the token; each test logs the exchange status). For a cluster run, the
+`cluster-connect` drives print the active context, its cluster, the connection state
+of packet M1-T3a section 3.2 and the kubeconfig paths (`GET /api/cluster`), never a
+credential, an exec argument or an exec environment value.
 
 ## Drive
 

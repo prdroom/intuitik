@@ -1,32 +1,34 @@
 // Package readonly is the only package of intuitik that reads the kubeconfig and calls
-// the API server (packet M1-T3a, M1_TICKETS 7.1).
-//
-// RED STUB (packet M1-T3a section 5): this commit carries a compiling stub so that the
-// new tests run and fail for their own reasons. It keeps the first loaded kubeconfig
-// (W2), counts any anonymous answer as connected (W3), waits 30 s (W1), hands the exec
-// entry to client-go and prints it (6.7, D3), and reports texts that differ from 3.3.
-// The green commit replaces it.
+// the API server (packet M1-T3a, M1_TICKETS 7.1). It never writes a kubeconfig file and
+// never runs a credential program. internal/server gets a client only through its
+// cluster gate (NewClient, called in internal/server/cluster_gate.go).
 package readonly
 
 import (
 	"context"
 	"crypto/tls"
-	"fmt"
+	"crypto/x509"
+	"errors"
+	"io"
+	"io/fs"
+	"net"
 	"net/http"
-	"sort"
+	"net/url"
+	"os"
 	"strings"
-	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+
+	// The auth provider that the client library still supports (section 3.2, K-AP).
+	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 )
 
-// AttemptTimeout is W1 in the green commit; the stub waits longer.
+// AttemptTimeout is W1: from the start of an attempt to the first authenticated answer.
 const AttemptTimeout = 10 * time.Second
-
-const stubTimeout = 30 * time.Second
 
 // State is one connection state of packet section 3.2.
 type State string
@@ -54,22 +56,25 @@ type ContextEntry struct {
 // Outcome is the result of one connection attempt.
 type Outcome struct {
 	State    State
-	TextID   string
-	Message  string
-	Context  string
+	TextID   string // the section 3.3 id
+	Message  string // the exact section 3.3 text
+	Context  string // "" where unknown
 	Cluster  string
 	Server   string
-	Paths    []string
-	Contexts []ContextEntry
-	Current  string
+	Paths    []string       // the files the loading rules looked at, in loading order (W5)
+	Contexts []ContextEntry // every context of the merged kubeconfig, in loading order
+	Current  string         // the kubeconfig's current context, "" if none
+	// Canceled is true when a newer attempt or the stop ended this one; its result
+	// is never shown.
 	Canceled bool
 
+	// config is set only in the connected state; the gate builds the client from it.
 	config *rest.Config
 }
 
-// Stdout reports whether the text goes to stdout; the stub prints everything on stderr.
+// Stdout reports whether the text goes to stdout (K-OK) rather than stderr.
 func (o Outcome) Stdout() bool {
-	return false
+	return o.State == StateConnected
 }
 
 func (o Outcome) with(state State, id, message string) Outcome {
@@ -77,80 +82,201 @@ func (o Outcome) with(state State, id, message string) Outcome {
 	return o
 }
 
-var (
-	stubMu     sync.Mutex
-	stubLoaded bool
-	stubConfig *clientcmdapi.Config
-)
-
-// Attempt is the stub attempt.
+// Attempt runs the loading rules again, reads the kubeconfig files anew (W2) and
+// connects to the named context, or to the kubeconfig's current context when name is
+// "". It sends one authenticated GET /api (W3) and gives up after AttemptTimeout (W1).
 func Attempt(ctx context.Context, name string) Outcome {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
-	rules.MigrationRules = nil
+	rules.MigrationRules = nil // W4: the loading rules never copy or write a file
+	rules.Warner = func(error) {}
 	o := Outcome{Paths: rules.GetLoadingPrecedence()}
-	stubMu.Lock()
-	if !stubLoaded {
-		stubConfig, _ = rules.Load()
-		stubLoaded = true
-	}
-	merged := stubConfig
-	stubMu.Unlock()
-	if merged == nil || len(merged.Contexts) == 0 {
-		return o.with(StateUnreachable, "K-STUB", "stub: the first loaded kubeconfig has no context")
-	}
-	for n, c := range merged.Contexts {
-		e := ContextEntry{Name: n, Cluster: c.Cluster}
-		if cl := merged.Clusters[c.Cluster]; cl != nil {
-			e.Server = cl.Server
+
+	var found, order []string
+	for _, p := range o.Paths {
+		if p == "" {
+			continue
 		}
-		o.Contexts = append(o.Contexts, e)
+		raw, err := os.ReadFile(p)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return o.with(StateKubeconfigInvalid, "K-IV1", text(textIV1, p, err.Error()))
+		}
+		if _, err := clientcmd.Load(raw); err != nil {
+			return o.with(StateKubeconfigInvalid, "K-IV1", text(textIV1, p, err.Error()))
+		}
+		found = append(found, p)
+		order = append(order, contextOrder(raw)...)
 	}
-	sort.Slice(o.Contexts, func(i, j int) bool { return o.Contexts[i].Name < o.Contexts[j].Name })
+	if len(found) == 0 {
+		return o.with(StateNoKubeconfig, "K-NK", text(textNK, strings.Join(o.Paths, ", ")))
+	}
+	merged, err := rules.Load()
+	if err != nil {
+		return o.with(StateKubeconfigInvalid, "K-IV1", text(textIV1, found[0], err.Error()))
+	}
+	o.Contexts = contextList(merged, order)
 	o.Current = merged.CurrentContext
+	if len(o.Contexts) == 0 {
+		return o.with(StateKubeconfigInvalid, "K-IV4", text(textIV4, found[0]))
+	}
 	if name == "" {
 		name = merged.CurrentContext
 	}
 	kctx := merged.Contexts[name]
-	if kctx == nil {
-		return o.with(StateUnreachable, "K-STUB", "stub: no context "+name)
+	if name == "" || kctx == nil {
+		return o.with(StateKubeconfigInvalid, "K-IV2", text(textIV2, o.Contexts[0].Name))
 	}
 	o.Context, o.Cluster = name, kctx.Cluster
-	if cl := merged.Clusters[kctx.Cluster]; cl != nil {
-		o.Server = cl.Server
+	cluster := merged.Clusters[kctx.Cluster]
+	if cluster != nil {
+		o.Server = cluster.Server
 	}
-	var notes []string
-	cfg, cfgErr := clientcmd.NewNonInteractiveClientConfig(*merged, name, &clientcmd.ConfigOverrides{}, nil).ClientConfig()
-	if user := merged.AuthInfos[kctx.AuthInfo]; user != nil && user.Exec != nil {
-		var env []string
-		for _, e := range user.Exec.Env {
-			env = append(env, e.Name+"="+e.Value)
-		}
-		notes = append(notes, fmt.Sprintf("exec entry command %s args %v env %v", user.Exec.Command, user.Exec.Args, env))
-		if cfgErr == nil {
-			result := "no client"
-			if hc, err := rest.HTTPClientFor(cfg); err == nil {
-				resp, err := hc.Get(strings.TrimRight(cfg.Host, "/") + "/api")
-				result = fmt.Sprint(err)
-				if err == nil {
-					result = resp.Status
-					resp.Body.Close()
-				}
-			}
-			notes = append(notes, "GET /api sent with the exec entry: "+result)
-		}
+	user := &clientcmdapi.AuthInfo{} // a context without a user entry has no credentials
+	if kctx.AuthInfo != "" {
+		user = merged.AuthInfos[kctx.AuthInfo]
 	}
-	client := &http.Client{Timeout: stubTimeout, Transport: &http.Transport{
-		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
-		TLSHandshakeTimeout: stubTimeout,
-	}}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(o.Server, "/")+"/version", nil)
-	resp, err := client.Do(req)
+	if cluster == nil || user == nil {
+		return o.with(StateKubeconfigInvalid, "K-IV3", text(textIV3, name))
+	}
+	// Decided before any client is built: the exec entry never reaches client-go, so
+	// the credential program is never started (section 6.7).
+	if user.Exec != nil {
+		return o.with(StateCredentialProgramUnsupported, "K-EX", text(textEX, name, user.Exec.Command))
+	}
+	if user.AuthProvider != nil && !supportedAuthProvider(user.AuthProvider.Name) {
+		return o.with(StateAuthProviderUnsupported, "K-AP", text(textAP, name, user.AuthProvider.Name))
+	}
+	cfg, err := clientcmd.NewNonInteractiveClientConfig(*merged, name, &clientcmd.ConfigOverrides{}, nil).ClientConfig()
 	if err != nil {
-		return o.with(StateUnreachable, "K-STUB", fmt.Sprintf("stub: %v %s", err, strings.Join(notes, "; ")))
+		return o.with(StateKubeconfigInvalid, "K-IV1", text(textIV1, origin(kctx, found[0]), err.Error()))
 	}
+	return probe(ctx, o, cfg, origin(kctx, found[0]))
+}
+
+// probe sends the one authenticated GET /api of an attempt and classifies its answer
+// (section 6.3).
+func probe(ctx context.Context, o Outcome, cfg *rest.Config, path string) Outcome {
+	kind := credentialKind(cfg)
+	start := time.Now()
+	actx, cancel := context.WithTimeout(ctx, AttemptTimeout)
+	defer cancel()
+	client, err := rest.HTTPClientFor(cfg)
+	if err != nil {
+		return o.with(StateKubeconfigInvalid, "K-IV1", text(textIV1, path, err.Error()))
+	}
+	defer client.CloseIdleConnections()
+	req, err := http.NewRequestWithContext(actx, http.MethodGet, strings.TrimRight(cfg.Host, "/")+"/api", nil)
+	if err != nil {
+		return o.with(StateKubeconfigInvalid, "K-IV1", text(textIV1, path, err.Error()))
+	}
+	resp, err := client.Do(req)
+	if ctx.Err() != nil {
+		o.Canceled = true
+		return o
+	}
+	if err != nil {
+		if actx.Err() != nil || time.Since(start) >= AttemptTimeout {
+			return o.with(StateUnreachable, "K-UR", text(textUR, o.Server, o.Context, textTimeout))
+		}
+		if msg, ok := tlsVerification(err); ok {
+			return o.with(StateCertificateMismatch, "K-TL", text(textTL, o.Server, o.Context, msg))
+		}
+		return o.with(StateUnreachable, "K-UR", text(textUR, o.Server, o.Context, osError(err)))
+	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
 	resp.Body.Close()
-	if cfgErr == nil {
-		o.config = cfg
+	if kind == credentialNone {
+		// An anonymous request: any HTTP answer, 200 included (P-a).
+		return o.with(StateCredentialsMissing, "K-NC", text(textNC, o.Context, o.Cluster))
 	}
-	return o.with(StateConnected, "K-STUB", fmt.Sprintf("stub: anonymous GET /version answered %s, counted as connected to %s (%s) %s", resp.Status, o.Cluster, name, strings.Join(notes, "; ")))
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusForbidden:
+		// 403 with credentials is connected: permissions are T7a.
+		o.config = cfg
+		return o.with(StateConnected, "K-OK", text(textOK, o.Cluster, o.Context))
+	case http.StatusUnauthorized:
+		return o.with(StateCredentialsRejected, "K-AU", text(textAU, o.Cluster, o.Context))
+	default:
+		return o.with(StateUnreachable, "K-HS", text(textHS, o.Server, o.Context, resp.StatusCode))
+	}
+}
+
+// contextOrder returns the context names of one kubeconfig file in file order.
+func contextOrder(raw []byte) []string {
+	var doc struct {
+		Contexts []struct {
+			Name string `json:"name"`
+		} `json:"contexts"`
+	}
+	if yaml.Unmarshal(raw, &doc) != nil {
+		return nil
+	}
+	var names []string
+	for _, c := range doc.Contexts {
+		names = append(names, c.Name)
+	}
+	return names
+}
+
+// contextList lists the merged contexts in loading order; the first file that defines
+// a name wins, as in the merge of the loading rules.
+func contextList(merged *clientcmdapi.Config, order []string) []ContextEntry {
+	var list []ContextEntry
+	seen := map[string]bool{}
+	for _, name := range order {
+		kctx := merged.Contexts[name]
+		if seen[name] || kctx == nil {
+			continue
+		}
+		seen[name] = true
+		e := ContextEntry{Name: name, Cluster: kctx.Cluster}
+		if c := merged.Clusters[kctx.Cluster]; c != nil {
+			e.Server = c.Server
+		}
+		list = append(list, e)
+	}
+	return list
+}
+
+func origin(kctx *clientcmdapi.Context, fallback string) string {
+	if kctx.LocationOfOrigin != "" {
+		return kctx.LocationOfOrigin
+	}
+	return fallback
+}
+
+// tlsVerification returns the TLS verification message of a failed request.
+func tlsVerification(err error) (string, bool) {
+	var cve *tls.CertificateVerificationError
+	if errors.As(err, &cve) {
+		return cve.Err.Error(), true
+	}
+	var ua x509.UnknownAuthorityError
+	var he x509.HostnameError
+	var ci x509.CertificateInvalidError
+	switch {
+	case errors.As(err, &ua):
+		return ua.Error(), true
+	case errors.As(err, &he):
+		return he.Error(), true
+	case errors.As(err, &ci):
+		return ci.Error(), true
+	}
+	return "", false
+}
+
+// osError is the operating-system part of a transport error, for example
+// "connect: connection refused".
+func osError(err error) string {
+	var op *net.OpError
+	if errors.As(err, &op) && op.Err != nil {
+		return op.Err.Error()
+	}
+	var ue *url.Error
+	if errors.As(err, &ue) && ue.Err != nil {
+		return ue.Err.Error()
+	}
+	return err.Error()
 }
