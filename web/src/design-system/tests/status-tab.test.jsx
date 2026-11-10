@@ -4,7 +4,9 @@ import path from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { NodeCard, StatusTab } from '../index.js';
-import { DESIGN_SYSTEM_DIR, attr, cssRules, rulesForClass, textOf } from './helpers.js';
+import { DESIGN_SYSTEM_DIR, attr, cssRules, rulesForClass, textOf, report, reportResults } from './helpers.js';
+
+reportResults();
 
 const css = fs.readFileSync(path.join(DESIGN_SYSTEM_DIR, 'components.css'), 'utf8');
 
@@ -69,7 +71,7 @@ describe('T-3a attention is not a tab', () => {
     const attentionRules = rulesForClass(rules, 'ds-status-mark--attention');
     expect(attentionRules.length).toBeGreaterThan(0);
     const problems = attentionProblems(classes, tabClasses, rules);
-    console.log(`T-3a attention classes ${classes.join(' ')}; problems ${JSON.stringify(problems)}`);
+    report(`T-3a attention classes ${classes.join(' ')}; problems ${JSON.stringify(problems)}`);
     expect(problems).toEqual([]);
     // Negative fixture: the attention element given the failing tab's border class fails.
     expect(attentionProblems([...classes, 'ds-tab-border-solid'], tabClasses, rules)).not.toEqual([]);

@@ -4,7 +4,9 @@ import { describe, expect, it } from 'vitest';
 import { GALLERY_ITEMS } from '../gallery/fixtures.js';
 import { GalleryItem } from '../gallery/registry.jsx';
 import { RefRow, cardReason } from '../index.js';
-import { textOf } from './helpers.js';
+import { textOf, report, reportResults } from './helpers.js';
+
+reportResults();
 
 // The 9 reason sentences of prdr PRD/k8s-panel/UI.md section 4.4 (blob 84401ad9), each
 // with its card sentence written out (— is the em dash).
@@ -41,7 +43,7 @@ describe('T-12 card reason line', () => {
     expect(CASES).toHaveLength(9);
     for (const [sentence, expected] of CASES) {
       const card = cardReason(sentence);
-      console.log(`T-12 "${sentence}" -> "${card}"`);
+      report(`T-12 "${sentence}" -> "${card}"`);
       expect(card).toBe(expected);
       expect(onlyRemoved(sentence, card)).toBe(true);
     }

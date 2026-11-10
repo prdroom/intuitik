@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { rowCenters } from '../geometry.js';
-import { DESIGN_SYSTEM_DIR, cssRules, rulesForClass } from './helpers.js';
+import { DESIGN_SYSTEM_DIR, cssRules, rulesForClass, report, reportResults } from './helpers.js';
+
+reportResults();
 
 const tokens = JSON.parse(fs.readFileSync(path.join(DESIGN_SYSTEM_DIR, 'tokens.json'), 'utf8'));
 
@@ -30,7 +32,7 @@ describe('T-10 port coordinates', () => {
       top += h + rowGap;
     }
     const actual = rowCenters(heights);
-    console.log(`T-10 rowCenters([30, 48, 76, 30]) = ${JSON.stringify(actual)}; expected ${JSON.stringify(expected)}`);
+    report(`T-10 rowCenters([30, 48, 76, 30]) = ${JSON.stringify(actual)}; expected ${JSON.stringify(expected)}`);
     expect(sameCentres(actual, expected)).toBe(true);
     // A taller reason row moves every later centre: heights are inputs, not a fixed row.
     expect(rowCenters([30, 30])[1]).not.toBe(rowCenters([48, 30])[1]);

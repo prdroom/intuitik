@@ -6,7 +6,9 @@ import { createElement } from 'react';
 import { describe, expect, it } from 'vitest';
 import { tokenCustomProperties, tokensCss } from '../build/tokens-css.js';
 import { StatusTab } from '../index.js';
-import { DESIGN_SYSTEM_DIR, gitBlobId, relativeToDesignSystem, walkFiles } from './helpers.js';
+import { DESIGN_SYSTEM_DIR, gitBlobId, relativeToDesignSystem, walkFiles, report, reportResults } from './helpers.js';
+
+reportResults();
 
 const TOKENS_FILE = path.join(DESIGN_SYSTEM_DIR, 'tokens.json');
 const EXPECTED_BLOB = 'cb4b988b206fce622442039500013de28c222e32';
@@ -46,7 +48,7 @@ describe('T-1 tokens', () => {
   it('T-1 tokens.json is the bytes of prdr blob cb4b988b (git blob computed in the test)', () => {
     const bytes = fs.readFileSync(TOKENS_FILE);
     const blob = gitBlobId(bytes);
-    console.log(`T-1 tokens.json git blob ${blob}`);
+    report(`T-1 tokens.json git blob ${blob}`);
     expect(blob).toBe(EXPECTED_BLOB);
     // Negative fixture: one changed byte gives another blob.
     const changed = Buffer.from(bytes);
@@ -82,7 +84,7 @@ describe('T-1 tokens', () => {
         found.push(`${rel}: ${lit}`);
       }
     }
-    console.log(`T-1 colour literal scan: ${files.length} files, ${found.length} literal(s)`);
+    report(`T-1 colour literal scan: ${files.length} files, ${found.length} literal(s)`);
     expect(found).toEqual([]);
     // Negative fixture: each literal form is found.
     const sample = ['a { color: #', 'abc; } b { color: #', 'a1b2c3; } c { color: rgb', '(1, 2, 3); }'].join('');
@@ -134,7 +136,7 @@ describe('T-2 contrast', () => {
     let lowest = null;
     for (const [name, fg, bg] of pairs) {
       const ratio = contrastRatio(fg, bg);
-      console.log(`T-2 ${name} ${fg} on ${bg} ${ratio.toFixed(6)}`);
+      report(`T-2 ${name} ${fg} on ${bg} ${ratio.toFixed(6)}`);
       if (ratio < 4.5) {
         below.push(name);
       }
@@ -142,7 +144,7 @@ describe('T-2 contrast', () => {
         lowest = { name, ratio };
       }
     }
-    console.log(`T-2 lowest ${lowest.name} ${lowest.ratio.toFixed(6)}`);
+    report(`T-2 lowest ${lowest.name} ${lowest.ratio.toFixed(6)}`);
     expect(below).toEqual([]);
     expect(lowest.name).toBe('faint/canvas');
     expect(lowest.ratio).toBeCloseTo(4.524236, 5);
@@ -162,8 +164,8 @@ describe('T-3 distinct states', () => {
     const tokens = readTokens();
     const linkPairs = ['connected', 'broken', 'waiting', 'warning', 'unknown', 'optional'].map((s) => [tokens.link[s].glyph, tokens.link[s].dash]);
     const nodePairs = ['failing', 'progressing', 'unknown'].map((s) => [tokens.nodeState[s].glyph, tokens.nodeState[s].borderStyle]);
-    console.log(`T-3 link pairs ${JSON.stringify(linkPairs)}`);
-    console.log(`T-3 node pairs ${JSON.stringify(nodePairs)}`);
+    report(`T-3 link pairs ${JSON.stringify(linkPairs)}`);
+    report(`T-3 node pairs ${JSON.stringify(nodePairs)}`);
     expect(linkPairs).toHaveLength(6);
     expect(allDistinct(linkPairs)).toBe(true);
     expect(allDistinct(nodePairs)).toBe(true);

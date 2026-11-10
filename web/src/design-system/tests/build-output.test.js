@@ -5,7 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { build } from 'vite';
 import { afterAll, describe, expect, it } from 'vitest';
-import { WEB_DIR, gitBlobId, sha256, walkFiles } from './helpers.js';
+import { WEB_DIR, gitBlobId, sha256, walkFiles, report, reportResults } from './helpers.js';
+
+reportResults();
 
 const FONT_SHA256 = {
   'Geist-wght.woff2': '9ce2d97863cab59a0c7522534112d6c42a4e25c0e6b2ab37766761b0f82cfbd6',
@@ -109,7 +111,7 @@ describe('T-5 resource references', () => {
     expect(texts.some(([rel]) => rel === 'gallery.html')).toBe(true);
     const { lines, problems } = scanReferences(outDir, texts);
     for (const line of lines) {
-      console.log(`T-5 scan: ${line}`);
+      report(`T-5 scan: ${line}`);
     }
     expect(lines.length).toBeGreaterThanOrEqual(5);
     expect(problems).toEqual([]);
@@ -121,7 +123,7 @@ describe('T-5 resource references', () => {
       const match = files.filter(([rel]) => path.basename(rel).startsWith(stem) && rel.endsWith(ext) && (name !== 'Geist-wght.woff2' || !rel.includes('GeistMono')));
       expect(match, name).toHaveLength(1);
       const digest = sha256(fs.readFileSync(match[0][1]));
-      console.log(`T-5 emitted ${match[0][0]} sha256 ${digest}`);
+      report(`T-5 emitted ${match[0][0]} sha256 ${digest}`);
       expect(digest).toBe(expected);
     }
     expect(output.filter((c) => c.type === 'asset' && /\.woff2$/.test(c.fileName))).toHaveLength(2);
@@ -147,7 +149,7 @@ describe('T-5a app isolation', () => {
     const chunks = appOut.filter((c) => c.type === 'chunk');
     expect(chunks.length).toBeGreaterThan(0);
     const found = designSystemInOutput(appOut);
-    console.log(`T-5a app build: ${chunks.length} chunk(s), ${chunks.reduce((n, c) => n + c.moduleIds.length, 0)} module(s), design system modules or fonts: ${found.length}`);
+    report(`T-5a app build: ${chunks.length} chunk(s), ${chunks.reduce((n, c) => n + c.moduleIds.length, 0)} module(s), design system modules or fonts: ${found.length}`);
     expect(found).toEqual([]);
     // Negative fixture: the same check finds the design system in the gallery build.
     const galleryOut = await buildWith('vite.gallery.config.js', tempDir('ds-gallery-'));
@@ -171,7 +173,7 @@ describe('T-11 app unchanged', () => {
     const changed = [];
     for (const [rel, blob] of Object.entries(APP_FILES)) {
       const actual = gitBlobId(fs.readFileSync(path.join(WEB_DIR, rel)));
-      console.log(`T-11 ${rel} ${actual}`);
+      report(`T-11 ${rel} ${actual}`);
       if (actual !== blob) {
         changed.push(rel);
       }

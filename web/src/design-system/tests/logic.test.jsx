@@ -3,7 +3,10 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { createCopyHandler } from '../copy.js';
+import { report, reportResults } from './helpers.js';
 import { Button, Icon, NamespaceTile, StatePill, StatusTab } from '../index.js';
+
+reportResults();
 
 // Calls the element's click handler `times` times.
 function clicksSeen(element, times) {

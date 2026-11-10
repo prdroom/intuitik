@@ -6,7 +6,9 @@ import { describe, expect, it } from 'vitest';
 import Gallery from '../gallery/Gallery.jsx';
 import { GALLERY_ITEMS } from '../gallery/fixtures.js';
 import { RENDERED_COMPONENTS } from '../gallery/registry.jsx';
-import { DESIGN_SYSTEM_DIR } from './helpers.js';
+import { DESIGN_SYSTEM_DIR, report, reportResults } from './helpers.js';
+
+reportResults();
 
 const COMPONENTS = ['C-01', 'C-02', 'C-03', 'C-04', 'C-05', 'C-10', 'C-11', 'C-12', 'C-13', 'C-14', 'C-15', 'C-16', 'C-17', 'C-20', 'C-21', 'C-22', 'C-23', 'C-24', 'C-25', 'C-26', 'C-30', 'C-31', 'C-32', 'C-33', 'C-34', 'C-40', 'C-41', 'C-42', 'C-43'];
 
@@ -70,7 +72,7 @@ describe('T-9 gallery coverage', () => {
     const problems = coverageProblems(GALLERY_ITEMS);
     const counts = {};
     for (const i of GALLERY_ITEMS) counts[i.component] = (counts[i.component] ?? 0) + 1;
-    console.log(`T-9 ${GALLERY_ITEMS.length} items: ${JSON.stringify(counts)}`);
+    report(`T-9 ${GALLERY_ITEMS.length} items: ${JSON.stringify(counts)}`);
     expect(problems).toEqual([]);
     expect(Object.keys(REQUIRED).sort()).toEqual([...COMPONENTS].sort());
     expect([...RENDERED_COMPONENTS].sort()).toEqual([...COMPONENTS].sort());

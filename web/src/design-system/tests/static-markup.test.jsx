@@ -5,7 +5,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { GALLERY_ITEMS } from '../gallery/fixtures.js';
 import { GalleryItem } from '../gallery/registry.jsx';
-import { DESIGN_SYSTEM_DIR, attr, cssRules, relativeToDesignSystem, textOf, walkFiles } from './helpers.js';
+import { DESIGN_SYSTEM_DIR, attr, cssRules, relativeToDesignSystem, textOf, walkFiles, report, reportResults } from './helpers.js';
+
+reportResults();
 
 const itemMarkup = () => GALLERY_ITEMS.map((item) => [item.id, renderToStaticMarkup(<GalleryItem item={item} />)]);
 
@@ -46,7 +48,7 @@ describe('T-4 CSP compatibility, static part', () => {
     const items = itemMarkup();
     expect(items.length).toBe(GALLERY_ITEMS.length);
     const problems = items.flatMap(([id, markup]) => inlineStyleProblems(markup).map((p) => `${id}: ${p}`));
-    console.log(`T-4 static markup of ${items.length} items: ${problems.length} inline style problem(s)`);
+    report(`T-4 static markup of ${items.length} items: ${problems.length} inline style problem(s)`);
     expect(problems).toEqual([]);
 
     const modules = walkFiles(DESIGN_SYSTEM_DIR).filter((f) => /\.(js|jsx)$/.test(f) && !relativeToDesignSystem(f).startsWith('tests/'));
@@ -82,7 +84,7 @@ describe('T-6 read only', () => {
         found.push(`${id}: ${f}`);
       }
     }
-    console.log(`T-6 ${controls} buttons and links checked, ${found.length} cluster-changing`);
+    report(`T-6 ${controls} buttons and links checked, ${found.length} cluster-changing`);
     expect(controls).toBeGreaterThan(20);
     expect(found).toEqual([]);
     // Negative fixtures.

@@ -4,7 +4,9 @@ import path from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { Link, NamespaceTile, NodeCard, RefRow } from '../index.js';
-import { DESIGN_SYSTEM_DIR, attr, cssRules, rulesForClass, textOf } from './helpers.js';
+import { DESIGN_SYSTEM_DIR, attr, cssRules, rulesForClass, textOf, report, reportResults } from './helpers.js';
+
+reportResults();
 
 const css = cssRules(fs.readFileSync(path.join(DESIGN_SYSTEM_DIR, 'components.css'), 'utf8'));
 
@@ -33,7 +35,7 @@ describe('T-7 specification section 5 rows', () => {
     const rows = [row('n1', 'connected'), row('a1', 'broken', { reason: 'Broken — ConfigMap payments-config not found' }), row('n2', 'connected'), row('n3', 'connected'), row('n4', 'connected'), row('a2', 'waiting', { reason: 'Waiting — data-db-0 waits for consumer Pod db-0' }), row('n5', 'connected')];
     const markup = renderToStaticMarkup(<NodeCard kind="Deployment" name="payments" rows={rows} mode="compact" />);
     const problems = foldProblems(markup, { normal: 2, folded: 3, anomalous: ['a1', 'a2'] });
-    console.log(`T-7 fold rule rows ${JSON.stringify(rowTags(markup).map((t) => attr(t, 'data-row-id')))}`);
+    report(`T-7 fold rule rows ${JSON.stringify(rowTags(markup).map((t) => attr(t, 'data-row-id')))}`);
     expect(problems).toEqual([]);
     // Negative fixture: the expanded card (nothing folded) fails the fold check.
     const expanded = renderToStaticMarkup(<NodeCard kind="Deployment" name="payments" rows={rows} mode="expanded" />);
@@ -74,7 +76,7 @@ describe('T-7 specification section 5 rows', () => {
     const markup = renderToStaticMarkup(<Link from={{ x: 0, y: 0 }} to={{ x: 100, y: 40 }} width={120} height={60} state="broken" kind="Traffic" fromLabel="Service web" toLabel="Pods app=web" text={text} />);
     const tag = markup.match(/<svg[^>]*>/)[0];
     const name = attr(tag, 'aria-label');
-    console.log(`T-7 accessible name: ${name}`);
+    report(`T-7 accessible name: ${name}`);
     const nameProblems = (n) => ['Traffic', 'Service web', 'Pods app=web', 'Broken', text].filter((part) => !n || !n.includes(part));
     expect(attr(tag, 'role')).toBe('img');
     expect(nameProblems(name)).toEqual([]);

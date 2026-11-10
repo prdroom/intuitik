@@ -4,9 +4,23 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { beforeEach } from 'vitest';
 
 export const DESIGN_SYSTEM_DIR = fileURLToPath(new URL('..', import.meta.url));
 export const WEB_DIR = fileURLToPath(new URL('../../..', import.meta.url));
+
+// Evidence lines go straight to the process output: Vitest's default reporter (the unit
+// job runs plain `npm test`) shows neither the names of passing tests nor their console.
+export function report(line) {
+  process.stdout.write(`${line}\n`);
+}
+
+// Prints one line per test with its name and result, so that the job log lists every test.
+export function reportResults() {
+  beforeEach(({ task, onTestFinished }) => {
+    onTestFinished(() => report(`unit test ${task.result?.state ?? 'unknown'}: ${task.name}`));
+  });
+}
 
 // The git blob id of the bytes: SHA-1 of "blob <len>\0" followed by the bytes.
 export function gitBlobId(bytes) {
