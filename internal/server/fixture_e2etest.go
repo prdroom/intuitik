@@ -5,7 +5,10 @@ package server
 import (
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
+
+	"github.com/prdroom/intuitik/internal/kube/readonly"
 )
 
 // Negative fixtures (packet section 6.1): each is the product with one deliberate
@@ -61,6 +64,25 @@ var fixtures = map[string]Fixture{
 	"no-exclusive-bind": {NoExclusiveBind: true},
 	// S16 (5a): the listener with SO_REUSEADDR and without SO_EXCLUSIVEADDRUSE.
 	"reuse-addr-bind": {ReuseAddrBind: true},
+	// M1-T3a D1 (TestK_ClusterRouteGate): the product plus one probe route registered
+	// through clusterRoute. It is not a defect; registerFixtureRoutes adds the route.
+	"cluster-probe-route": {},
+}
+
+// clusterProbePath is the probe route of the "cluster-probe-route" fixture. Its answer
+// counts the calls of its handler, so that the gate's 503 answers show 0 calls.
+const clusterProbePath = "/api/fixture-cluster-probe"
+
+// registerFixtureRoutes registers the probe route of the "cluster-probe-route" fixture
+// through clusterRoute.
+func registerFixtureRoutes(s *server) {
+	if s.o.Seams.Fixture.Name != "cluster-probe-route" {
+		return
+	}
+	var calls atomic.Int64
+	s.clusterRoute(http.MethodGet, clusterProbePath, func(w http.ResponseWriter, r *http.Request, c *readonly.Client) {
+		writeJSON(w, map[string]int64{"calls": calls.Add(1)})
+	})
 }
 
 // FixtureNamed returns the fixture of that name; ok is false for an unknown name.
