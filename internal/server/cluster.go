@@ -21,6 +21,11 @@ type cluster struct {
 	gen        int
 	cancel     context.CancelFunc
 	print      func(o readonly.Outcome)
+	// attempt runs one connection attempt; nil is readonly.Attempt. started, when set,
+	// runs after start has launched an attempt and before it returns. Tests set both to
+	// put the attempt's publication before the handler's answer.
+	attempt func(ctx context.Context, name string) readonly.Outcome
+	started func()
 }
 
 // contextObject is one entry of the contexts list of the cluster object.
@@ -62,10 +67,14 @@ func (c *cluster) start(name string) {
 	c.gen++
 	gen := c.gen
 	c.cancel, c.connecting, c.target = cancel, true, name
+	attempt := c.attempt
+	if attempt == nil {
+		attempt = readonly.Attempt
+	}
 	c.mu.Unlock()
 	go func() {
 		defer cancel()
-		o := readonly.Attempt(ctx, name)
+		o := attempt(ctx, name)
 		c.mu.Lock()
 		if o.Canceled || gen != c.gen {
 			c.mu.Unlock()
@@ -75,6 +84,9 @@ func (c *cluster) start(name string) {
 		c.mu.Unlock()
 		c.print(o)
 	}()
+	if c.started != nil {
+		c.started()
+	}
 }
 
 // snapshot returns the last outcome and the cluster object of the current state.

@@ -8,10 +8,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -123,11 +127,18 @@ func TestK_RetryRereadsKubeconfig(t *testing.T) {
 // TestK_UnreachableTimeout (packet W1, section 6.6): a server that accepts the TCP
 // connection and never completes the TLS handshake, and one that holds the HTTP answer
 // after the handshake, give unreachable with "no answer within 10 s" within W1 plus 2 s.
-// A closed local port gives the OS error.
+// W1 counts from the start of the attempt: in the fourth case the token file is a
+// named pipe that gives the token only tokenDelay after the attempt opens it, so the
+// configuration is built late and the request to the held server starts late; the
+// result is still reached within W1 plus 2 s. The time is measured from the listen line,
+// which comes before the first attempt starts. A closed local port gives the OS error.
 func TestK_UnreachableTimeout(t *testing.T) {
+	const tokenDelay = 6 * time.Second
 	held := newHeldServer(t)
 	release := make(chan struct{})
+	var holdingRequests atomic.Int32
 	holding := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		holdingRequests.Add(1)
 		select {
 		case <-release:
 		case <-r.Context().Done():
@@ -135,35 +146,111 @@ func TestK_UnreachableTimeout(t *testing.T) {
 	}))
 	t.Cleanup(func() { close(release); holding.Close() })
 	holdingURL, holdingCA := holding.URL, caOf(holding)
+	holdingCount := func() int { return int(holdingRequests.Load()) }
 	port, osErr := closedPort(t)
 	closed := "https://127.0.0.1:" + strconv.Itoa(port)
+	pipe := delayedTokenFile(t, "intuitik-"+randomHex(8), tokenDelay)
 
 	for _, c := range []struct {
 		name, server, ca, os string
+		user                 map[string]any
 		arrivals             func() int
 	}{
-		{"TLS handshake never completes", held.url(), kindCluster(t).caData, textTimeout, held.count},
-		{"HTTP answer held after the handshake", holdingURL, holdingCA, textTimeout, nil},
-		{"closed local port", closed, kindCluster(t).caData, osErr, nil},
+		{"TLS handshake never completes", held.url(), kindCluster(t).caData, textTimeout, tokenUser("intuitik-" + randomHex(8)), held.count},
+		{"HTTP answer held after the handshake", holdingURL, holdingCA, textTimeout, tokenUser("intuitik-" + randomHex(8)), holdingCount},
+		{"closed local port", closed, kindCluster(t).caData, osErr, tokenUser("intuitik-" + randomHex(8)), nil},
+		{"token file read held before the request, then the answer held", holdingURL, holdingCA, textTimeout, map[string]any{"tokenFile": pipe.path}, holdingCount},
 	} {
 		kc := writeFile(t, filepath.Join(t.TempDir(), "kubeconfig"), (&kube{current: "far"}).cluster("far-c", c.server, c.ca).
-			user("far-user", tokenUser("intuitik-"+randomHex(8))).context("far", "far-c", "far-user").bytes())
+			user("far-user", c.user).context("far", "far-c", "far-user").bytes())
+		before := 0
+		if c.arrivals != nil {
+			before = c.arrivals()
+		}
 		p := startPanel(t, panelOpts{kubeconfig: strPtr(kc)})
-		o, ok := p.settle(w1 + 2*time.Second)
+		o, ok := p.settle(w1 + tokenDelay + 2*time.Second)
 		elapsed := time.Since(p.started)
 		want := fmt.Sprintf(textUR, c.server, "far", c.os)
 		arrivals := -1
 		if c.arrivals != nil {
-			arrivals = c.arrivals()
+			arrivals = c.arrivals() - before
 		}
 		t.Logf("K-W1 %s: state %s after %s (limit %s), test server connections %d, message %q", c.name, o.State, elapsed.Round(10*time.Millisecond), w1+2*time.Second, arrivals, str(o.Message))
 		if !ok || o.State != "unreachable" || str(o.Message) != want {
-			t.Errorf("K-W1 %s: settled %v, state %q, message %q; want unreachable with %q within %s", c.name, ok, o.State, str(o.Message), want, w1+2*time.Second)
+			t.Errorf("K-W1 %s: settled %v, state %q, message %q; want unreachable with %q", c.name, ok, o.State, str(o.Message), want)
+		}
+		if elapsed > w1+2*time.Second {
+			t.Errorf("K-W1 %s: the state left connecting %s after the listen line; want within %s", c.name, elapsed.Round(10*time.Millisecond), w1+2*time.Second)
 		}
 		if c.arrivals != nil && arrivals == 0 {
 			t.Errorf("K-W1 %s: the test server saw no connection", c.name)
 		}
+		if c.user["tokenFile"] != nil {
+			opened, delivered := pipe.times()
+			t.Logf("K-W1 %s: token file opened %s after the listen line, token given %s after that", c.name, opened.Sub(p.started).Round(10*time.Millisecond), delivered.Sub(opened).Round(10*time.Millisecond))
+			if opened.IsZero() || delivered.Sub(opened) < tokenDelay {
+				t.Errorf("K-W1 %s: the token file was not held for %s (opened %v, given %v)", c.name, tokenDelay, opened, delivered)
+			}
+		}
 	}
+}
+
+// tokenPipe is a token file that is a named pipe. Its first reader gets the token only
+// after a delay; every later reader gets it at once (client-go reads the file again
+// when it sends the request).
+type tokenPipe struct {
+	path      string
+	mu        sync.Mutex
+	opened    time.Time
+	delivered time.Time
+}
+
+func (p *tokenPipe) times() (opened, delivered time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.opened, p.delivered
+}
+
+func delayedTokenFile(t *testing.T, token string, delay time.Duration) *tokenPipe {
+	t.Helper()
+	p := &tokenPipe{path: filepath.Join(t.TempDir(), "token")}
+	if err := syscall.Mkfifo(p.path, 0o600); err != nil {
+		t.Fatalf("mkfifo: %v", err)
+	}
+	var stop atomic.Bool
+	go func() {
+		first := true
+		for {
+			f, err := os.OpenFile(p.path, os.O_WRONLY, 0) // blocks until a reader opens it
+			if err != nil || stop.Load() {
+				if f != nil {
+					f.Close()
+				}
+				return
+			}
+			if first {
+				first = false
+				p.mu.Lock()
+				p.opened = time.Now()
+				p.mu.Unlock()
+				time.Sleep(delay)
+				p.mu.Lock()
+				p.delivered = time.Now()
+				p.mu.Unlock()
+			}
+			f.WriteString(token)
+			f.Close()
+		}
+	}()
+	t.Cleanup(func() {
+		// Release the writer from its blocked open so that it sees stop and returns.
+		stop.Store(true)
+		if r, err := os.OpenFile(p.path, os.O_RDONLY|syscall.O_NONBLOCK, 0); err == nil {
+			time.Sleep(50 * time.Millisecond)
+			r.Close()
+		}
+	})
+	return p
 }
 
 // caOf is the certificate-authority-data that trusts a TLS test server.
