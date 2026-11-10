@@ -1,0 +1,746 @@
+name: ci
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # Prints the commit identities of this run. It runs no PR code.
+  factory-context:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Print factory CI context
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_SHA: ${{ github.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          checkout_sha="$(git rev-parse HEAD)"
+          echo "FACTORY_CI_CONTEXT event=${EVENT_NAME} github_sha=${RUN_SHA} checkout_sha=${checkout_sha} base_sha=${BASE_SHA} head_sha=${HEAD_SHA}"
+
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Repository layout
+        run: bash tests/repo_layout.sh
+
+      - name: Install Gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          set -euo pipefail
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSL -o "${RUNNER_TEMP}/${archive}" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}"
+          echo "${GITLEAKS_SHA256}  ${RUNNER_TEMP}/${archive}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/gitleaks-bin"
+          tar -xzf "${RUNNER_TEMP}/${archive}" -C "${RUNNER_TEMP}/gitleaks-bin" gitleaks
+          echo "${RUNNER_TEMP}/gitleaks-bin" >> "${GITHUB_PATH}"
+
+      - name: Gitleaks scan of the PR commit range
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          gitleaks version
+          echo "gitleaks scanned range: ${BASE_SHA}..${HEAD_SHA}"
+          gitleaks git --log-opts "${BASE_SHA}..${HEAD_SHA}" --redact --exit-code 1
+
+      # One-off fixture repositories built at run time, so no token text is committed.
+      # Positive fixtures must exit 1 with the expected rule id; the negative one must exit 0.
+      - name: Gitleaks fixtures
+        run: |
+          set -euo pipefail
+          config="${GITHUB_WORKSPACE}/.gitleaks.toml"
+          random_alnum() {
+            python3 -c 'import secrets, string, sys; a = string.ascii_letters + string.digits; print("".join(secrets.choice(a) for _ in range(int(sys.argv[1]))))' "$1"
+          }
+          # run_fixture <name> <file content> <expected exit> <expected rule id, empty for none>
+          run_fixture() {
+            local name="$1" content="$2" expected_exit="$3" expected_rule="$4"
+            local dir="${RUNNER_TEMP}/fixture-${name}"
+            local report="${RUNNER_TEMP}/fixture-${name}.json"
+            rm -rf "$dir"
+            mkdir -p "$dir"
+            git -C "$dir" init -q
+            printf '%s\n' "$content" > "$dir/fixture.txt"
+            git -C "$dir" add fixture.txt
+            git -C "$dir" -c user.name=fixture -c user.email=fixture -c commit.gpgsign=false commit -q -m fixture
+            local code=0
+            gitleaks git --redact --exit-code 1 --config "$config" \
+              --report-format json --report-path "$report" "$dir" || code=$?
+            local rules
+            rules="$(jq -r '[.[].RuleID] | unique | join(",")' "$report")"
+            echo "fixture=${name} exit=${code} rule_ids=[${rules}]"
+            if [ "$code" -ne "$expected_exit" ]; then
+              echo "fixture=${name}: expected exit ${expected_exit}"
+              return 1
+            fi
+            if [ -n "$expected_rule" ]; then
+              jq -e --arg rule "$expected_rule" 'any(.[]; .RuleID == $rule)' "$report" > /dev/null \
+                || { echo "fixture=${name}: rule id ${expected_rule} not reported"; return 1; }
+            else
+              jq -e 'length == 0' "$report" > /dev/null \
+                || { echo "fixture=${name}: findings reported"; return 1; }
+            fi
+          }
+          github_token="ghp_$(random_alnum 36)"
+          claude_token="sk-ant-oat01-$(random_alnum 100)"
+          run_fixture github-token "github_token: ${github_token}" 1 github-pat
+          run_fixture claude-token "claude_token: ${claude_token}" 1 claude-code-oauth-token
+          run_fixture negative "intuitik fixture without a secret" 0 ""
+
+  # The CI token must not be able to write to the source repository.
+  ci-token:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Secrets are empty
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+        run: |
+          set -euo pipefail
+          names="$(printf '%s' "$SECRETS_JSON" | jq -r 'del(.github_token) | keys | join(",")')"
+          non_empty="$(printf '%s' "$SECRETS_JSON" | jq '[del(.github_token) | to_entries[] | select(.value != "")] | length')"
+          echo "secrets other than github_token: names=[${names}] non_empty=${non_empty}"
+          if [ "$non_empty" -ne 0 ]; then
+            echo "secrets: a secret value reaches this pull_request run"
+            exit 1
+          fi
+          echo "secrets: empty"
+
+      - name: Push to the source repository is refused
+        run: |
+          set -uo pipefail
+          trace="${RUNNER_TEMP}/push-trace.txt"
+          code=0
+          GIT_TRACE_CURL="$trace" GIT_TRACE_CURL_NO_DATA=1 \
+            git push origin "HEAD:refs/heads/m0-2-ci-push-probe" || code=$?
+          statuses="$(grep -oE 'Recv header: HTTP/[0-9.]+ [0-9]{3}' "$trace" | awk '{print $NF}' | tr '\n' ' ')"
+          rm -f "$trace"
+          echo "ci push probe: exit=${code} http_status=[${statuses}]"
+          if [ "$code" -eq 0 ]; then
+            echo "ci push probe: the push was accepted"
+            exit 1
+          fi
+          case " ${statuses}" in
+            *" 403 "*) echo "ci push probe: refused with HTTP 403" ;;
+            *) echo "ci push probe: no HTTP 403 refusal observed"; exit 1 ;;
+          esac
+
+  # Builds the frontend and the six release targets, checks the toolchain versions,
+  # lints the verification map and runs it end to end on the linux/amd64 artifact.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          package-manager-cache: false
+
+      # Node must equal web/.nvmrc and npm must equal the npm field of that Node version
+      # in https://nodejs.org/dist/index.json; the tool prints both pairs and exits 1 on a difference.
+      - name: Toolchain versions
+        run: |
+          set -euo pipefail
+          go run ./tools/verifymap/toolchain -nvmrc web/.nvmrc
+
+      - name: Frontend build
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      # One artifact per target; one line per target with its sha256 and file name.
+      - name: Build six targets
+        env:
+          VERSION: 0.0.0-dev
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          out="${RUNNER_TEMP}/dist"
+          mkdir -p "$out"
+          for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            name="intuitik-${goos}-${goarch}"
+            if [ "$goos" = "windows" ]; then
+              name="${name}.exe"
+            fi
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath \
+              -ldflags "-X main.version=${VERSION} -X main.commit=${commit}" \
+              -o "${out}/${name}" ./cmd/intuitik
+            (cd "$out" && sha256sum "$name" | tee -a SHA256SUMS)
+          done
+
+      - name: Build verifymap
+        run: |
+          set -euo pipefail
+          go build -o "${RUNNER_TEMP}/bin/verifymap" ./tools/verifymap
+
+      - name: verify-map lint
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/bin/verifymap" lint
+
+      # Runs feature embedded-page on the linux/amd64 artifact built above, from a new empty
+      # HOME and without KUBECONFIG; the runner compares the --version commit with the checkout
+      # commit and the executed binary's sha256 with the linux/amd64 line of SHA256SUMS.
+      - name: verify-map
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/bin/verifymap" run \
+            -binary "${RUNNER_TEMP}/dist/intuitik-linux-amd64" \
+            -sums "${RUNNER_TEMP}/dist/SHA256SUMS" \
+            -expect-commit "$(git rev-parse HEAD)" \
+            -evidence "${RUNNER_TEMP}/verify-evidence" \
+            embedded-page
+
+  # Checks the standard DCO sign-off of every commit in the PR range; the judging is in the tool.
+  dco:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: DCO check of the PR commit range
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          go run ./tools/verifymap/dco -base "$BASE_SHA" -head "$HEAD_SHA"
+
+  # Go tests and frontend tests. The frontend is built first because the Go server embeds it.
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          package-manager-cache: false
+
+      - name: Frontend build
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Frontend tests
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm test
+
+      - name: Go tests
+        run: |
+          set -euo pipefail
+          go test -count=1 -v ./...
+
+  # Server security tests (packet M1-T2 section 6) on linux, against the product binary and the
+  # e2etest build. The list check fails unless every test of REQUIRED_TESTS_LINUX ran and passed.
+  e2e-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          package-manager-cache: false
+
+      - name: Frontend build
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      # The product binary as the build job makes it, and the same program built with the
+      # e2etest tag, which adds the test seams (clock, port candidates, opener, held response).
+      - name: Build product and e2etest binaries
+        env:
+          VERSION: 0.0.0-dev
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          out="${RUNNER_TEMP}/e2e-bin"
+          mkdir -p "$out"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+            -ldflags "-X main.version=${VERSION} -X main.commit=${commit}" \
+            -o "${out}/intuitik-linux-amd64" ./cmd/intuitik
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -tags e2etest \
+            -ldflags "-X main.version=${VERSION} -X main.commit=${commit}" \
+            -o "${out}/intuitik-e2etest-linux-amd64" ./cmd/intuitik
+          sha256sum "${out}/intuitik-linux-amd64" "${out}/intuitik-e2etest-linux-amd64"
+
+      # go test and the list check run in one step, so that the list check also prints its
+      # result when tests fail; the step exits non-zero if either of them failed.
+      - name: e2e-api tests and list check
+        run: |
+          set -uo pipefail
+          export INTUITIK_E2E_BINARY="${RUNNER_TEMP}/e2e-bin/intuitik-linux-amd64"
+          export INTUITIK_E2E_TEST_BINARY="${RUNNER_TEMP}/e2e-bin/intuitik-e2etest-linux-amd64"
+          report="${RUNNER_TEMP}/e2e-api.json"
+          test_code=0
+          go test -tags e2e -race -count=1 -json ./test/e2e-api/server/... > "$report" || test_code=$?
+          list_code=0
+          python3 - test/e2e-api/server/REQUIRED_TESTS_LINUX "$report" <<'PY' || list_code=$?
+          import json, sys
+          list_path, report_path = sys.argv[1], sys.argv[2]
+          names = [l.strip() for l in open(list_path, encoding="utf-8") if l.strip() and not l.strip().startswith("#")]
+          seen = {}
+          for line in open(report_path, encoding="utf-8"):
+              if not line.startswith("{"):
+                  print(line, end="")
+                  continue
+              event = json.loads(line)
+              if event.get("Action") == "output":
+                  print(event.get("Output", ""), end="")
+              if event.get("Test") and event.get("Action") in ("pass", "fail", "skip"):
+                  seen.setdefault(event["Test"], []).append(event["Action"])
+          bad = 0
+          if not names:
+              print("list check: the list is empty")
+              bad = 1
+          if len(set(names)) != len(names):
+              print("list check: the list names a test more than once")
+              bad = 1
+          for name in names:
+              results = seen.get(name, [])
+              result = "missing" if not results else "pass" if all(r == "pass" for r in results) else ",".join(sorted(set(results)))
+              print(f"list check: {name} {result}")
+              if result != "pass":
+                  bad = 1
+          print(f"list check: {len(names)} listed, {'pass' if bad == 0 else 'fail'}")
+          sys.exit(bad)
+          PY
+          echo "go test exit=${test_code} list check exit=${list_code}"
+          if [ "$test_code" -ne 0 ] || [ "$list_code" -ne 0 ]; then
+            exit 1
+          fi
+
+  # Login, session and WebSocket flow in real browsers (Playwright Chromium, Firefox, WebKit)
+  # against the real server and the real web/src/auth module. The list check fails unless every
+  # case of web/e2e/REQUIRED_TESTS passed in each of the three projects.
+  browser-handshake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          package-manager-cache: false
+
+      - name: Frontend build
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      # The browser builds bound to the @playwright/test version in web/package-lock.json.
+      - name: Install Playwright browsers
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npx playwright --version
+          npx playwright install --with-deps chromium firefox webkit
+
+      - name: Build product and e2etest binaries
+        env:
+          VERSION: 0.0.0-dev
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          out="${RUNNER_TEMP}/e2e-bin"
+          mkdir -p "$out"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+            -ldflags "-X main.version=${VERSION} -X main.commit=${commit}" \
+            -o "${out}/intuitik-linux-amd64" ./cmd/intuitik
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -tags e2etest \
+            -ldflags "-X main.version=${VERSION} -X main.commit=${commit}" \
+            -o "${out}/intuitik-e2etest-linux-amd64" ./cmd/intuitik
+          sha256sum "${out}/intuitik-linux-amd64" "${out}/intuitik-e2etest-linux-amd64"
+
+      # Playwright reads its configuration from web/e2e (projects chromium, firefox, webkit;
+      # retries 0). The list reporter prints each case; the JSON report feeds the list check.
+      - name: browser-handshake tests and list check
+        working-directory: web
+        run: |
+          set -uo pipefail
+          export INTUITIK_E2E_BINARY="${RUNNER_TEMP}/e2e-bin/intuitik-linux-amd64"
+          export INTUITIK_E2E_TEST_BINARY="${RUNNER_TEMP}/e2e-bin/intuitik-e2etest-linux-amd64"
+          report="${RUNNER_TEMP}/browser-handshake.json"
+          test_code=0
+          PLAYWRIGHT_JSON_OUTPUT_NAME="$report" npx playwright test --config=e2e --reporter=list,json || test_code=$?
+          list_code=0
+          python3 - e2e/REQUIRED_TESTS "$report" <<'PY' || list_code=$?
+          import json, sys
+          list_path, report_path = sys.argv[1], sys.argv[2]
+          projects = ["chromium", "firefox", "webkit"]
+          names = [l.strip() for l in open(list_path, encoding="utf-8") if l.strip() and not l.strip().startswith("#")]
+          with open(report_path, encoding="utf-8") as f:
+              data = json.load(f)
+          bad = 0
+          configured = {p.get("name"): p.get("retries") for p in data.get("config", {}).get("projects", [])}
+          print(f"list check: projects {sorted(configured)} retries {[configured[n] for n in sorted(configured)]}")
+          if sorted(configured) != projects or any(r != 0 for r in configured.values()):
+              print("list check: the projects must be exactly chromium, firefox, webkit, each with retries 0")
+              bad = 1
+          seen = {}
+          # A case name is its describe titles and its test title joined with "/"; the file suite is left out.
+          def walk(suite, path):
+              for child in suite.get("suites") or []:
+                  walk(child, path + [child["title"]])
+              for spec in suite.get("specs") or []:
+                  name = "/".join(path + [spec["title"]])
+                  for test in spec.get("tests") or []:
+                      statuses = [r.get("status") for r in test.get("results") or []]
+                      seen.setdefault((name, test.get("projectName")), []).extend(statuses or ["missing"])
+          for file_suite in data.get("suites") or []:
+              walk(file_suite, [])
+          if not names:
+              print("list check: the list is empty")
+              bad = 1
+          if len(set(names)) != len(names):
+              print("list check: the list names a case more than once")
+              bad = 1
+          for name in names:
+              for project in projects:
+                  statuses = seen.get((name, project), [])
+                  result = "missing" if not statuses else "passed" if all(s == "passed" for s in statuses) else ",".join(sorted(set(map(str, statuses))))
+                  print(f"list check: {name} [{project}] {result}")
+                  if result != "passed":
+                      bad = 1
+          print(f"list check: {len(names)} listed x {len(projects)} projects, {'pass' if bad == 0 else 'fail'}")
+          sys.exit(bad)
+          PY
+          echo "playwright exit=${test_code} list check exit=${list_code}"
+          if [ "$test_code" -ne 0 ] || [ "$list_code" -ne 0 ]; then
+            exit 1
+          fi
+
+  # S16 on Windows: the exclusive bind of the panel listener. Runs on every pull_request run.
+  # The frontend is built first because the Go program embeds it (go:embed all:dist).
+  e2e-api-windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          package-manager-cache: false
+
+      - name: Frontend build
+        working-directory: web
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Build product and e2etest binaries
+        shell: bash
+        env:
+          VERSION: 0.0.0-dev
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          out="${RUNNER_TEMP}/e2e-bin"
+          mkdir -p "$out"
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath \
+            -ldflags "-X main.version=${VERSION} -X main.commit=${commit}" \
+            -o "${out}/intuitik-windows-amd64.exe" ./cmd/intuitik
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -tags e2etest \
+            -ldflags "-X main.version=${VERSION} -X main.commit=${commit}" \
+            -o "${out}/intuitik-e2etest-windows-amd64.exe" ./cmd/intuitik
+          sha256sum "${out}/intuitik-windows-amd64.exe" "${out}/intuitik-e2etest-windows-amd64.exe"
+
+      - name: e2e-api-windows tests and list check
+        shell: bash
+        run: |
+          set -uo pipefail
+          export INTUITIK_E2E_BINARY="${RUNNER_TEMP}/e2e-bin/intuitik-windows-amd64.exe"
+          export INTUITIK_E2E_TEST_BINARY="${RUNNER_TEMP}/e2e-bin/intuitik-e2etest-windows-amd64.exe"
+          report="${RUNNER_TEMP}/e2e-api-windows.json"
+          test_code=0
+          go test -tags e2e -count=1 -json -run '^TestS16_WindowsBind$' ./test/e2e-api/server/... > "$report" || test_code=$?
+          list_code=0
+          python - test/e2e-api/server/REQUIRED_TESTS_WINDOWS "$report" <<'PY' || list_code=$?
+          import json, sys
+          list_path, report_path = sys.argv[1], sys.argv[2]
+          names = [l.strip() for l in open(list_path, encoding="utf-8") if l.strip() and not l.strip().startswith("#")]
+          seen = {}
+          for line in open(report_path, encoding="utf-8"):
+              if not line.startswith("{"):
+                  print(line, end="")
+                  continue
+              event = json.loads(line)
+              if event.get("Action") == "output":
+                  print(event.get("Output", ""), end="")
+              if event.get("Test") and event.get("Action") in ("pass", "fail", "skip"):
+                  seen.setdefault(event["Test"], []).append(event["Action"])
+          bad = 0
+          if not names:
+              print("list check: the list is empty")
+              bad = 1
+          if len(set(names)) != len(names):
+              print("list check: the list names a test more than once")
+              bad = 1
+          for name in names:
+              results = seen.get(name, [])
+              result = "missing" if not results else "pass" if all(r == "pass" for r in results) else ",".join(sorted(set(results)))
+              print(f"list check: {name} {result}")
+              if result != "pass":
+                  bad = 1
+          print(f"list check: {len(names)} listed, {'pass' if bad == 0 else 'fail'}")
+          sys.exit(bad)
+          PY
+          echo "go test exit=${test_code} list check exit=${list_code}"
+          if [ "$test_code" -ne 0 ] || [ "$list_code" -ne 0 ]; then
+            exit 1
+          fi
+
+  # Cluster connection tests (packet M1-T3a section 7) against a kind cluster. The cluster's
+  # kubeconfig is written under RUNNER_TEMP, never into ~/.kube/config of the runner. The list
+  # check fails unless every test of REQUIRED_TESTS_KIND ran and passed.
+  e2e-kind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          package-manager-cache: false
+
+      - name: Frontend build
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Build product and e2etest binaries
+        env:
+          VERSION: 0.0.0-dev
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          out="${RUNNER_TEMP}/e2e-bin"
+          mkdir -p "$out"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+            -ldflags "-X main.version=${VERSION} -X main.commit=${commit}" \
+            -o "${out}/intuitik-linux-amd64" ./cmd/intuitik
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -tags e2etest \
+            -ldflags "-X main.version=${VERSION} -X main.commit=${commit}" \
+            -o "${out}/intuitik-e2etest-linux-amd64" ./cmd/intuitik
+          sha256sum "${out}/intuitik-linux-amd64" "${out}/intuitik-e2etest-linux-amd64"
+
+      # kind and kubectl are checked against the sha256 values below before use; a mismatch
+      # fails the job. kind: the GitHub release asset digest; kubectl: the value at dl.k8s.io.
+      - name: Install kind and kubectl
+        env:
+          KIND_VERSION: v0.33.0
+          KIND_SHA256: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
+          KUBECTL_VERSION: v1.37.0
+          KUBECTL_SHA256: 6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f
+        run: |
+          set -euo pipefail
+          bin="${RUNNER_TEMP}/kind-bin"
+          mkdir -p "$bin"
+          curl -fsSL -o "${bin}/kind" \
+            "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
+          echo "${KIND_SHA256}  ${bin}/kind" | sha256sum -c -
+          curl -fsSL -o "${bin}/kubectl" \
+            "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          echo "${KUBECTL_SHA256}  ${bin}/kubectl" | sha256sum -c -
+          chmod +x "${bin}/kind" "${bin}/kubectl"
+          echo "$bin" >> "${GITHUB_PATH}"
+          "${bin}/kind" version
+          "${bin}/kubectl" version --client
+
+      # The kind kubeconfig stays the KUBECONFIG of the steps that follow, and the tests receive
+      # its path in INTUITIK_E2E_KIND_KUBECONFIG.
+      - name: Create kind cluster
+        env:
+          KIND_NODE_IMAGE: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+        run: |
+          set -euo pipefail
+          kubeconfig="${RUNNER_TEMP}/kind/kubeconfig"
+          mkdir -p "$(dirname "$kubeconfig")"
+          echo "kind node image: ${KIND_NODE_IMAGE}"
+          kind create cluster --name intuitik-e2e --image "$KIND_NODE_IMAGE" \
+            --kubeconfig "$kubeconfig" --wait 180s
+          if [ -e "${HOME}/.kube/config" ]; then
+            echo "kind kubeconfig: ${HOME}/.kube/config exists"
+            exit 1
+          fi
+          echo "kind kubeconfig: ${kubeconfig}; ${HOME}/.kube/config absent"
+          echo "KUBECONFIG=${kubeconfig}" >> "${GITHUB_ENV}"
+          echo "INTUITIK_E2E_KIND_KUBECONFIG=${kubeconfig}" >> "${GITHUB_ENV}"
+          KUBECONFIG="$kubeconfig" kubectl version
+          KUBECONFIG="$kubeconfig" kubectl get nodes -o wide
+
+      # The -run pattern is built from the list file, so this job runs exactly the listed tests.
+      # go test and the list check run in one step, so that the list check also prints its
+      # result when tests fail; the step exits non-zero if either of them failed.
+      - name: e2e-kind tests and list check
+        run: |
+          set -uo pipefail
+          export INTUITIK_E2E_BINARY="${RUNNER_TEMP}/e2e-bin/intuitik-linux-amd64"
+          export INTUITIK_E2E_TEST_BINARY="${RUNNER_TEMP}/e2e-bin/intuitik-e2etest-linux-amd64"
+          report="${RUNNER_TEMP}/e2e-kind.json"
+          test_code=0
+          go test -tags kind -json -run "^($(paste -sd'|' test/e2e-api/connect/REQUIRED_TESTS_KIND))$" ./test/e2e-api/connect/... ./internal/kube/readonly/... > "$report" || test_code=$?
+          list_code=0
+          python3 - test/e2e-api/connect/REQUIRED_TESTS_KIND "$report" <<'PY' || list_code=$?
+          import json, sys
+          list_path, report_path = sys.argv[1], sys.argv[2]
+          names = [l.strip() for l in open(list_path, encoding="utf-8") if l.strip() and not l.strip().startswith("#")]
+          seen = {}
+          for line in open(report_path, encoding="utf-8"):
+              if not line.startswith("{"):
+                  print(line, end="")
+                  continue
+              event = json.loads(line)
+              if event.get("Action") == "output":
+                  print(event.get("Output", ""), end="")
+              if event.get("Test") and event.get("Action") in ("pass", "fail", "skip"):
+                  seen.setdefault(event["Test"], []).append(event["Action"])
+          bad = 0
+          if not names:
+              print("list check: the list is empty")
+              bad = 1
+          if len(set(names)) != len(names):
+              print("list check: the list names a test more than once")
+              bad = 1
+          for name in names:
+              results = seen.get(name, [])
+              result = "missing" if not results else "pass" if all(r == "pass" for r in results) else ",".join(sorted(set(results)))
+              print(f"list check: {name} {result}")
+              if result != "pass":
+                  bad = 1
+          print(f"list check: {len(names)} listed, {'pass' if bad == 0 else 'fail'}")
+          sys.exit(bad)
+          PY
+          echo "go test exit=${test_code} list check exit=${list_code}"
+          if [ "$test_code" -ne 0 ] || [ "$list_code" -ne 0 ]; then
+            exit 1
+          fi
+
+      # Runs after a failed step too, so that the cluster is deleted at the end of every job.
+      - name: Delete kind cluster
+        if: always()
+        run: |
+          set -euo pipefail
+          kubeconfig="${RUNNER_TEMP}/kind/kubeconfig"
+          if command -v kind > /dev/null; then
+            kind delete cluster --name intuitik-e2e --kubeconfig "$kubeconfig"
+          fi
+          echo "kind clusters after delete: [$(kind get clusters 2>/dev/null | tr '\n' ' ')]"
