@@ -172,8 +172,11 @@
 }
 .ds-refrow--full .ds-refrow__value { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
 .ds-refrow__fact { flex: none; font-size: var(--type-rowLabel-size); color: var(--color-sub); }
+/* The bottom padding holds the glyphs that reach below the last 14 px line box (Firefox
+   counts them in scrollHeight), so the whole reason stays inside its box. */
 .ds-refrow__reason {
   padding-left: 20px;
+  padding-bottom: 2px;
   font-size: var(--type-rowReason-size);
   line-height: var(--type-rowReason-line);
   overflow-wrap: anywhere;
