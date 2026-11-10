@@ -40,7 +40,7 @@ expect_line() {
 
 expect_content PRODUCT.md $'PRD path: C:/products/_factory/intuitik/PRD.md\nRules copy path: C:/products/_factory/FACTORY_RULES.md\n'
 expect_content .github/CODEOWNERS $'* @theprdguy\n'
-expect_content .gitignore $'.DS_Store\nThumbs.db\n*.swp\n.idea/\n.vscode/\n.env\n.env.*\ncmd/intuitik/dist/\nweb/node_modules/\n'
+expect_content .gitignore $'.DS_Store\nThumbs.db\n*.swp\n.idea/\n.vscode/\n.env\n.env.*\ncmd/intuitik/dist/\nweb/node_modules/\nweb/dist-gallery/\n'
 
 # A custom Gitleaks config replaces the default rules unless it extends them.
 expect_line .gitleaks.toml '[extend]'

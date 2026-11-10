@@ -7,3 +7,4 @@ Thumbs.db
 .env.*
 cmd/intuitik/dist/
 web/node_modules/
+web/dist-gallery/
