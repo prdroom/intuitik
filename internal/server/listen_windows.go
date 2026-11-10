@@ -1,0 +1,78 @@
+package server
+
+import (
+	"net"
+	"os"
+	"syscall"
+)
+
+// soExclusiveAddrUse is SO_EXCLUSIVEADDRUSE, ((int)(~SO_REUSEADDR)) in winsock2.h.
+const soExclusiveAddrUse = ^4
+
+const (
+	wsaeAddrInUse = syscall.Errno(10048) // WSAEADDRINUSE
+	wsaeAccess    = syscall.Errno(10013) // WSAEACCES
+)
+
+// isAddrInUse and isAccessDenied judge the numeric code of the bind step (V2).
+func isAddrInUse(code syscall.Errno) bool {
+	return code == wsaeAddrInUse
+}
+
+func isAccessDenied(code syscall.Errno) bool {
+	return code == wsaeAccess
+}
+
+// listenControl sets SO_EXCLUSIVEADDRUSE on the listener before bind (S16). Only the
+// e2etest fixtures of S16 (5) change that: ReuseAddrBind sets SO_REUSEADDR instead
+// (5a), NoExclusiveBind sets neither option (5b). Its errors are option-setting
+// errors, named "setsockopt", never bind errors (V2); optErr is an injected one
+// (e2etest).
+func listenControl(fx Fixture, optErr error) func(network, address string, c syscall.RawConn) error {
+	return func(network, address string, c syscall.RawConn) error {
+		if fx.NoExclusiveBind {
+			return nil
+		}
+		opt := soExclusiveAddrUse
+		if fx.ReuseAddrBind {
+			opt = syscall.SO_REUSEADDR
+		}
+		var serr error
+		err := c.Control(func(fd uintptr) {
+			serr = syscall.SetsockoptInt(syscall.Handle(fd), syscall.SOL_SOCKET, opt, 1)
+		})
+		if err != nil {
+			return err
+		}
+		if serr == nil && optErr != nil {
+			serr = optErr
+		}
+		return os.NewSyscallError("setsockopt", serr)
+	}
+}
+
+// ExclusiveAddrUse reads SO_EXCLUSIVEADDRUSE of a listener (S16 (1), (5)).
+func ExclusiveAddrUse(c syscall.RawConn) (int, error) {
+	return sockopt(c, soExclusiveAddrUse)
+}
+
+// ReuseAddr reads SO_REUSEADDR of a listener (S16 (1), (5)).
+func ReuseAddr(c syscall.RawConn) (int, error) {
+	return sockopt(c, syscall.SO_REUSEADDR)
+}
+
+func sockopt(c syscall.RawConn, opt int) (int, error) {
+	var v int
+	var gerr error
+	err := c.Control(func(fd uintptr) {
+		v, gerr = syscall.GetsockoptInt(syscall.Handle(fd), syscall.SOL_SOCKET, opt)
+	})
+	if err != nil {
+		return 0, err
+	}
+	return v, gerr
+}
+
+// releaseListener adds nothing on Windows: the listener handle is not inheritable, so
+// closing it at the normal stop releases 127.0.0.1:P.
+func releaseListener(net.Listener) {}
