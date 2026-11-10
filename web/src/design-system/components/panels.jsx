@@ -119,7 +119,7 @@ export function AttentionItem({ group, item, selected, onSelect, onAsk }) {
         <span className="ds-attention-item__value">{item.value}</span>
         <span className="ds-attention-item__reason">
           <Icon status={GROUP_GLYPH[group]} />
-          {item.reason}
+          <span data-full-reason="">{item.reason}</span>
         </span>
       </button>
       <Button variant="text-link" onClick={() => onAsk && onAsk(item.id)}>
@@ -178,8 +178,9 @@ const TABS = ['details', 'diagnose'];
 const SUB_TABS = ['summary', 'yaml', 'events', 'logs'];
 
 // C-23: Details and Diagnose tabs; the Details sub tabs Summary, YAML, Events and, only for
-// Pods and workloads, Logs. Switching emits onTabChange or onSubTabChange.
-export function InspectorShell({ kind, name, state, initialTab = 'details', initialSubTab = 'summary', onTabChange, onSubTabChange, children }) {
+// Pods and workloads, Logs. Switching emits onTabChange or onSubTabChange. A reason is the
+// caller's full dictionary sentence (UI.md 4.4), shown whole, never cut (DS-5).
+export function InspectorShell({ kind, name, state, reason, initialTab = 'details', initialSubTab = 'summary', onTabChange, onSubTabChange, children }) {
   const [tab, setTab] = useState(initialTab);
   const [subTab, setSubTab] = useState(initialSubTab);
   const subTabs = SUB_TABS.filter((t) => t !== 'logs' || LOG_KINDS.includes(kind));
@@ -192,6 +193,11 @@ export function InspectorShell({ kind, name, state, initialTab = 'details', init
         <span className="ds-inspector__name">{name}</span>
         {state && <StatePill kind="node" state={state.state} text={state.text} />}
       </div>
+      {reason && (
+        <p className="ds-inspector__reason" data-full-reason="">
+          {reason}
+        </p>
+      )}
       <div className="ds-tabs" role="tablist">
         {TABS.map((t) => (
           <button

@@ -340,6 +340,7 @@
 .ds-inspector__head { display: flex; align-items: center; gap: 6px; padding: 10px 12px; }
 .ds-inspector__kind { font-size: var(--type-cardKind-size); color: var(--color-faint); }
 .ds-inspector__name { font-family: var(--font-mono); }
+.ds-inspector__reason { margin: 0; padding: 0 12px 10px; font-size: var(--type-rowReason-size); line-height: var(--type-rowReason-line); color: var(--color-sub); overflow-wrap: anywhere; }
 .ds-tabs { display: flex; gap: 2px; padding: 0 8px; box-shadow: inset 0 -1px 0 var(--color-line); }
 .ds-tabs--sub { background: var(--color-inset); }
 .ds-tabs__tab { border: none; background: transparent; color: var(--color-sub); font: inherit; padding: 8px 10px; cursor: pointer; }

@@ -154,7 +154,7 @@ const RENDER = {
   'C-21': (p, log, item) => <StageDemo item={item} log={log} />,
   'C-22': (p, log, item) => <AttentionDemo item={item} log={log} />,
   'C-23': (p, log) => (
-    <InspectorShell kind={p.kind} name={p.name} state={p.state} initialTab={p.initialTab} onTabChange={(t) => log(`tab ${t}`)} onSubTabChange={(t) => log(`subtab ${t}`)}>
+    <InspectorShell kind={p.kind} name={p.name} state={p.state} reason={p.reason} initialTab={p.initialTab} onTabChange={(t) => log(`tab ${t}`)} onSubTabChange={(t) => log(`subtab ${t}`)}>
       <DefinitionList
         items={[
           { key: 'Kind', value: p.kind },
