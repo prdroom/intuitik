@@ -1,0 +1,15 @@
+/* Geist and Geist Mono v1.8.1 (SIL Open Font License 1.1, OFL.txt next to the files),
+   bundled because the panel's CSP allows only its own origin. */
+@font-face {
+  font-family: 'Geist';
+  src: url('./fonts/Geist-wght.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('./fonts/GeistMono-wght.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+}
