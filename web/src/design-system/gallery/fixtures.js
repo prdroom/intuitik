@@ -256,8 +256,8 @@ export const GALLERY_ITEMS = [
 
   // C-23 InspectorShell
   item('C-23.details.pod', 'Details of a Pod (Logs shown)', { kind: 'Pod', name: 'api-7f9c-q2', state: { state: 'failing', text: 'CrashLoopBackOff' } }),
-  item('C-23.details.service', 'Details of a Service (no Logs)', { kind: 'Service', name: 'web' }),
-  item('C-23.diagnose', 'Diagnose tab', { kind: 'Deployment', name: 'payments', initialTab: 'diagnose' }),
+  item('C-23.details.service', 'Details of a Service (no Logs), with the full reason sentence', { kind: 'Service', name: 'metrics', reason: REASONS.numericPort }),
+  item('C-23.diagnose', 'Diagnose tab, with the full reason sentence', { kind: 'Deployment', name: 'payments', initialTab: 'diagnose', reason: REASONS.storageClass }),
 
   // C-24 LinkEnds
   item('C-24.target', 'Link ends with a target', { from: { kind: 'Service', name: 'web' }, link: { state: 'warning', value: 'targetPort 9000' }, to: { kind: 'Pod', name: 'web-5d8c-k2' } }),

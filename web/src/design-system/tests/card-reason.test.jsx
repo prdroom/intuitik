@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { GALLERY_ITEMS } from '../gallery/fixtures.js';
 import { GalleryItem } from '../gallery/registry.jsx';
 import { RefRow, cardReason } from '../index.js';
-import { textOf, report, reportResults } from './helpers.js';
+import { decode, textOf, report, reportResults } from './helpers.js';
 
 reportResults();
 
@@ -38,6 +38,16 @@ function onlyRemoved(source, card) {
   return rest === card;
 }
 
+// Texts of the elements that carry a full dictionary sentence (attribute data-full-reason).
+function fullReasons(markup) {
+  return [...markup.matchAll(/<(p|span)\s[^>]*data-full-reason=""[^>]*>([^<]*)<\/\1>/g)].map((m) => decode(m[2]));
+}
+
+// A problem unless one full-reason element holds exactly the sentence.
+function fullSentenceProblems(markup, sentence) {
+  return fullReasons(markup).includes(sentence) ? [] : [`no full-reason element with "${sentence}"`];
+}
+
 describe('T-12 card reason line', () => {
   it('T-12 cardReason removes only the leading state word with its dash and the parenthesised explanations, for all 9 sentences of UI.md 4.4', () => {
     expect(CASES).toHaveLength(9);
@@ -58,8 +68,26 @@ describe('T-12 card reason line', () => {
     expect(card).toContain(expected);
     expect(card).not.toContain('(claim cannot bind)');
     expect(card).not.toContain('Broken \u2014');
-    const attention = GALLERY_ITEMS.find((i) => i.id === 'C-22.groups');
-    const markup = textOf(renderToStaticMarkup(<GalleryItem item={attention} />));
-    expect(markup).toContain(CASES[6][0]);
+
+    const sentences = CASES.map((c) => c[0]);
+    // Inspector: every C-23 gallery item with a reason shows that full UI.md 4.4 sentence.
+    const inspectorItems = GALLERY_ITEMS.filter((i) => i.component === 'C-23' && i.props.reason);
+    expect(inspectorItems.length).toBeGreaterThanOrEqual(2);
+    for (const item of inspectorItems) {
+      expect(sentences).toContain(item.props.reason);
+      const markup = renderToStaticMarkup(<GalleryItem item={item} />);
+      report(`T-12 Inspector ${item.id} full reasons ${JSON.stringify(fullReasons(markup))}`);
+      expect(fullSentenceProblems(markup, item.props.reason)).toEqual([]);
+    }
+    // Needs attention: the open groups' items show their full sentences.
+    const attention = renderToStaticMarkup(<GalleryItem item={GALLERY_ITEMS.find((i) => i.id === 'C-22.groups')} />);
+    report(`T-12 Needs attention C-22.groups full reasons ${JSON.stringify(fullReasons(attention))}`);
+    for (const s of [CASES[0][0], CASES[2][0], CASES[6][0]]) {
+      expect(fullSentenceProblems(attention, s)).toEqual([]);
+    }
+    // Negative fixtures: the cut sentence in the full-reason element, and no element at all.
+    const cutMarkup = `<p data-full-reason="">${cardReason(CASES[6][0])}</p>`;
+    expect(fullSentenceProblems(cutMarkup, CASES[6][0])).not.toEqual([]);
+    expect(fullSentenceProblems(`<p>${CASES[6][0]}</p>`, CASES[6][0])).not.toEqual([]);
   });
 });

@@ -2,13 +2,22 @@
 // Playwright Chromium, Firefox and WebKit under the panel's CSP. Each check first runs on
 // its negative fixture page, which must fail it, and then on the gallery.
 import { expect, test as base } from '@playwright/test';
-import { GALLERY_CSP, identityLines, startGallery } from './gallery_harness.js';
+import { GALLERY_CSP, identityLines, readinessFailureLeftovers, startGallery } from './gallery_harness.js';
 
+// The worker's gallery. Before it starts, the harness's own failure path is checked: a
+// start whose readiness check fails must leave neither a listening server nor the build
+// directory (startGallery cleans up before it throws, so there is nothing to tear down).
 const test = base.extend({
   gallery: [
     // eslint-disable-next-line no-empty-pattern
     async ({}, use) => {
+      const leftovers = await readinessFailureLeftovers();
+      const cleanUpLine = `harness readiness failure: ${JSON.stringify(leftovers)}`;
+      if (!leftovers.error || leftovers.dirExists || leftovers.portAnswers) {
+        throw new Error(`the harness did not clean up a failed start: ${cleanUpLine}`);
+      }
       const gallery = await startGallery();
+      gallery.cleanUpLine = cleanUpLine;
       try {
         await use(gallery);
       } finally {
@@ -188,20 +197,32 @@ async function copyOnce(page) {
   return { state, calls, log };
 }
 
-// C-05 per engine (packet section 6.2).
-async function checkCopy(browser, browserName, gallery) {
+// C-05 per engine (packet section 6.2). An observer, when given, watches every Copy page
+// from before it opens: observer.start(page, prepared) returns watch(label), called after
+// the copy, which returns { lines, problems } (B-3: CSP and style; B-4: requests).
+async function checkCopy(browser, browserName, gallery, observer = null) {
   const lines = [];
   const problems = [];
+  const watched = async (watch, label) => {
+    if (watch) {
+      const w = await watch(label);
+      lines.push(...w.lines);
+      problems.push(...w.problems);
+    }
+  };
   const matches = (state, outcome) => (outcome === 'resolved' ? state === 'copied' : outcome.startsWith('rejected') ? state === 'failed' : false);
   if (browserName === 'chromium') {
     // Copy with clipboard-read and clipboard-write: the real clipboard holds the exact text.
     const granted = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
     try {
       const page = await granted.newPage();
-      const { pageErrors } = await preparePage(page);
+      const prepared = await preparePage(page);
+      const { pageErrors } = prepared;
+      const watch = observer ? observer.start(page, prepared) : null;
       await openGallery(page, gallery);
       const r = await copyOnce(page);
       const read = await page.evaluate(() => navigator.clipboard.readText());
+      await watched(watch, 'C-05 chromium copy page');
       lines.push(`C-05 chromium copy: call ${JSON.stringify(r.calls)}, state ${r.state}, clipboard read back ${JSON.stringify(read)}`);
       if (read !== COPY_TEXT || r.state !== 'copied' || r.calls.length !== 1 || r.calls[0].text !== COPY_TEXT || pageErrors.length) {
         problems.push(`C-05 chromium copy: ${JSON.stringify({ read, state: r.state, calls: r.calls, pageErrors })}`);
@@ -213,7 +234,9 @@ async function checkCopy(browser, browserName, gallery) {
     const denied = await browser.newContext();
     try {
       const page = await denied.newPage();
-      const { pageErrors } = await preparePage(page);
+      const prepared = await preparePage(page);
+      const { pageErrors } = prepared;
+      const watch = observer ? observer.start(page, prepared) : null;
       await openGallery(page, gallery, '?clipboard-refusal');
       const cdp = await browser.newBrowserCDPSession();
       const { targetInfos } = await cdp.send('Target.getTargets');
@@ -223,6 +246,7 @@ async function checkCopy(browser, browserName, gallery) {
       }
       await cdp.detach();
       const r = await copyOnce(page);
+      await watched(watch, 'C-05 chromium refusal page');
       lines.push(`C-05 chromium refusal: call ${JSON.stringify(r.calls)}, state ${r.state}, page errors ${pageErrors.length}`);
       if (r.calls.length !== 1 || !r.calls[0].outcome.startsWith('rejected') || r.state !== 'failed' || pageErrors.length) {
         problems.push(`C-05 chromium refusal: ${JSON.stringify({ state: r.state, calls: r.calls, pageErrors })}`);
@@ -234,9 +258,12 @@ async function checkCopy(browser, browserName, gallery) {
     const context = await browser.newContext();
     try {
       const page = await context.newPage();
-      const { pageErrors } = await preparePage(page);
+      const prepared = await preparePage(page);
+      const { pageErrors } = prepared;
+      const watch = observer ? observer.start(page, prepared) : null;
       await openGallery(page, gallery);
       const r = await copyOnce(page);
+      await watched(watch, `C-05 ${browserName} copy page`);
       const outcome = r.calls[0]?.outcome ?? 'no call';
       lines.push(`C-05 ${browserName}: call writeText ${JSON.stringify(r.calls.map((c) => c.text))} outcome ${outcome}, state ${r.state}, event log ${JSON.stringify(r.log)}, page errors ${pageErrors.length}; clipboard content not verified in ${browserName}`);
       if (r.calls.length !== 1 || r.calls[0].text !== COPY_TEXT || !matches(r.state, outcome) || pageErrors.length) {
@@ -375,19 +402,63 @@ function requestRecorder(page, origin) {
   };
 }
 
+// B-3 observer of a Copy page: its CSP and style state after the copy.
+const cspObserver = {
+  start: (page, prepared) => async (label) => {
+    const c = await cspProblems(page, prepared.consoleCsp);
+    return { lines: [`${label}: ${c.line}`], problems: c.problems.map((p) => `${label}: ${p}`) };
+  },
+};
+
+// B-4 observer of a Copy page: every request from before it opens until after the copy.
+function requestObserver(origin) {
+  return {
+    start: (page) => {
+      const report = requestRecorder(page, origin);
+      return async (label) => {
+        await page.waitForTimeout(200);
+        const r = report();
+        return {
+          lines: [`${label}: requests ${r.requests.length}, other origin ${r.other.length}, not 200 ${r.bad.length}`],
+          problems: [...r.other.map((u) => `${label}: other origin ${u}`), ...r.bad.map((b) => `${label}: not 200 ${b}`)],
+        };
+      };
+    },
+  };
+}
+
+// Runs the Copy flow on a negative fixture page under an observer; returns its problems.
+async function copyNegative(browser, gallery, name, observer, waitFor) {
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    const prepared = await preparePage(page);
+    const watch = observer.start(page, prepared);
+    await page.goto(gallery.negative(name));
+    await copyOnce(page);
+    if (waitFor) {
+      await waitFor(page);
+    }
+    const w = await watch(`copy on ${name}`);
+    return w.problems;
+  } finally {
+    await context.close();
+  }
+}
+
 function printAll(lines) {
   for (const line of lines) {
     console.log(line);
   }
 }
 
-async function header(browser, browserName) {
-  printAll([...identityLines(), `browser ${browserName} ${browser.version()}`]);
+async function header(browser, browserName, gallery) {
+  printAll([...identityLines(), `browser ${browserName} ${browser.version()}`, gallery.cleanUpLine]);
 }
 
 test.describe('gallery', () => {
   test('B-1 wired behaviour', async ({ page, browser, browserName, gallery }) => {
-    await header(browser, browserName);
+    await header(browser, browserName, gallery);
     // Negative fixture: an element whose handler emits its event twice.
     await page.goto(gallery.negative('b1-double-event.html'));
     const neg = await expectEvents(page, 'NEGATIVE', 'mouse click', () => body(page, 'NEGATIVE').locator('button').click(), ['click']);
@@ -405,7 +476,7 @@ test.describe('gallery', () => {
   });
 
   test('B-2 ports after layout', async ({ page, browser, browserName, gallery }) => {
-    await header(browser, browserName);
+    await header(browser, browserName, gallery);
     // Negative fixture: a card that reports port centres shifted by one row gap.
     await page.goto(gallery.negative('b2-shifted-ports.html'));
     await expect(page.locator('[data-port-centres="NEGATIVE"]')).not.toHaveText('');
@@ -426,7 +497,7 @@ test.describe('gallery', () => {
   });
 
   test('B-3 CSP at run time', async ({ page, browser, browserName, gallery }) => {
-    await header(browser, browserName);
+    await header(browser, browserName, gallery);
     // Negative fixture: a page that sets a style attribute after load.
     const negLog = await preparePage(page);
     await page.goto(gallery.negative('b3-style-after-load.html'), { waitUntil: 'load' });
@@ -450,10 +521,18 @@ test.describe('gallery', () => {
     } finally {
       gallery.releaseFonts();
     }
+    // The Copy pages of B-1 (success and, in Chromium, refusal) under the same checks;
+    // first the check on a Copy whose handler sets a style attribute.
+    const negCopy = await copyNegative(browser, gallery, 'b3-copy-style.html', cspObserver);
+    console.log(`NEGATIVE-FIXTURE B-3 b3-copy-style.html: failed conditions ${JSON.stringify(negCopy)} -> the check fails as required`);
+    expect(negCopy.length, 'the B-3 check must fail on its Copy negative fixture').toBeGreaterThan(0);
+    const copy = await checkCopy(browser, browserName, gallery, cspObserver);
+    printAll(copy.lines.map((l) => `B-3 ${browserName} ${l}`));
+    expect(copy.problems).toEqual([]);
   });
 
   test('B-4 requests', async ({ page, browser, browserName, gallery }) => {
-    await header(browser, browserName);
+    await header(browser, browserName, gallery);
     // Negative fixture: a page that requests a URL on another origin.
     const negReport = requestRecorder(page, gallery.origin);
     await page.goto(gallery.negative('b4-other-origin.html'));
@@ -489,5 +568,15 @@ test.describe('gallery', () => {
       expect(r.requests.some((u) => u.endsWith(k)), k).toBe(true);
     }
     expect(pageErrors).toEqual([]);
+    // The Copy pages of B-1 (success and, in Chromium, refusal) under the same request check;
+    // first the check on a Copy whose handler then requests another origin.
+    const observer = requestObserver(gallery.origin);
+    const otherOrigin = (p) => p.waitForEvent('request', { predicate: (q) => new URL(q.url()).origin !== gallery.origin, timeout: 5000 }).catch(() => {});
+    const negCopy = await copyNegative(browser, gallery, 'b4-copy-request.html', observer, otherOrigin);
+    console.log(`NEGATIVE-FIXTURE B-4 b4-copy-request.html: failed conditions ${JSON.stringify(negCopy)} -> the check fails as required`);
+    expect(negCopy.length, 'the B-4 check must fail on its Copy negative fixture').toBeGreaterThan(0);
+    const copy = await checkCopy(browser, browserName, gallery, observer);
+    printAll(copy.lines.map((l) => `B-4 ${browserName} ${l}`));
+    expect(copy.problems).toEqual([]);
   });
 });

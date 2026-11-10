@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>B-4 negative fixture: a Copy whose handler then requests another origin</title>
+  </head>
+  <body>
+    <section data-gallery-item="C-05.default">
+      <div class="gallery-item__body">
+        <div class="ds-code" data-copy-state="idle">
+          <pre><code>  kubectl get pods -n shop -l app=web  </code></pre>
+          <button type="button">Copy</button>
+        </div>
+      </div>
+      <ol data-event-log="C-05.default"></ol>
+    </section>
+    <script src="b4-copy-request.js"></script>
+  </body>
+</html>

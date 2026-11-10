@@ -41,10 +41,23 @@ function get(url) {
   });
 }
 
-export async function startGallery() {
+// Closes the server (if listening) and deletes the build directory.
+async function cleanUp(server, outDir) {
+  if (server && server.listening) {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+  fs.rmSync(outDir, { recursive: true, force: true });
+}
+
+// Every failure after the build directory exists (build, listen, readiness) closes the
+// server and deletes the directory before it is thrown; the error carries both, so that
+// a caller can verify the clean-up. `readyPath` and `readyTimeoutMs` exist for that check.
+export async function startGallery({ readyPath = '/gallery.html', readyTimeoutMs = 10_000 } = {}) {
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'intuitik-gallery-'));
   const fonts = { hold: false, held: [], requested: 0 };
   let server;
+  let origin;
   try {
     await build({
       configFile: path.join(WEB_DIR, 'vite.gallery.config.js'),
@@ -80,21 +93,20 @@ export async function startGallery() {
       send();
     });
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    origin = `http://127.0.0.1:${server.address().port}`;
+    // The tests start only after the server answers.
+    const deadline = Date.now() + readyTimeoutMs;
+    while ((await get(`${origin}${readyPath}`)) !== 200) {
+      if (Date.now() > deadline) {
+        throw new Error(`the gallery server did not answer ${readyPath} within ${readyTimeoutMs} ms`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
   } catch (err) {
-    if (server) {
-      server.close();
-    }
-    fs.rmSync(outDir, { recursive: true, force: true });
+    await cleanUp(server, outDir);
+    err.galleryOutDir = outDir;
+    err.galleryOrigin = origin;
     throw err;
-  }
-  const origin = `http://127.0.0.1:${server.address().port}`;
-  // The tests start only after the server answers.
-  const deadline = Date.now() + 10_000;
-  while ((await get(`${origin}/gallery.html`)) !== 200) {
-    if (Date.now() > deadline) {
-      throw new Error('the gallery server did not answer within 10 s');
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
   }
   return {
     origin,
@@ -116,11 +128,23 @@ export async function startGallery() {
       for (const send of fonts.held.splice(0)) {
         send();
       }
-      server.closeAllConnections();
-      await new Promise((resolve) => server.close(resolve));
-      fs.rmSync(outDir, { recursive: true, force: true });
+      await cleanUp(server, outDir);
     },
   };
+}
+
+// Starts a gallery whose readiness check cannot succeed and returns what was left behind:
+// the error, whether the build directory still exists and whether the port still answers.
+export async function readinessFailureLeftovers() {
+  try {
+    const gallery = await startGallery({ readyPath: '/__negative/no-such-page.html', readyTimeoutMs: 500 });
+    await gallery.close();
+    return { error: null };
+  } catch (err) {
+    const dirExists = Boolean(err.galleryOutDir) && fs.existsSync(err.galleryOutDir);
+    const status = err.galleryOrigin ? await get(`${err.galleryOrigin}/gallery.html`) : 0;
+    return { error: err.message, outDir: err.galleryOutDir, origin: err.galleryOrigin, dirExists, portAnswers: status !== 0 };
+  }
 }
 
 // The identity lines every gallery test prints (packet section 6.2). On a pull_request run
