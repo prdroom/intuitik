@@ -3,17 +3,17 @@
 // are the full reason sentences of UI.md 4.4 (the longest case); cards cut them with
 // cardReason, the Inspector and Needs attention items show them whole.
 
-// UI.md 4.4, byte for byte (— is the em dash).
+// UI.md 4.4, byte for byte (\u2014 is the em dash).
 export const REASONS = {
-  selector: 'Broken — selector app=web matches 0 Pods',
-  namedPort: 'Broken — targetPort "http": no container port with this name',
-  configMap: 'Broken — ConfigMap payments-config not found',
-  storageClass: 'Broken — StorageClass "fast" not found (claim cannot bind)',
-  httpRoute: 'Broken — Service checkout not found',
-  waitingPvc: 'Waiting — data-db-0 waits for consumer Pod db-0',
-  numericPort: 'Warning — targetPort 9000 is not declared by the container (traffic not verifiable)',
-  noPermission: 'Unknown — no permission to read Secrets (the view role does not include Secrets)',
-  optional: 'Optional — ConfigMap feature-flags not found',
+  selector: 'Broken \u2014 selector app=web matches 0 Pods',
+  namedPort: 'Broken \u2014 targetPort "http": no container port with this name',
+  configMap: 'Broken \u2014 ConfigMap payments-config not found',
+  storageClass: 'Broken \u2014 StorageClass "fast" not found (claim cannot bind)',
+  httpRoute: 'Broken \u2014 Service checkout not found',
+  waitingPvc: 'Waiting \u2014 data-db-0 waits for consumer Pod db-0',
+  numericPort: 'Warning \u2014 targetPort 9000 is not declared by the container (traffic not verifiable)',
+  noPermission: 'Unknown \u2014 no permission to read Secrets (the view role does not include Secrets)',
+  optional: 'Optional \u2014 ConfigMap feature-flags not found',
 };
 
 // A 120-character reason (specification section 5, packet T-7 and B-2).
@@ -28,7 +28,7 @@ const REASON_BY_STATE = {
 };
 
 const ROW_BY_STATE = {
-  connected: { name: 'port', value: '80 → 8080', fact: '3 Pods' },
+  connected: { name: 'port', value: '80 \u2192 8080', fact: '3 Pods' },
   broken: { name: 'selects', value: 'app=web', fact: '0 Pods' },
   waiting: { name: 'volume', value: 'data-db-0' },
   warning: { name: 'port', value: '9000' },
@@ -48,7 +48,7 @@ const connectedRows = (n) =>
     id: `ok-${i + 1}`,
     state: 'connected',
     name: ['selects', 'port', 'env', 'volume', 'class'][i % 5],
-    value: ['app=web', '80 → 8080', 'LOG_LEVEL', 'cache', 'standard'][i % 5],
+    value: ['app=web', '80 \u2192 8080', 'LOG_LEVEL', 'cache', 'standard'][i % 5],
   }));
 
 export const GALLERY_ITEMS = [
@@ -68,7 +68,7 @@ export const GALLERY_ITEMS = [
     item(`C-03.node.${s}`, `Node state ${s}${s === 'healthy' ? ' (renders nothing)' : ''}`, {
       kind: 'node',
       state: s,
-      text: { healthy: 'Running', progressing: 'Pending · scheduling', failing: 'CrashLoopBackOff · 7 restarts', unknown: 'No permission' }[s],
+      text: { healthy: 'Running', progressing: 'Pending \u00b7 scheduling', failing: 'CrashLoopBackOff \u00b7 7 restarts', unknown: 'No permission' }[s],
     }),
   ),
 
@@ -82,15 +82,15 @@ export const GALLERY_ITEMS = [
   item('C-05.default', 'Code block with Copy (leading and trailing spaces kept)', {
     text: '  kubectl get pods -n shop -l app=web  ',
     copiedText: 'Copied',
-    failedText: "Couldn't copy — select the text and copy it yourself",
+    failedText: "Couldn't copy \u2014 select the text and copy it yourself",
   }),
 
   // C-10 StatusTab
-  item('C-10.failing', 'Failing tab (solid border)', { state: 'failing', text: 'CrashLoopBackOff · 7 restarts' }),
-  item('C-10.progressing', 'Progressing tab (dashed border)', { state: 'progressing', text: 'Pending · scheduling' }),
+  item('C-10.failing', 'Failing tab (solid border)', { state: 'failing', text: 'CrashLoopBackOff \u00b7 7 restarts' }),
+  item('C-10.progressing', 'Progressing tab (dashed border)', { state: 'progressing', text: 'Pending \u00b7 scheduling' }),
   item('C-10.unknown', 'Unknown tab (grey)', { state: 'unknown', text: 'No permission' }),
   item('C-10.attention', 'Attention mark: broken-link propagation, no tab border or fill', { state: 'attention', text: '1 broken link' }),
-  item('C-10.failing.broken-link', 'Failing tab with a broken link', { state: 'failing', text: 'CrashLoopBackOff · 7 restarts', brokenLinks: 1 }),
+  item('C-10.failing.broken-link', 'Failing tab with a broken link', { state: 'failing', text: 'CrashLoopBackOff \u00b7 7 restarts', brokenLinks: 1 }),
   item('C-10.healthy', 'Healthy: no tab', { state: 'healthy' }),
 
   // C-11 RefRow
@@ -121,7 +121,7 @@ export const GALLERY_ITEMS = [
     name: 'web',
     rows: [
       { id: 'sel', state: 'broken', name: 'selects', value: 'app=web', fact: '0 Pods', reason: REASONS.selector },
-      { id: 'port', state: 'connected', name: 'port', value: '80 → 8080' },
+      { id: 'port', state: 'connected', name: 'port', value: '80 \u2192 8080' },
     ],
     chips: [{ text: 'ClusterIP' }],
     status: { state: 'attention', text: '1 broken link' },
@@ -152,12 +152,12 @@ export const GALLERY_ITEMS = [
     rows: [
       { id: 'sel', state: 'broken', name: 'selects', value: 'app=web', fact: '0 Pods', reason: LONG_REASON },
       { id: 'port', state: 'warning', name: 'port', value: '9000', reason: REASONS.numericPort },
-      { id: 'ok', state: 'connected', name: 'port', value: '443 → 8443' },
+      { id: 'ok', state: 'connected', name: 'port', value: '443 \u2192 8443' },
     ],
     chips: [{ text: 'ClusterIP' }],
     status: { state: 'attention', text: '1 broken link' },
   }),
-  item('C-14.expanded.default', 'Expanded card with its owned objects (ReplicaSet ⊃ Pod rows)', {
+  item('C-14.expanded.default', 'Expanded card with its owned objects (ReplicaSet \u2283 Pod rows)', {
     mode: 'expanded',
     kind: 'StatefulSet',
     name: 'db',
@@ -167,7 +167,7 @@ export const GALLERY_ITEMS = [
       { id: 'svc', state: 'connected', name: 'serviceName', value: 'db-headless' },
     ],
     chips: [{ text: '0/1 ready', tone: 'attention', font: 'mono' }],
-    status: { state: 'progressing', text: 'Pending · scheduling' },
+    status: { state: 'progressing', text: 'Pending \u00b7 scheduling' },
     owned: { kind: 'Pod', name: 'db-0', items: [{ id: 'db-0', kind: 'Pod', name: 'db-0', state: 'progressing' }] },
   }),
   item('C-14.selected', 'Selected card', {
@@ -189,7 +189,7 @@ export const GALLERY_ITEMS = [
     name: 'api-7f9c-q2',
     rows: [{ id: 'cm', state: 'connected', name: 'envFrom', value: 'configmap/api' }],
     chips: [{ text: '7 restarts', tone: 'broken', font: 'mono' }],
-    status: { state: 'failing', text: 'CrashLoopBackOff · 7 restarts' },
+    status: { state: 'failing', text: 'CrashLoopBackOff \u00b7 7 restarts' },
   }),
   item('C-14.healthy', 'Healthy card: no tab, no coloured row', {
     kind: 'ConfigMap',
@@ -200,7 +200,7 @@ export const GALLERY_ITEMS = [
 
   // C-15 GhostCard
   item('C-15.broken', 'Ghost of a missing target', { variant: 'broken', kind: 'Pod', target: 'Pods matching app=web', result: '0 found in shop', description: 'Looking for label app=web' }),
-  item('C-15.optional', 'Ghost of a missing optional target', { variant: 'optional', kind: 'ConfigMap', target: 'ConfigMap feature-flags', result: 'not found', description: 'optional · not found' }),
+  item('C-15.optional', 'Ghost of a missing optional target', { variant: 'optional', kind: 'ConfigMap', target: 'ConfigMap feature-flags', result: 'not found', description: 'optional \u00b7 not found' }),
 
   // C-16 NamespaceTile
   item('C-16.anomalies', 'Namespace with anomalies', {
@@ -216,7 +216,7 @@ export const GALLERY_ITEMS = [
   // C-17 ClusterBand item
   item('C-17.node', 'Node', { kind: 'Node', name: 'kind-control-plane', value: 'Ready' }),
   item('C-17.storageclass', 'StorageClass', { kind: 'StorageClass', name: 'standard', value: 'default' }),
-  item('C-17.pv', 'PV', { kind: 'PV', name: 'pvc-3f2a', value: '1Gi · RWO' }),
+  item('C-17.pv', 'PV', { kind: 'PV', name: 'pvc-3f2a', value: '1Gi \u00b7 RWO' }),
 
   // C-20 TopBar
   item('C-20.normal', 'Top bar', { contexts: ['kind-dev', 'staging'], context: 'kind-dev', updated: 'Updated 14:32:05' }),
@@ -238,19 +238,19 @@ export const GALLERY_ITEMS = [
   item('C-22.groups', 'Groups in order; Unknown and Waiting start collapsed; select and open or close', {
     groups: {
       broken: [
-        { id: 'a1', location: 'shop › Service web', value: 'selects app=web', reason: REASONS.selector },
-        { id: 'a2', location: 'shop › Deployment payments', value: 'envFrom configmap/payments-config', reason: REASONS.configMap },
+        { id: 'a1', location: 'shop \u203a Service web', value: 'selects app=web', reason: REASONS.selector },
+        { id: 'a2', location: 'shop \u203a Deployment payments', value: 'envFrom configmap/payments-config', reason: REASONS.configMap },
       ],
-      failing: [{ id: 'a3', location: 'shop › Pod api-7f9c-q2', value: 'container api', reason: 'CrashLoopBackOff · 7 restarts' }],
-      warning: [{ id: 'a4', location: 'shop › Service metrics', value: 'port 9000', reason: REASONS.numericPort }],
-      unknown: [{ id: 'a5', location: 'shop › Deployment db', value: 'envFrom secret/db-credentials', reason: REASONS.noPermission }],
-      waiting: [{ id: 'a6', location: 'shop › PVC data-db-0', value: 'volume data-db-0', reason: REASONS.waitingPvc }],
+      failing: [{ id: 'a3', location: 'shop \u203a Pod api-7f9c-q2', value: 'container api', reason: 'CrashLoopBackOff \u00b7 7 restarts' }],
+      warning: [{ id: 'a4', location: 'shop \u203a Service metrics', value: 'port 9000', reason: REASONS.numericPort }],
+      unknown: [{ id: 'a5', location: 'shop \u203a Deployment db', value: 'envFrom secret/db-credentials', reason: REASONS.noPermission }],
+      waiting: [{ id: 'a6', location: 'shop \u203a PVC data-db-0', value: 'volume data-db-0', reason: REASONS.waitingPvc }],
     },
     footnote: 'Optional references are not counted here (F-5)',
   }),
   item('C-22.selected', 'Selected item', {
     selectedId: 'b1',
-    groups: { broken: [{ id: 'b1', location: 'shop › HTTPRoute shop', value: 'backendRef checkout', reason: REASONS.httpRoute }] },
+    groups: { broken: [{ id: 'b1', location: 'shop \u203a HTTPRoute shop', value: 'backendRef checkout', reason: REASONS.httpRoute }] },
   }),
   item('C-22.empty', 'Nothing needs attention', { groups: {}, updated: '14:32:05' }),
 
@@ -268,7 +268,7 @@ export const GALLERY_ITEMS = [
     items: [
       { key: 'Namespace', value: 'shop' },
       { key: 'selector', value: 'app=web' },
-      { key: 'ports', value: '80/TCP → 8080' },
+      { key: 'ports', value: '80/TCP \u2192 8080' },
     ],
   }),
 
@@ -302,14 +302,14 @@ export const GALLERY_ITEMS = [
     indicators: ['Diagnosed without logs', 'Docs for v1.31 (cluster is v1.32)'],
     attach: 'To be sure, attach: previous logs of api-7f9c-q2',
     copiedText: 'Copied',
-    failedText: "Couldn't copy — select the text and copy it yourself",
+    failedText: "Couldn't copy \u2014 select the text and copy it yourself",
   }),
 
   // C-33 ConsentCard
   item('C-33.default', 'First use of an external provider', { scope: 'Sending to api.anthropic.com: resource summaries, events and logs of the selected element and its neighbours.' }),
 
   // C-34 ErrorCard / NotSetUpCard
-  item('C-34.error', 'Error card', { text: 'Rate limit reached — try again in 40 s' }),
+  item('C-34.error', 'Error card', { text: 'Rate limit reached \u2014 try again in 40 s' }),
   item('C-34.not-set-up', 'Not set up', { text: 'Choose a model provider in Settings to ask why.' }),
 
   // C-40 ConnectionStateCard
@@ -318,7 +318,7 @@ export const GALLERY_ITEMS = [
 
   // C-41 Banner
   item('C-41.permission', 'Permission band', { variant: 'permission', text: "You can't list namespaces in this cluster. Showing shop from your kubeconfig." }),
-  item('C-41.paused', 'Paused band', { variant: 'paused', text: 'Updates paused — showing data from 14:32:05. Reconnecting…' }),
+  item('C-41.paused', 'Paused band', { variant: 'paused', text: 'Updates paused \u2014 showing data from 14:32:05. Reconnecting\u2026' }),
 
   // C-42 LoadingProgress
   item('C-42.partial', 'Loading, 7 of 12', { received: 7, total: 12 }),
@@ -352,8 +352,8 @@ export const GALLERY_TEXT = {
   system: 'System',
   contrastTitle: 'Text contrast (WCAG 2.x, at least 4.5)',
   fonts: 'Fonts',
-  sansSample: 'Geist — The quick brown fox jumps over the lazy dog 0123456789',
-  monoSample: 'Geist Mono — selector app=web matches 0 Pods',
+  sansSample: 'Geist \u2014 The quick brown fox jumps over the lazy dog 0123456789',
+  monoSample: 'Geist Mono \u2014 selector app=web matches 0 Pods',
   events: 'Events',
   portCentres: 'Port centres',
   expand: 'Expand',

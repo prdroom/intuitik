@@ -56,7 +56,7 @@ function attentionProblems(classes, tabClasses, rules) {
 }
 
 describe('T-3a attention is not a tab', () => {
-  it('T-3a the StatusTab of an attention-only card has the ✕ mark and the caller text, no tab border and no fill', () => {
+  it('T-3a the StatusTab of an attention-only card has the \u2715 mark and the caller text, no tab border and no fill', () => {
     const markup = renderToStaticMarkup(<NodeCard kind="Service" name="web" rows={[]} status={{ state: 'attention', text: '1 broken link' }} />);
     const tag = statusElement(markup);
     expect(tag).not.toBeNull();

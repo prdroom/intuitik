@@ -165,7 +165,7 @@ async function driveB1(page) {
   // C-26: zoom events.
   const zoom = body(page, 'C-26.default');
   await run('C-26.default', 'click +', () => zoom.getByRole('button', { name: 'Zoom in' }).click(), ['zoom in']);
-  await run('C-26.default', 'Space on −', async () => {
+  await run('C-26.default', 'Space on \u2212', async () => {
     await zoom.getByRole('button', { name: 'Zoom out' }).focus();
     await page.keyboard.press('Space');
   }, ['zoom out']);

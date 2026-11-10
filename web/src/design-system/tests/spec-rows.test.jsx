@@ -32,7 +32,7 @@ const row = (id, state, extra = {}) => ({ id, state, name: 'env', value: `value-
 
 describe('T-7 specification section 5 rows', () => {
   it('T-7 fold rule: a compact NodeCard with 5 normal and 2 anomalous rows renders 2 normal rows, "+3 connected" and both anomalous rows', () => {
-    const rows = [row('n1', 'connected'), row('a1', 'broken', { reason: 'Broken — ConfigMap payments-config not found' }), row('n2', 'connected'), row('n3', 'connected'), row('n4', 'connected'), row('a2', 'waiting', { reason: 'Waiting — data-db-0 waits for consumer Pod db-0' }), row('n5', 'connected')];
+    const rows = [row('n1', 'connected'), row('a1', 'broken', { reason: 'Broken \u2014 ConfigMap payments-config not found' }), row('n2', 'connected'), row('n3', 'connected'), row('n4', 'connected'), row('a2', 'waiting', { reason: 'Waiting \u2014 data-db-0 waits for consumer Pod db-0' }), row('n5', 'connected')];
     const markup = renderToStaticMarkup(<NodeCard kind="Deployment" name="payments" rows={rows} mode="compact" />);
     const problems = foldProblems(markup, { normal: 2, folded: 3, anomalous: ['a1', 'a2'] });
     report(`T-7 fold rule rows ${JSON.stringify(rowTags(markup).map((t) => attr(t, 'data-row-id')))}`);
@@ -49,7 +49,7 @@ describe('T-7 specification section 5 rows', () => {
     const reasonProblems = (m) => {
       const p = [];
       if (!textOf(m).includes(reason)) p.push('reason not whole');
-      if (textOf(m).includes('…')) p.push('ellipsis character');
+      if (textOf(m).includes('\u2026')) p.push('ellipsis character');
       if (/\sstyle=/.test(m)) p.push('style attribute');
       return p;
     };
@@ -59,7 +59,7 @@ describe('T-7 specification section 5 rows', () => {
     );
     expect(heights).toEqual([]);
     // Negative fixture: a cut reason fails.
-    expect(reasonProblems(markup.replace('track=canary now', 'track=ca…'))).not.toEqual([]);
+    expect(reasonProblems(markup.replace('track=canary now', 'track=ca\u2026'))).not.toEqual([]);
   });
 
   it('T-7 empty state: a NamespaceTile with 0 Pods renders "No resources in <ns>" with the name', () => {
