@@ -594,3 +594,153 @@ jobs:
           if [ "$test_code" -ne 0 ] || [ "$list_code" -ne 0 ]; then
             exit 1
           fi
+
+  # Cluster connection tests (packet M1-T3a section 7) against a kind cluster. The cluster's
+  # kubeconfig is written under RUNNER_TEMP, never into ~/.kube/config of the runner. The list
+  # check fails unless every test of REQUIRED_TESTS_KIND ran and passed.
+  e2e-kind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          package-manager-cache: false
+
+      - name: Frontend build
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Build product and e2etest binaries
+        env:
+          VERSION: 0.0.0-dev
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          out="${RUNNER_TEMP}/e2e-bin"
+          mkdir -p "$out"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+            -ldflags "-X main.version=${VERSION} -X main.commit=${commit}" \
+            -o "${out}/intuitik-linux-amd64" ./cmd/intuitik
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -tags e2etest \
+            -ldflags "-X main.version=${VERSION} -X main.commit=${commit}" \
+            -o "${out}/intuitik-e2etest-linux-amd64" ./cmd/intuitik
+          sha256sum "${out}/intuitik-linux-amd64" "${out}/intuitik-e2etest-linux-amd64"
+
+      # kind and kubectl are checked against the sha256 values below before use; a mismatch
+      # fails the job. kind: the GitHub release asset digest; kubectl: the value at dl.k8s.io.
+      - name: Install kind and kubectl
+        env:
+          KIND_VERSION: v0.33.0
+          KIND_SHA256: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
+          KUBECTL_VERSION: v1.37.0
+          KUBECTL_SHA256: 6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f
+        run: |
+          set -euo pipefail
+          bin="${RUNNER_TEMP}/kind-bin"
+          mkdir -p "$bin"
+          curl -fsSL -o "${bin}/kind" \
+            "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
+          echo "${KIND_SHA256}  ${bin}/kind" | sha256sum -c -
+          curl -fsSL -o "${bin}/kubectl" \
+            "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          echo "${KUBECTL_SHA256}  ${bin}/kubectl" | sha256sum -c -
+          chmod +x "${bin}/kind" "${bin}/kubectl"
+          echo "$bin" >> "${GITHUB_PATH}"
+          "${bin}/kind" version
+          "${bin}/kubectl" version --client
+
+      # The kind kubeconfig stays the KUBECONFIG of the steps that follow, and the tests receive
+      # its path in INTUITIK_E2E_KIND_KUBECONFIG.
+      - name: Create kind cluster
+        env:
+          KIND_NODE_IMAGE: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+        run: |
+          set -euo pipefail
+          kubeconfig="${RUNNER_TEMP}/kind/kubeconfig"
+          mkdir -p "$(dirname "$kubeconfig")"
+          echo "kind node image: ${KIND_NODE_IMAGE}"
+          kind create cluster --name intuitik-e2e --image "$KIND_NODE_IMAGE" \
+            --kubeconfig "$kubeconfig" --wait 180s
+          if [ -e "${HOME}/.kube/config" ]; then
+            echo "kind kubeconfig: ${HOME}/.kube/config exists"
+            exit 1
+          fi
+          echo "kind kubeconfig: ${kubeconfig}; ${HOME}/.kube/config absent"
+          echo "KUBECONFIG=${kubeconfig}" >> "${GITHUB_ENV}"
+          echo "INTUITIK_E2E_KIND_KUBECONFIG=${kubeconfig}" >> "${GITHUB_ENV}"
+          KUBECONFIG="$kubeconfig" kubectl version
+          KUBECONFIG="$kubeconfig" kubectl get nodes -o wide
+
+      # The -run pattern is built from the list file, so this job runs exactly the listed tests.
+      # go test and the list check run in one step, so that the list check also prints its
+      # result when tests fail; the step exits non-zero if either of them failed.
+      - name: e2e-kind tests and list check
+        run: |
+          set -uo pipefail
+          export INTUITIK_E2E_BINARY="${RUNNER_TEMP}/e2e-bin/intuitik-linux-amd64"
+          export INTUITIK_E2E_TEST_BINARY="${RUNNER_TEMP}/e2e-bin/intuitik-e2etest-linux-amd64"
+          report="${RUNNER_TEMP}/e2e-kind.json"
+          test_code=0
+          go test -tags kind -json -run "^($(paste -sd'|' test/e2e-api/connect/REQUIRED_TESTS_KIND))$" ./test/e2e-api/connect/... ./internal/kube/readonly/... > "$report" || test_code=$?
+          list_code=0
+          python3 - test/e2e-api/connect/REQUIRED_TESTS_KIND "$report" <<'PY' || list_code=$?
+          import json, sys
+          list_path, report_path = sys.argv[1], sys.argv[2]
+          names = [l.strip() for l in open(list_path, encoding="utf-8") if l.strip() and not l.strip().startswith("#")]
+          seen = {}
+          for line in open(report_path, encoding="utf-8"):
+              if not line.startswith("{"):
+                  print(line, end="")
+                  continue
+              event = json.loads(line)
+              if event.get("Action") == "output":
+                  print(event.get("Output", ""), end="")
+              if event.get("Test") and event.get("Action") in ("pass", "fail", "skip"):
+                  seen.setdefault(event["Test"], []).append(event["Action"])
+          bad = 0
+          if not names:
+              print("list check: the list is empty")
+              bad = 1
+          if len(set(names)) != len(names):
+              print("list check: the list names a test more than once")
+              bad = 1
+          for name in names:
+              results = seen.get(name, [])
+              result = "missing" if not results else "pass" if all(r == "pass" for r in results) else ",".join(sorted(set(results)))
+              print(f"list check: {name} {result}")
+              if result != "pass":
+                  bad = 1
+          print(f"list check: {len(names)} listed, {'pass' if bad == 0 else 'fail'}")
+          sys.exit(bad)
+          PY
+          echo "go test exit=${test_code} list check exit=${list_code}"
+          if [ "$test_code" -ne 0 ] || [ "$list_code" -ne 0 ]; then
+            exit 1
+          fi
+
+      # Runs after a failed step too, so that the cluster is deleted at the end of every job.
+      - name: Delete kind cluster
+        if: always()
+        run: |
+          set -euo pipefail
+          kubeconfig="${RUNNER_TEMP}/kind/kubeconfig"
+          if command -v kind > /dev/null; then
+            kind delete cluster --name intuitik-e2e --kubeconfig "$kubeconfig"
+          fi
+          echo "kind clusters after delete: [$(kind get clusters 2>/dev/null | tr '\n' ' ')]"
