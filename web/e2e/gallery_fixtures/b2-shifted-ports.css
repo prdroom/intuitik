@@ -1,0 +1,5 @@
+/* Layout of the B-2 negative fixture card (header 44, row padding 6, row gap 4). */
+.ds-card { width: 272px; }
+.ds-card__header { height: 44px; }
+.ds-card__rows { display: flex; flex-direction: column; gap: 4px; padding: 6px; }
+.ds-card__rows > div { min-height: 30px; }

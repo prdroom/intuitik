@@ -14,3 +14,7 @@ browser-handshake/stop-screen
 browser-handshake/clear-site-data-first-load
 browser-handshake/clear-site-data-late-response
 browser-handshake/login-refused-screen
+gallery/B-1 wired behaviour
+gallery/B-2 ports after layout
+gallery/B-3 CSP at run time
+gallery/B-4 requests
