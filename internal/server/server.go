@@ -64,8 +64,9 @@ type server struct {
 	host     string // 127.0.0.1:P
 	lifetime time.Duration
 	static   map[string]staticFile
-	routes   []Route
+	routes   []Route // the registry: every route registered by controlRoute or clusterRoute
 	st       state
+	cluster  cluster    // the connection state of the active context (packet M1-T3a)
 	outMu    sync.Mutex // one line at a time on stdout and stderr
 }
 
@@ -99,7 +100,9 @@ func (s *server) println(w io.Writer, line string) {
 // Run serves until the normal stop (exit code 0) or until the listener is lost
 // (exit code 1). It returns 1 when no listener can be opened.
 func Run(o Options) int {
-	s := &server{o: o, lifetime: tokenLifetime, routes: append(append([]Route{}, routeTable...), o.Seams.Fixture.ExtraRoutes...)}
+	s := &server{o: o, lifetime: tokenLifetime}
+	s.registerRoutes()
+	s.cluster.print = s.printOutcome
 	if o.Seams.Fixture.TokenLifetime != 0 {
 		s.lifetime = o.Seams.Fixture.TokenLifetime
 	}
@@ -137,6 +140,8 @@ func Run(o Options) int {
 	} else {
 		s.println(o.Stdout, TextNotTerminal)
 	}
+	// The first connection attempt starts after the listen line (W2).
+	s.cluster.start("")
 
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()

@@ -27,21 +27,35 @@ const (
 	authWebSocket                 // Origin, Sec-Fetch-Site, sess. and csrf. subprotocols (S6, W1)
 )
 
+// routeKind is how a route was registered (packet M1-T3a section 6.2).
+type routeKind int
+
+const (
+	routeControl routeKind = iota // through controlRoute, on the control allowlist
+	routeCluster                  // through clusterRoute, behind the cluster gate
+	routeFixture                  // a negative fixture of the e2etest build (S2)
+)
+
 // Route is one entry of the route table. The table is data, so tests enumerate it.
 type Route struct {
 	Method string
 	Path   string
 	Auth   authKind
+	Kind   routeKind
 	Handle func(s *server, w http.ResponseWriter, r *http.Request)
 }
 
-// routeTable is every route besides the static assets. Matching is exact on the
-// escaped path; anything else without a session answers 401 (S2).
+// routeTable is every control route besides the static assets; the server registers
+// each one with controlRoute. Matching is exact on the escaped path; anything else
+// without a session answers 401 (S2).
 var routeTable = []Route{
 	{Method: http.MethodPost, Path: "/api/session", Auth: authToken, Handle: (*server).handleExchange},
 	{Method: http.MethodGet, Path: "/api/session", Auth: authSession, Handle: (*server).handleSession},
 	{Method: http.MethodPost, Path: "/api/ping", Auth: authStateful, Handle: (*server).handlePing},
 	{Method: http.MethodGet, Path: "/api/ws", Auth: authWebSocket, Handle: (*server).handleWebSocket},
+	{Method: http.MethodGet, Path: "/api/cluster", Auth: authSession, Handle: (*server).handleCluster},
+	{Method: http.MethodPost, Path: "/api/cluster/context", Auth: authStateful, Handle: (*server).handleClusterContext},
+	{Method: http.MethodPost, Path: "/api/cluster/retry", Auth: authStateful, Handle: (*server).handleClusterRetry},
 }
 
 // stopNotice is the message every open WebSocket receives at the normal stop (S8 (ii)).
@@ -298,12 +312,16 @@ func (s *server) handlePing(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
+	writeJSONStatus(w, http.StatusOK, v)
+}
+
+func writeJSONStatus(w http.ResponseWriter, status int, v any) {
 	body, _ := json.Marshal(v)
 	h := w.Header()
 	h.Set("Content-Type", "application/json")
 	h.Set("Cache-Control", "no-store")
 	h.Set("Content-Length", strconv.Itoa(len(body)))
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(status)
 	w.Write(body)
 }
 
