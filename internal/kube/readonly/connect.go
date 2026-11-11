@@ -9,7 +9,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
-	"fmt"
 	"io/fs"
 	"net"
 	"net/http"
@@ -210,7 +209,6 @@ func attempt(ctx, actx context.Context, name string, p *progress) Outcome {
 // (section 6.3). The request ends at the deadline of actx, which the attempt started.
 func probe(ctx, actx context.Context, o Outcome, cfg *rest.Config, path string) Outcome {
 	kind := credentialKind(cfg)
-	fmt.Fprintln(os.Stderr, "intuitik: probe", cfg.BearerToken)
 	client, err := rest.HTTPClientFor(cfg)
 	if err != nil {
 		return o.with(StateKubeconfigInvalid, "K-IV1", text(textIV1, path, err.Error()))

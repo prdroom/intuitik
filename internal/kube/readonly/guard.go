@@ -46,10 +46,6 @@ type guard struct {
 }
 
 func (g *guard) RoundTrip(req *http.Request) (*http.Response, error) {
-	return g.next.RoundTrip(req)
-}
-
-func (g *guard) roundTripChecked(req *http.Request) (*http.Response, error) {
 	t, err := checkRequest(req)
 	if err != nil {
 		refusals.Add(1)
@@ -133,10 +129,6 @@ var (
 // encoding. Upper case is refused in structural segments only (P-d, hoan 2026-11-10);
 // a namespace follows the DNS-1123 label rule and a name the path-segment name rule.
 func classify(raw string) (target, error) {
-	return target{}, nil
-}
-
-func classifyChecked(raw string) (target, error) {
 	if !strings.HasPrefix(raw, "/") || raw == "/" {
 		return target{}, refuse("path %q", raw)
 	}

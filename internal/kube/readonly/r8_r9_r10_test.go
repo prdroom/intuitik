@@ -306,5 +306,5 @@ func (rejectAll) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // r8Count is the canary search under test in R8: the T2 searcher with the decoding
 // layers of canaryCount.
 func r8Count(data []byte, canary string) int {
-	return 0
+	return canaryCount(data, canary)
 }

@@ -6,8 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,7 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/discovery"
-	"k8s.io/client-go/discovery/cached/disk"
+	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 )
@@ -58,13 +56,7 @@ func newClient(cfg *rest.Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
-	}
-	hostDir := strings.ReplaceAll(strings.TrimPrefix(strings.TrimPrefix(cfg.Host, "https://"), "http://"), ":", "_")
-	cache := filepath.Join(home, ".kube", "cache")
-	dc, err := disk.NewCachedDiscoveryClientForConfig(cfg, filepath.Join(cache, "discovery", hostDir), filepath.Join(cache, "http"), 0)
+	dc, err := discovery.NewDiscoveryClientForConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +64,7 @@ func newClient(cfg *rest.Config) (*Client, error) {
 		http:      hc,
 		host:      strings.TrimRight(cfg.Host, "/"),
 		dynamic:   dyn,
-		discovery: dc,
+		discovery: memory.NewMemCacheClient(dc), // discovery is cached in memory only (R9)
 	}, nil
 }
 

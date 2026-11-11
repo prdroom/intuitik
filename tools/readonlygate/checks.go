@@ -113,14 +113,6 @@ func (r *result) line() string {
 
 // check runs every rule on the module in dir for one combination.
 func check(dir string, env []string, tagset string) []*result {
-	var list []*result
-	for _, name := range []string{ruleGoEnv, ruleThirdParty, ruleBuildMatrix, ruleImportBoundary, ruleExportedAPI, ruleWriteCalls, ruleImports, ruleEscapeHatches, ruleNoBypassConfig} {
-		list = append(list, &result{rule: name})
-	}
-	return list
-}
-
-func checkAll(dir string, env []string, tagset string) []*result {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		abs = dir

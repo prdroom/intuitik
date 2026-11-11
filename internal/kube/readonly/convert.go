@@ -71,9 +71,7 @@ func isSecret(m map[string]any) bool {
 
 // stripObject empties every value of data and stringData and removes the
 // last-applied-configuration annotation.
-func stripObject(m map[string]any) {}
-
-func stripObjectChecked(m map[string]any) {
+func stripObject(m map[string]any) {
 	for _, field := range []string{"data", "stringData"} {
 		if values, ok := m[field].(map[string]any); ok {
 			for k := range values {

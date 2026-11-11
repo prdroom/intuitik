@@ -15,12 +15,12 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
-	"runtime"
 	"sync"
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/prdroom/intuitik/internal/opener"
 )
 
 // tokenLifetime is V3; the no-login notice V4 fires at the same moment.
@@ -207,25 +207,13 @@ func (s *server) open(t string, enter bool) {
 	}()
 }
 
+// startOpener runs the opener of internal/opener (S-O on failure). open calls this in
+// its own goroutine.
 func (s *server) startOpener(url string) error {
-	if s.o.Browser != "" {
-		// Run waits for the executable: one that starts and then exits unsuccessfully
-		// is an open failure too (S-O). open calls this in its own goroutine.
-		return exec.Command(s.o.Browser, url).Run()
-	}
-	if s.o.Seams.OpenDefault != nil {
+	if s.o.Browser == "" && s.o.Seams.OpenDefault != nil {
 		return s.o.Seams.OpenDefault(url)
 	}
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	case "darwin":
-		cmd = exec.Command("open", url)
-	default:
-		cmd = exec.Command("xdg-open", url)
-	}
-	return cmd.Run()
+	return opener.Open(s.o.Browser, url)
 }
 
 // readEnter makes a new one-time address for each line on the terminal (S19).
