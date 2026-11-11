@@ -13,7 +13,8 @@ The kubeconfig files are never written (packet M1-T3a sections 1, 3 and 6).
 
 Each sub-feature names its input, its expected output and the CI test that drives
 it. All run in the `e2e-kind` job (Go, `test/e2e-api/connect`, build tag `kind`)
-against a kind cluster; their output lines name the state and text id they check.
+against a kind cluster, except the two marked job `unit`; their output lines name
+the state and text id they check.
 
 - Current context connects. Input: the kind kubeconfig. Output: `connected`, K-OK
   on stdout, the kind context marked current and active. `TestK_States/K-OK`.
@@ -45,17 +46,23 @@ against a kind cluster; their output lines name the state and text id they check
 - Certificate mismatch. Input: the kind server with a CA that is not its own.
   Output: `certificate-mismatch`, K-TL. `TestK_States/K-TL`.
 - Unreachable. Input: a closed local port; a server that never completes the TLS
-  handshake; a server that holds the HTTP answer. Output: `unreachable`, K-UR with
-  the OS error, or with `no answer within 10 s` within W1 plus 2 s.
-  `TestK_UnreachableTimeout`, `TestK_States/K-UR`.
+  handshake; a server that holds the HTTP answer; a token file that gives the token
+  only 6 s after the attempt opens it, then the held server. Output: `unreachable`,
+  K-UR with the OS error, or with `no answer within 10 s` within W1 plus 2 s of the
+  start of the attempt. `TestK_UnreachableTimeout`, `TestK_States/K-UR`.
 - Not the Kubernetes API. Input: a server that answers HTTP 500. Output:
-  `unreachable`, K-HS. `TestK_States/K-HS`.
+  `unreachable`, K-HS. `TestK_States/K-HS`. A redirect answer (301, 302, 303, 307,
+  308 with a Location) is not followed: K-HS with its own status, one request
+  (`TestK_RedirectNotFollowed`, job `unit`).
 - 403 with credentials. Output: `connected`. `TestK_ForbiddenWithCredentialsIsConnected`.
 - Switch and back. Input: switch to an unreachable context, then back. Output:
   K-UR, then K-OK; every kubeconfig file keeps its sha256 and mtime.
   `TestK_KubeconfigUntouched`, `TestK_SwitchCancelsRunningAttempt`.
 - Unknown context name. Output: 400 with K-UC, state unchanged.
   `TestK_SwitchUnknownContext`.
+- Switch and retry answer. Output: 202 with state `connecting`, also when the attempt
+  has finished before the answer is written. `TestK_APIShape`,
+  `TestK_ConnectingAnswer` (job `unit`).
 - Two files in `KUBECONFIG`. Output: the contexts of both files; the current
   context comes from the first file that sets one. `TestK_KubeconfigLoading`.
 - No session. Output: every T3 route answers 401 with no context, cluster or

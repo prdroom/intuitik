@@ -58,7 +58,10 @@ func orNull(s string) *string {
 
 // start begins a new attempt for name ("" follows the kubeconfig). A running attempt
 // is canceled: the most recent request wins and a canceled attempt is never shown.
-func (c *cluster) start(name string) {
+// It returns the cluster object in state connecting, taken under the same lock that
+// marks the attempt running, so the 202 answer of section 6.1 never shows a result
+// that the attempt published before the handler wrote its answer.
+func (c *cluster) start(name string) clusterObject {
 	c.mu.Lock()
 	if c.cancel != nil {
 		c.cancel()
@@ -71,6 +74,7 @@ func (c *cluster) start(name string) {
 	if attempt == nil {
 		attempt = readonly.Attempt
 	}
+	_, obj := c.snapshotLocked()
 	c.mu.Unlock()
 	go func() {
 		defer cancel()
@@ -87,12 +91,18 @@ func (c *cluster) start(name string) {
 	if c.started != nil {
 		c.started()
 	}
+	return obj
 }
 
 // snapshot returns the last outcome and the cluster object of the current state.
 func (c *cluster) snapshot() (readonly.Outcome, clusterObject) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.snapshotLocked()
+}
+
+// snapshotLocked is snapshot for a caller that holds mu.
+func (c *cluster) snapshotLocked() (readonly.Outcome, clusterObject) {
 	o := c.outcome
 	obj := clusterObject{
 		State:           string(o.State),
@@ -161,9 +171,7 @@ func (s *server) handleClusterContext(w http.ResponseWriter, r *http.Request) {
 	s.cluster.mu.Lock()
 	s.cluster.override = req.Name
 	s.cluster.mu.Unlock()
-	s.cluster.start(req.Name)
-	_, obj := s.cluster.snapshot()
-	writeJSONStatus(w, http.StatusAccepted, obj)
+	writeJSONStatus(w, http.StatusAccepted, s.cluster.start(req.Name))
 }
 
 // handleClusterRetry is POST /api/cluster/retry: a new attempt for the active context.
@@ -171,9 +179,7 @@ func (s *server) handleClusterRetry(w http.ResponseWriter, r *http.Request) {
 	s.cluster.mu.Lock()
 	name := s.cluster.override
 	s.cluster.mu.Unlock()
-	s.cluster.start(name)
-	_, obj := s.cluster.snapshot()
-	writeJSONStatus(w, http.StatusAccepted, obj)
+	writeJSONStatus(w, http.StatusAccepted, s.cluster.start(name))
 }
 
 // printOutcome prints the text of a finished attempt once: K-OK on stdout, every

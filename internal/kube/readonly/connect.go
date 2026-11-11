@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/yaml"
@@ -84,12 +85,60 @@ func (o Outcome) with(state State, id, message string) Outcome {
 
 // Attempt runs the loading rules again, reads the kubeconfig files anew (W2) and
 // connects to the named context, or to the kubeconfig's current context when name is
-// "". It sends one authenticated GET /api (W3) and gives up after AttemptTimeout (W1).
+// "". It sends one authenticated GET /api (W3). W1 starts here and covers the whole
+// attempt: reading the files, building the configuration and the request. When it
+// passes, the outcome is K-UR with what the attempt knew by then, even while a file
+// read is still blocked.
 func Attempt(ctx context.Context, name string) Outcome {
+	actx, cancel := context.WithTimeout(ctx, AttemptTimeout)
+	defer cancel()
+	p := &progress{}
+	done := make(chan Outcome, 1)
+	go func() { done <- attempt(ctx, actx, name, p) }()
+	select {
+	case o := <-done:
+		return o
+	case <-actx.Done():
+	}
+	select {
+	case o := <-done:
+		return o
+	default:
+	}
+	o := p.get()
+	if ctx.Err() != nil {
+		o.Canceled = true
+		return o
+	}
+	return o.with(StateUnreachable, "K-UR", text(textUR, o.Server, o.Context, textTimeout))
+}
+
+// progress is what a running attempt knows so far, for the outcome of W1.
+type progress struct {
+	mu sync.Mutex
+	o  Outcome
+}
+
+func (p *progress) set(o Outcome) {
+	p.mu.Lock()
+	p.o = o
+	p.mu.Unlock()
+}
+
+func (p *progress) get() Outcome {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.o
+}
+
+// attempt is the body of Attempt. ctx is the caller's context (a cancel means a newer
+// attempt or the stop); actx adds the W1 deadline.
+func attempt(ctx, actx context.Context, name string, p *progress) Outcome {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
 	rules.MigrationRules = nil // W4: the loading rules never copy or write a file
 	rules.Warner = func(error) {}
 	o := Outcome{Paths: rules.GetLoadingPrecedence()}
+	p.set(o)
 
 	var found, order []string
 	for _, p := range o.Paths {
@@ -118,6 +167,7 @@ func Attempt(ctx context.Context, name string) Outcome {
 	}
 	o.Contexts = contextList(merged, order)
 	o.Current = merged.CurrentContext
+	p.set(o)
 	if len(o.Contexts) == 0 {
 		return o.with(StateKubeconfigInvalid, "K-IV4", text(textIV4, found[0]))
 	}
@@ -133,7 +183,8 @@ func Attempt(ctx context.Context, name string) Outcome {
 	if cluster != nil {
 		o.Server = cluster.Server
 	}
-	user := &clientcmdapi.AuthInfo{} // a context without a user entry has no credentials
+	p.set(o)
+	user :=&clientcmdapi.AuthInfo{} // a context without a user entry has no credentials
 	if kctx.AuthInfo != "" {
 		user = merged.AuthInfos[kctx.AuthInfo]
 	}
@@ -152,21 +203,20 @@ func Attempt(ctx context.Context, name string) Outcome {
 	if err != nil {
 		return o.with(StateKubeconfigInvalid, "K-IV1", text(textIV1, origin(kctx, found[0]), err.Error()))
 	}
-	return probe(ctx, o, cfg, origin(kctx, found[0]))
+	return probe(ctx, actx, o, cfg, origin(kctx, found[0]))
 }
 
 // probe sends the one authenticated GET /api of an attempt and classifies its answer
-// (section 6.3).
-func probe(ctx context.Context, o Outcome, cfg *rest.Config, path string) Outcome {
+// (section 6.3). The request ends at the deadline of actx, which the attempt started.
+func probe(ctx, actx context.Context, o Outcome, cfg *rest.Config, path string) Outcome {
 	kind := credentialKind(cfg)
-	start := time.Now()
-	actx, cancel := context.WithTimeout(ctx, AttemptTimeout)
-	defer cancel()
 	client, err := rest.HTTPClientFor(cfg)
 	if err != nil {
 		return o.with(StateKubeconfigInvalid, "K-IV1", text(textIV1, path, err.Error()))
 	}
 	defer client.CloseIdleConnections()
+	// The first answer is classified as it is: a redirect is never followed (W3).
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	req, err := http.NewRequestWithContext(actx, http.MethodGet, strings.TrimRight(cfg.Host, "/")+"/api", nil)
 	if err != nil {
 		return o.with(StateKubeconfigInvalid, "K-IV1", text(textIV1, path, err.Error()))
@@ -177,7 +227,7 @@ func probe(ctx context.Context, o Outcome, cfg *rest.Config, path string) Outcom
 		return o
 	}
 	if err != nil {
-		if actx.Err() != nil || time.Since(start) >= AttemptTimeout {
+		if actx.Err() != nil {
 			return o.with(StateUnreachable, "K-UR", text(textUR, o.Server, o.Context, textTimeout))
 		}
 		if msg, ok := tlsVerification(err); ok {
