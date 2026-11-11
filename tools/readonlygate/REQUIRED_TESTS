@@ -1,0 +1,19 @@
+# Required list of the readonly-gate job (packet M1-T4 section 6.4): the gate rules and
+# the no-cluster R tests. The job's list check fails unless every name ran and passed.
+readonly-gate: self-test
+readonly-gate: go-env
+readonly-gate: third-party
+readonly-gate: build-matrix
+readonly-gate: import-boundary
+readonly-gate: exported-api
+readonly-gate: write-calls
+readonly-gate: imports
+readonly-gate: escape-hatches
+readonly-gate: no-bypass-config
+TestR5_RequestGuard
+TestR5_PathGrammar
+TestR5_DiscoveryFlows
+TestR6_StringDataStripped
+TestR8_CanarySearchPositiveControl
+TestR9_NoDiskCache
+TestR10_KubeconfigCredsNotLogged

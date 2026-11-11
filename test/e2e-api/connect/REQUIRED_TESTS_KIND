@@ -15,3 +15,6 @@ TestK_KubeconfigUntouched
 TestK_RetryRereadsKubeconfig
 TestK_UnreachableTimeout
 TestK_CredentialFreeOutput
+TestR6_SecretStrippedOnEveryPath
+TestR6_SecretByLocation
+TestR6_KeyNamesKept
