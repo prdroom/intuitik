@@ -43,6 +43,22 @@ func newFakeAPI(t *testing.T, aggregated bool) *fakeAPI {
 	return f
 }
 
+// newTLSFakeAPI is newFakeAPI over TLS. The kubeconfig loader applies the credentials
+// of a user only to a TLS cluster, so the tests that connect through a kubeconfig file
+// (R9, R10) use this server and its certificate as the certificate authority.
+func newTLSFakeAPI(t *testing.T, aggregated bool) *fakeAPI {
+	t.Helper()
+	f := &fakeAPI{t: t, aggregated: aggregated, objects: map[string][]map[string]any{}}
+	f.srv = httptest.NewTLSServer(http.HandlerFunc(f.serve))
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+// caPEM is the certificate of a TLS fake server in PEM form.
+func (f *fakeAPI) caPEM() []byte {
+	return certPEM(f.srv.Certificate().Raw)
+}
+
 func (f *fakeAPI) add(resource string, obj map[string]any) {
 	f.mu.Lock()
 	f.objects[resource] = append(f.objects[resource], obj)

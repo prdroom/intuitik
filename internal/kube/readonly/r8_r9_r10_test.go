@@ -164,11 +164,11 @@ func testHome(t *testing.T, host string) (discoveryDir string, roots []string) {
 // servergroups.json, and the comparison reports its changed sha256.
 func TestR9_NoDiskCache(t *testing.T) {
 	ctx := context.Background()
-	srv := newFakeAPI(t, false)
+	srv := newTLSFakeAPI(t, false)
 	srv.add("pods", podObject("a", "p"))
-	host := strings.TrimPrefix(srv.srv.URL, "http://")
+	host := strings.TrimPrefix(srv.srv.URL, "https://")
 	discoveryDir, roots := testHome(t, host)
-	useKubeconfig(t, kubeconfig(srv.srv.URL, nil, map[string]any{"token": "token-r9"}))
+	useKubeconfig(t, kubeconfig(srv.srv.URL, srv.caPEM(), map[string]any{"token": "token-r9"}))
 	before := snapshot(t, roots...)
 
 	o := Attempt(ctx, "")
@@ -250,9 +250,9 @@ func stderrCapture(t *testing.T) (stop func() []byte) {
 func TestR10_KubeconfigCredsNotLogged(t *testing.T) {
 	ctx := context.Background()
 	token := randomValue(t, "r10token")
-	srv := newFakeAPI(t, false)
+	srv := newTLSFakeAPI(t, false)
 	srv.add("pods", podObject("a", "p"))
-	path := useKubeconfig(t, kubeconfig(srv.srv.URL, nil, map[string]any{"token": token}))
+	path := useKubeconfig(t, kubeconfig(srv.srv.URL, srv.caPEM(), map[string]any{"token": token}))
 
 	stop := stderrCapture(t)
 	var collected []byte
@@ -271,9 +271,9 @@ func TestR10_KubeconfigCredsNotLogged(t *testing.T) {
 		collected = append(collected, err.Error()...)
 	}
 	// A rejected attempt: the server answers 401.
-	rejecting := newFakeAPI(t, false)
+	rejecting := newTLSFakeAPI(t, false)
 	rejecting.srv.Config.Handler = rejectAll{}
-	useKubeconfig(t, kubeconfig(rejecting.srv.URL, nil, map[string]any{"token": token}))
+	useKubeconfig(t, kubeconfig(rejecting.srv.URL, rejecting.caPEM(), map[string]any{"token": token}))
 	o2 := Attempt(ctx, "")
 	collected = append(collected, o2.Message...)
 	errOut := stop()
