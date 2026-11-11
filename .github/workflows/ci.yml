@@ -744,3 +744,130 @@ jobs:
             kind delete cluster --name intuitik-e2e --kubeconfig "$kubeconfig"
           fi
           echo "kind clusters after delete: [$(kind get clusters 2>/dev/null | tr '\n' ' ')]"
+
+  # Read-only gate (packet M1-T4 sections 6 and 7) in the gate environment of 6.1. The build
+  # matrix is a loop inside this one job: each GOOS/GOARCH target of the build job x each tag set,
+  # with CGO_ENABLED=0. Tag set `release` is the build job's command (no -tags); `e2etest` is the
+  # test build. The gate tool appends one pass or fail event per check to the gate report. The list
+  # check fails unless every name of tools/readonlygate/REQUIRED_TESTS ran and passed.
+  readonly-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GOWORK: "off"
+      GOFLAGS: -mod=readonly
+      GOENV: "off"
+      GATE_TARGETS: darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64
+      GATE_TAGSETS: release e2etest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          package-manager-cache: false
+
+      # The product module is gated as the release build sees it, with the embedded frontend.
+      - name: Frontend build
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      # The values are judged on the job environment; go env is printed as information.
+      - name: Gate environment
+        run: |
+          set -euo pipefail
+          echo "readonly-gate: gate env GOWORK=${GOWORK} GOFLAGS=${GOFLAGS} GOENV=${GOENV}"
+          echo "readonly-gate: go env GOWORK=[$(go env GOWORK)] GOFLAGS=[$(go env GOFLAGS)] GOENV=[$(go env GOENV)] GOVERSION=$(go env GOVERSION)"
+          if [ "$GOWORK" != "off" ] || [ "$GOFLAGS" != "-mod=readonly" ] || [ "$GOENV" != "off" ]; then
+            echo "readonly-gate: the gate environment differs from GOWORK=off GOFLAGS=-mod=readonly GOENV=off"
+            exit 1
+          fi
+          echo "readonly-gate: targets [${GATE_TARGETS}] tag sets [${GATE_TAGSETS}] CGO_ENABLED=0"
+
+      # Built for the runner, so that GOOS and GOARCH of the loop below reach only the go
+      # commands the gate runs, not the gate itself.
+      - name: Build readonlygate
+        run: |
+          set -euo pipefail
+          go build -o "${RUNNER_TEMP}/bin/readonlygate" ./tools/readonlygate
+
+      # Self-test first, then the gate on the product module for each combination, then the
+      # no-cluster R tests named in the list, then the list check. Each part runs whatever the
+      # result of the one before; the step exits non-zero if any of them failed.
+      - name: readonly-gate checks, tests and list check
+        run: |
+          set -uo pipefail
+          gate="${RUNNER_TEMP}/bin/readonlygate"
+          list="tools/readonlygate/REQUIRED_TESTS"
+          gate_report="${RUNNER_TEMP}/readonly-gate-checks.json"
+          test_report="${RUNNER_TEMP}/readonly-gate-tests.json"
+          : > "$gate_report"
+          self_test_code=0
+          "$gate" self-test -report "$gate_report" -targets "$GATE_TARGETS" -tagsets "$GATE_TAGSETS" \
+            test/fixtures/readonly-bypass || self_test_code=$?
+          echo "readonly-gate: self-test exit=${self_test_code}"
+          product_code=0
+          for target in $GATE_TARGETS; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            for tagset in $GATE_TAGSETS; do
+              code=0
+              CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+                "$gate" check -report "$gate_report" -tagset "$tagset" . || code=$?
+              echo "readonly-gate: product module GOOS=${goos} GOARCH=${goarch} CGO_ENABLED=0 tagset=${tagset} exit=${code}"
+              if [ "$code" -ne 0 ]; then
+                product_code=1
+              fi
+            done
+          done
+          test_code=0
+          go test -count=1 -json -run "^($(grep -E '^Test' "$list" | paste -sd'|' -))$" ./... > "$test_report" || test_code=$?
+          list_code=0
+          python3 - "$list" "$gate_report" "$test_report" <<'PY' || list_code=$?
+          import json, sys
+          list_path, report_paths = sys.argv[1], sys.argv[2:]
+          names = [l.strip() for l in open(list_path, encoding="utf-8") if l.strip() and not l.strip().startswith("#")]
+          seen = {}
+          for report_path in report_paths:
+              for line in open(report_path, encoding="utf-8"):
+                  if not line.startswith("{"):
+                      print(line, end="")
+                      continue
+                  event = json.loads(line)
+                  if event.get("Action") == "output":
+                      print(event.get("Output", ""), end="")
+                  if event.get("Test") and event.get("Action") in ("pass", "fail", "skip"):
+                      seen.setdefault(event["Test"], []).append(event["Action"])
+          bad = 0
+          if not names:
+              print("list check: the list is empty")
+              bad = 1
+          if len(set(names)) != len(names):
+              print("list check: the list names a test more than once")
+              bad = 1
+          for name in names:
+              results = seen.get(name, [])
+              result = "missing" if not results else "pass" if all(r == "pass" for r in results) else ",".join(sorted(set(results)))
+              print(f"list check: {name} {result}")
+              if result != "pass":
+                  bad = 1
+          print(f"list check: {len(names)} listed, {'pass' if bad == 0 else 'fail'}")
+          sys.exit(bad)
+          PY
+          echo "self-test exit=${self_test_code} product gate exit=${product_code} go test exit=${test_code} list check exit=${list_code}"
+          if [ "$self_test_code" -ne 0 ] || [ "$product_code" -ne 0 ] || [ "$test_code" -ne 0 ] || [ "$list_code" -ne 0 ]; then
+            exit 1
+          fi
