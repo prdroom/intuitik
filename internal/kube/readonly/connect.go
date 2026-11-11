@@ -9,7 +9,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
-	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -235,7 +234,9 @@ func probe(ctx, actx context.Context, o Outcome, cfg *rest.Config, path string) 
 		}
 		return o.with(StateUnreachable, "K-UR", text(textUR, o.Server, o.Context, osError(err)))
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	// The status line and headers are the answer; the body is never read, so a body
+	// that the server holds cannot turn an answer into K-UR. Closing it unread ends the
+	// connection.
 	resp.Body.Close()
 	if kind == credentialNone {
 		// An anonymous request: any HTTP answer, 200 included (P-a).
