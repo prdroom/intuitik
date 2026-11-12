@@ -221,16 +221,31 @@ func checkThirdParty(abs string, env []string, deps []*pkg, depsErr error, r *re
 	if err != nil {
 		r.fail("go list -m -json all: %v", err)
 	}
+	graph := map[string]*module{}
 	for _, m := range mods {
 		if m.Replace != nil {
 			r.fail("module %s is replaced by %s %s", m.Path, m.Replace.Path, m.Replace.Version)
 		}
-		if m.Main || m.Version == "" {
-			continue
+		graph[m.Path] = m
+	}
+	// The module sources actually used are the modules of the packages in the build:
+	// each one is in the module graph at the same version and go.sum holds its content
+	// hash. A module of the graph whose packages are not built has no content line.
+	used := map[string]*module{}
+	for _, p := range deps {
+		if p.Module != nil && !p.Module.Main {
+			used[p.Module.Path] = p.Module
 		}
-		if !bytes.Contains(sum, []byte("\n"+m.Path+" "+m.Version+" ")) && !bytes.Contains(sum, []byte("\n"+m.Path+" "+m.Version+"/go.mod ")) &&
-			!bytes.HasPrefix(sum, []byte(m.Path+" "+m.Version)) {
-			r.fail("module %s %s is not in go.sum", m.Path, m.Version)
+	}
+	for path, m := range used {
+		if m.Replace != nil {
+			r.fail("module %s is replaced by %s %s", m.Path, m.Replace.Path, m.Replace.Version)
+		}
+		if g, ok := graph[path]; !ok || g.Version != m.Version {
+			r.fail("module %s %s of the build is not at that version in go list -m -json all", m.Path, m.Version)
+		}
+		if !bytes.Contains(sum, []byte("\n"+m.Path+" "+m.Version+" h1:")) && !bytes.HasPrefix(sum, []byte(m.Path+" "+m.Version+" h1:")) {
+			r.fail("module %s %s of the build has no content hash in go.sum", m.Path, m.Version)
 		}
 	}
 	if depsErr != nil {
