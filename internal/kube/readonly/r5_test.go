@@ -93,6 +93,12 @@ func TestR5_RequestGuard(t *testing.T) {
 			return dc.RESTClient().Post().AbsPath("/api/v1/namespaces/a/pods").Body([]byte(`{}`)).Do(ctx).Error()
 		}},
 		{"WebSocket exec (GET with Upgrade)", rawGet("/api/v1/namespaces/a/pods/p/exec?command=sh", http.Header{"Upgrade": {"websocket"}, "Connection": {"Upgrade"}})},
+		// Upgrade on an allowed path: the header check alone must refuse it, whatever the
+		// case of the header field names in the map (F5, review 5885839864).
+		{"GET /api with Upgrade", rawGet("/api", http.Header{"Upgrade": {"websocket"}, "Connection": {"Upgrade"}})},
+		{"GET /api with lower-case upgrade and connection keys", rawGet("/api", http.Header{"upgrade": {"websocket"}, "connection": {"upgrade"}})},
+		{"GET /api with mixed-case upgrade and connection keys", rawGet("/api", http.Header{"uPgRaDe": {"websocket"}, "CONNECTION": {"keep-alive, Upgrade"}})},
+		{"GET /api with a lower-case connection upgrade key only", rawGet("/api", http.Header{"connection": {"Upgrade"}})},
 		{"GET pods/exec without Upgrade", rawGet("/api/v1/namespaces/a/pods/p/exec?command=sh", nil)},
 		{"GET pods/attach", rawGet("/api/v1/namespaces/a/pods/p/attach", nil)},
 		{"GET pods/portforward", rawGet("/api/v1/namespaces/a/pods/p/portforward", nil)},
