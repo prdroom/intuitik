@@ -1,0 +1,6 @@
+# Escape hatches allowed in the product build (packet M1-T4 R4): "<import> <file or
+# package directory>", relative to the module root. Any other file that imports unsafe
+# or os/exec fails the gate; //go:linkname is never allowed.
+unsafe internal/server/term_darwin.go
+unsafe internal/server/term_linux.go
+os/exec internal/opener

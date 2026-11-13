@@ -1,0 +1,43 @@
+# Exported API of internal/kube/readonly (packet M1-T4 R3), as readonlygate renders it.
+const AttemptTimeout time.Duration
+const StateAuthProviderUnsupported State
+const StateCertificateMismatch State
+const StateConnected State
+const StateConnecting State
+const StateCredentialProgramUnsupported State
+const StateCredentialsMissing State
+const StateCredentialsRejected State
+const StateKubeconfigInvalid State
+const StateNoKubeconfig State
+const StateUnreachable State
+field ContextEntry.Cluster string
+field ContextEntry.Name string
+field ContextEntry.Server string
+field Outcome.Canceled bool
+field Outcome.Cluster string
+field Outcome.Context string
+field Outcome.Contexts []ContextEntry
+field Outcome.Current string
+field Outcome.Message string
+field Outcome.Paths []string
+field Outcome.Server string
+field Outcome.State State
+field Outcome.TextID string
+field Resource.Group string
+field Resource.Resource string
+field Resource.Version string
+func Attempt func(ctx context.Context, name string) Outcome
+func NewClient func(o Outcome) (*Client, error)
+func UnknownContext func(name string) string
+method Client.Get func(ctx context.Context, path string) (*net/http.Response, error)
+method Client.List func(ctx context.Context, r Resource, namespace string) (*k8s.io/apimachinery/pkg/apis/meta/v1/unstructured.UnstructuredList, error)
+method Client.Object func(ctx context.Context, r Resource, namespace string, name string) (*k8s.io/apimachinery/pkg/apis/meta/v1/unstructured.Unstructured, error)
+method Client.PodLog func(ctx context.Context, namespace string, pod string, container string) (io.ReadCloser, error)
+method Client.Resources func() ([]*k8s.io/apimachinery/pkg/apis/meta/v1.APIResourceList, error)
+method Client.Watch func(ctx context.Context, r Resource, namespace string) (k8s.io/apimachinery/pkg/watch.Interface, error)
+method Outcome.Stdout func() bool
+type Client struct
+type ContextEntry struct
+type Outcome struct
+type Resource struct
+type State string

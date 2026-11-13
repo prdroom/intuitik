@@ -202,7 +202,7 @@ func attempt(ctx, actx context.Context, name string, p *progress) Outcome {
 	if err != nil {
 		return o.with(StateKubeconfigInvalid, "K-IV1", text(textIV1, origin(kctx, found[0]), err.Error()))
 	}
-	return probe(ctx, actx, o, cfg, origin(kctx, found[0]))
+	return probe(ctx, actx, o, guarded(cfg), origin(kctx, found[0]))
 }
 
 // probe sends the one authenticated GET /api of an attempt and classifies its answer
