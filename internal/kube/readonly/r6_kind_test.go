@@ -152,14 +152,14 @@ func TestR6_SecretStrippedOnEveryPath(t *testing.T) {
 		t.Errorf("R6 stderr: %d canary findings, expected 0", n)
 	}
 	t.Logf("R6 kind stderr: bytes=%d canary findings=%d; positive control (raw API server response) findings=%d", len(errOut), canaryCount(errOut, k.canary), positive)
-	runR6NegativeKeep(t, func() []pathResult { return kindPaths(t, o, k) }, k.canary, k.name, k.keys)
+	runR6NegativeKeep(t, func() []pathResult { return kindPaths(t, o, k) }, k.canary, k.namespace, k.name, k.keys)
 }
 
 // TestR6_KeyNamesKept (packet M1-T4 R6, RV3, P-T4-1): on every path the stripped
 // Secret holds exactly the server-normalized key set, each key with an empty value,
-// with kind, name, namespace, labels, other annotations and type kept. Negative
-// fixture: a conversion that drops the whole maps passes the canary search and fails
-// this check.
+// with kind, apiVersion, name, namespace, labels, other annotations and type kept.
+// Negative fixtures: a conversion that drops the whole maps, and conversions that change
+// the namespace or the kind, pass the canary search and fail this check.
 func TestR6_KeyNamesKept(t *testing.T) {
 	k := applyCanary(t, "r6-"+randomValue(t, "")[:10])
 	o := connectKind(t)
@@ -168,16 +168,18 @@ func TestR6_KeyNamesKept(t *testing.T) {
 			t.Errorf("R6 path %s: %v", r.name, r.err)
 			continue
 		}
-		keys, problems := strippedKeys(r.out, k.name)
+		keys, problems := strippedKeys(r.out, r.name, k.namespace, k.name)
 		if !sameKeys(keys, k.keys) {
 			t.Errorf("R6 path %s: keys %s, expected %s", r.name, fmtKeys(keys), fmtKeys(k.keys))
 		}
 		for _, p := range problems {
 			t.Errorf("R6 path %s: %s", r.name, p)
 		}
-		t.Logf("R6 kind path %s: keys %s (expected %s), RV3 problems=%d", r.name, fmtKeys(keys), fmtKeys(k.keys), len(problems))
+		t.Logf("R6 kind path %s: keys %s (expected %s) %s, RV3 problems=%d", r.name, fmtKeys(keys), fmtKeys(k.keys), identity(r.out, k.name), len(problems))
 	}
-	runR6NegativeDrop(t, func() []pathResult { return kindPaths(t, o, k) }, k.canary, k.name, k.keys)
+	read := func() []pathResult { return kindPaths(t, o, k) }
+	runR6NegativeDrop(t, read, k.canary, k.namespace, k.name, k.keys)
+	runR6NegativeIdentity(t, read, k.canary, k.namespace, k.name)
 }
 
 // TestR6_SecretByLocation (packet M1-T4 R6, RV4): the stripping follows the object,

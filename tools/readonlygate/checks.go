@@ -13,6 +13,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -54,6 +55,15 @@ var notInProduct = map[string]bool{
 	"go.uber.org/goleak":                                 true,
 	"gopkg.in/check.v1":                                  true,
 	"github.com/golang/protobuf":                         true,
+}
+
+// The only modules that the module graph of the head may add to the graph of the base
+// (exception 3e37ae69); every other module of the base stays at its version.
+var allowedGraphAdditions = map[string]string{
+	"github.com/go-openapi/swag/jsonutils/fixtures_test": "v0.27.1",
+	"github.com/go-openapi/testify/enable/yaml/v2":       "v2.6.0",
+	"github.com/go-openapi/testify/v2":                   "v2.6.0",
+	"github.com/golang/protobuf":                         "v1.5.0",
 }
 
 // R4: the client-go packages that readonly may import; the standard library and
@@ -650,4 +660,158 @@ func setOf(lines []string) map[string]bool {
 		m[l] = true
 	}
 	return m
+}
+
+// R2, module graph (exception 3e37ae69): go list -m -json all of the base B and of the
+// head H. B is the first parent of the checked-out merge commit of the pull request run,
+// read from its go.mod and go.sum alone in a temporary directory; H is the module in
+// dir. No module of B is removed or changes its version, no module is replaced, and H
+// adds only the modules of allowedGraphAdditions at their versions. With printLists,
+// both complete lists are printed first.
+func moduleGraphCheck(dir string, env []string, printLists bool) []string {
+	parents, err := gitOut("rev-list", "--parents", "-n", "1", "HEAD")
+	f := strings.Fields(parents)
+	if err != nil || len(f) != 3 {
+		return []string{fmt.Sprintf("module graph: HEAD is not the merge commit of a pull request run (parents %q, error %v)", parents, err)}
+	}
+	base, head := f[1], f[2]
+	tmp, err := os.MkdirTemp("", "readonlygate-base-")
+	if err != nil {
+		return []string{"module graph: " + err.Error()}
+	}
+	defer os.RemoveAll(tmp)
+	for _, name := range []string{"go.mod", "go.sum"} {
+		raw, err := exec.Command("git", "show", base+":"+name).Output()
+		if err != nil {
+			return []string{fmt.Sprintf("module graph: git show %s:%s: %v", base, name, err)}
+		}
+		if err := os.WriteFile(filepath.Join(tmp, name), raw, 0o644); err != nil {
+			return []string{"module graph: " + err.Error()}
+		}
+	}
+	bm, err := goListModules(tmp, env)
+	if err != nil || len(bm) == 0 {
+		return []string{fmt.Sprintf("module graph: go list -m -json all of B %s: %d modules, error %v", base, len(bm), err)}
+	}
+	hm, err := goListModules(dir, env)
+	if err != nil || len(hm) == 0 {
+		return []string{fmt.Sprintf("module graph: go list -m -json all of H %s: %d modules, error %v", head, len(hm), err)}
+	}
+	if printLists {
+		printModuleList("B", base, bm)
+		printModuleList("H", head, hm)
+	}
+	added, problems := compareModules(bm, hm)
+	verdict := "pass"
+	if len(problems) != 0 {
+		verdict = "FAIL"
+	}
+	fmt.Printf("readonly-gate: module graph B=%s H=%s modules B=%d H=%d added=%d %v problems=%d %s\n", base, head, len(bm), len(hm), len(added), added, len(problems), verdict)
+	for _, p := range problems {
+		fmt.Printf("readonly-gate: module graph problem: %s\n", p)
+	}
+	return problems
+}
+
+func printModuleList(side, sha string, mods []*module) {
+	lines := make([]string, 0, len(mods))
+	for _, m := range mods {
+		l := m.Path + " " + m.Version
+		if m.Main {
+			l = m.Path + " (main module)"
+		}
+		if m.Replace != nil {
+			l += " => " + m.Replace.Path + " " + m.Replace.Version
+		}
+		lines = append(lines, l)
+	}
+	sort.Strings(lines)
+	fmt.Printf("readonly-gate: module list %s %s modules=%d\n", side, sha, len(lines))
+	for _, l := range lines {
+		fmt.Printf("readonly-gate: module %s %s\n", side, l)
+	}
+}
+
+// compareModules compares the module graph of the head with the graph of the base and
+// returns the added modules as "path version" and the problems.
+func compareModules(base, head []*module) (added, problems []string) {
+	hb := map[string]*module{}
+	for _, m := range head {
+		hb[m.Path] = m
+		if m.Replace != nil {
+			problems = append(problems, fmt.Sprintf("H module %s is replaced by %s %s", m.Path, m.Replace.Path, m.Replace.Version))
+		}
+	}
+	bb := map[string]*module{}
+	for _, m := range base {
+		bb[m.Path] = m
+		if m.Replace != nil {
+			problems = append(problems, fmt.Sprintf("B module %s is replaced by %s %s", m.Path, m.Replace.Path, m.Replace.Version))
+		}
+		h, ok := hb[m.Path]
+		switch {
+		case !ok:
+			problems = append(problems, fmt.Sprintf("module %s %s of B is removed in H", m.Path, m.Version))
+		case h.Version != m.Version || h.Main != m.Main:
+			problems = append(problems, fmt.Sprintf("module %s changes from %s to %s", m.Path, m.Version, h.Version))
+		}
+	}
+	for _, m := range head {
+		if _, ok := bb[m.Path]; ok {
+			continue
+		}
+		added = append(added, m.Path+" "+m.Version)
+		if v, ok := allowedGraphAdditions[m.Path]; !ok || v != m.Version || m.Main {
+			problems = append(problems, fmt.Sprintf("module %s %s is added outside the allowed list", m.Path, m.Version))
+		}
+	}
+	sort.Strings(added)
+	sort.Strings(problems)
+	return added, problems
+}
+
+// moduleGraphSelfTest runs compareModules on generated graphs: the allowed additions
+// pass, and a removal, a version change, a replace, an addition outside the list and an
+// allowed module at another version are each reported.
+func moduleGraphSelfTest() bool {
+	base := []*module{{Path: "example.invalid/main", Main: true}, {Path: "example.invalid/b", Version: "v2.140.0"}, {Path: "example.invalid/a", Version: "v1.0.0"}}
+	withAllowed := func(extra ...*module) []*module {
+		h := []*module{{Path: "example.invalid/main", Main: true}, {Path: "example.invalid/b", Version: "v2.140.0"}, {Path: "example.invalid/a", Version: "v1.0.0"}}
+		for p, v := range allowedGraphAdditions {
+			h = append(h, &module{Path: p, Version: v})
+		}
+		return append(h, extra...)
+	}
+	cases := []struct {
+		name string
+		head []*module
+		ok   bool
+	}{
+		{"the four allowed additions", withAllowed(), true},
+		{"a module of B removed", withAllowed()[:2], false},
+		{"a version changed", append(withAllowed()[:1], append([]*module{{Path: "example.invalid/b", Version: "v2.130.1"}}, withAllowed()[2:]...)...), false},
+		{"a replace added", append(withAllowed()[:2], append([]*module{{Path: "example.invalid/a", Version: "v1.0.0", Replace: &module{Path: "example.invalid/fork", Version: "v1.0.0"}}}, withAllowed()[3:]...)...), false},
+		{"an addition outside the list", withAllowed(&module{Path: "example.invalid/extra", Version: "v0.1.0"}), false},
+	}
+	for p := range allowedGraphAdditions {
+		h := withAllowed()
+		for _, m := range h {
+			if m.Path == p {
+				m.Version = "v9.9.9"
+			}
+		}
+		cases = append(cases, struct {
+			name string
+			head []*module
+			ok   bool
+		}{"allowed module " + p + " at another version", h, false})
+	}
+	all := true
+	for _, c := range cases {
+		_, problems := compareModules(base, c.head)
+		good := (len(problems) == 0) == c.ok
+		all = all && good
+		fmt.Printf("readonly-gate: module graph self-test %q: problems=%d expected pass=%v -> %v\n", c.name, len(problems), c.ok, map[bool]string{true: "as required", false: "WRONG"}[good])
+	}
+	return all
 }

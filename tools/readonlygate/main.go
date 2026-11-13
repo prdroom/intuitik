@@ -6,8 +6,10 @@
 //
 // check runs every rule on one combination: GOOS, GOARCH and CGO_ENABLED come from the
 // environment, the tag set from -tagset (release is the build job's command, no
-// -tags). self-test runs check on each bypass fixture and fails unless every fixture
-// is caught by its rule. Each rule appends one go test -json style event, pass or fail,
+// -tags). check also compares the module graph of the head with the graph of the base
+// (moduleGraphCheck) and reports its problems under the third-party rule. self-test
+// runs check on each bypass fixture and fails unless every fixture is caught by its
+// rule, and runs the module graph comparison on generated graphs. Each rule appends one go test -json style event, pass or fail,
 // named "readonly-gate: <rule>", to the report file.
 package main
 
@@ -40,11 +42,18 @@ func main() {
 	case "check":
 		before := byteCheck("before")
 		results := check(fs.Arg(0), os.Environ(), *tagset)
+		env := os.Environ()
+		graph := moduleGraphCheck(fs.Arg(0), env, getenv(env, "GOOS") == "linux" && getenv(env, "GOARCH") == "amd64" && *tagset == "release")
 		after := byteCheck("after")
 		ok = true
 		for _, r := range results {
 			if !before || !after {
 				r.fail("byte check: the root go.mod or go.sum differs from HEAD")
+			}
+			if r.rule == ruleThirdParty {
+				for _, p := range graph {
+					r.fail("%s", p)
+				}
 			}
 			fmt.Printf("readonly-gate: %s %s %s\n", r.rule, combo(os.Environ(), *tagset), r.line())
 			emit(*report, r.rule, r.ok())
@@ -53,6 +62,7 @@ func main() {
 	case "self-test":
 		before := byteCheck("before")
 		ok = selfTest(fs.Arg(0), strings.Fields(*targets), strings.Fields(*tagsets))
+		ok = moduleGraphSelfTest() && ok
 		after := byteCheck("after")
 		ok = ok && before && after
 		emit(*report, "self-test", ok)

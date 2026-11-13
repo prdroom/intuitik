@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -16,10 +17,12 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"k8s.io/client-go/discovery/cached/disk"
+	"k8s.io/klog/v2"
 )
 
 func gzipBytes(t *testing.T, b []byte) []byte {
@@ -224,37 +227,110 @@ func TestR9_NoDiskCache(t *testing.T) {
 // stderrCapture replaces os.Stderr with a pipe until stop returns what was written.
 func stderrCapture(t *testing.T) (stop func() []byte) {
 	t.Helper()
+	return fileCapture(t, &os.Stderr)
+}
+
+// fileCapture replaces *f (os.Stdout or os.Stderr) with a pipe until stop returns what
+// was written.
+func fileCapture(t *testing.T, f **os.File) (stop func() []byte) {
+	t.Helper()
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	orig := os.Stderr
-	os.Stderr = w
+	orig := *f
+	*f = w
 	done := make(chan []byte)
 	go func() {
 		b, _ := io.ReadAll(r)
 		done <- b
 	}()
 	return func() []byte {
-		os.Stderr = orig
+		*f = orig
 		w.Close()
 		return <-done
 	}
 }
 
+// lockedBuffer is the klog output of R10; klog and the client's goroutines write to it.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) Bytes() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]byte(nil), b.buf.Bytes()...)
+}
+
+// r10Verbosity is the klog verbosity of the R10 run: 9 is the highest level of the
+// client library's request logging (URL and timing from 6, request and response headers
+// from 7 and 8, the request as a curl command at 9).
+const r10Verbosity = "9"
+
+// raiseKlogVerbosity sets the klog verbosity to r10Verbosity and sends klog's output to
+// out instead of the log files and stderr. t.Cleanup puts the verbosity, the flags and
+// the output target back. The test that calls it must not run in parallel with other
+// tests: klog's settings are global.
+func raiseKlogVerbosity(t *testing.T, out io.Writer) {
+	t.Helper()
+	fs := flag.NewFlagSet("klog-r10", flag.ContinueOnError)
+	klog.InitFlags(fs)
+	set := map[string]string{"v": r10Verbosity, "logtostderr": "false", "alsologtostderr": "false"}
+	saved := map[string]string{}
+	for name, value := range set {
+		f := fs.Lookup(name)
+		if f == nil {
+			t.Fatalf("R10: klog has no flag %s", name)
+		}
+		saved[name] = f.Value.String()
+		if err := fs.Set(name, value); err != nil {
+			t.Fatalf("R10: klog flag %s=%s: %v", name, value, err)
+		}
+	}
+	klog.SetOutput(out)
+	t.Cleanup(func() {
+		klog.Flush()
+		for name, value := range saved {
+			if err := fs.Set(name, value); err != nil {
+				t.Errorf("R10: restoring klog flag %s=%s: %v", name, value, err)
+			}
+		}
+		klog.SetOutput(os.Stderr)
+		t.Logf("R10: klog restored: v=%s logtostderr=%s alsologtostderr=%s, output os.Stderr; V(%s) enabled=%v",
+			fs.Lookup("v").Value.String(), fs.Lookup("logtostderr").Value.String(), fs.Lookup("alsologtostderr").Value.String(), r10Verbosity, klog.V(9).Enabled())
+	})
+}
+
 // TestR10_KubeconfigCredsNotLogged (packet M1-T4 R10): with a kubeconfig that carries
-// a token canary, a run of readonly (an accepted and a rejected connection attempt,
-// list, get, refused requests) writes the canary to no stderr, outcome text, error or
-// response. Positive control: the kubeconfig file and the Authorization header the
-// fake server received hold the canary.
+// a token canary and the client library's request logging raised to klog verbosity 9
+// for the whole run, a run of readonly (an accepted and a rejected connection attempt,
+// list, get, refused requests) writes the canary to no klog output, stdout, stderr,
+// outcome text, error or response. Positive controls: the klog output holds the verbose
+// lines of the run's requests, and the kubeconfig file and the Authorization header the
+// fake server received hold the canary. This test does not run in parallel: it changes
+// klog's global settings, which t.Cleanup restores.
 func TestR10_KubeconfigCredsNotLogged(t *testing.T) {
 	ctx := context.Background()
 	token := randomValue(t, "r10token")
 	srv := newTLSFakeAPI(t, false)
 	srv.add("pods", podObject("a", "p"))
 	path := useKubeconfig(t, kubeconfig(srv.srv.URL, srv.caPEM(), map[string]any{"token": token}))
+	rejecting := newTLSFakeAPI(t, false)
+	rejecting.srv.Config.Handler = rejectAll{}
 
-	stop := stderrCapture(t)
+	klogOut := &lockedBuffer{}
+	raiseKlogVerbosity(t, klogOut)
+	atStart := klog.V(9).Enabled()
+	stopErr := stderrCapture(t)
+	stopOut := fileCapture(t, &os.Stdout)
 	var collected []byte
 	o := Attempt(ctx, "")
 	collected = append(collected, o.Message...)
@@ -271,28 +347,59 @@ func TestR10_KubeconfigCredsNotLogged(t *testing.T) {
 		collected = append(collected, err.Error()...)
 	}
 	// A rejected attempt: the server answers 401.
-	rejecting := newTLSFakeAPI(t, false)
-	rejecting.srv.Config.Handler = rejectAll{}
 	useKubeconfig(t, kubeconfig(rejecting.srv.URL, rejecting.caPEM(), map[string]any{"token": token}))
 	o2 := Attempt(ctx, "")
 	collected = append(collected, o2.Message...)
-	errOut := stop()
+	klog.Flush()
+	atEnd := klog.V(9).Enabled()
+	outOut := stopOut()
+	errOut := stopErr()
+	logged := klogOut.Bytes()
 
 	if o.State != StateConnected || o2.State != StateCredentialsRejected {
 		t.Errorf("R10 attempts: states %s and %s, expected connected and credentials-rejected", o.State, o2.State)
 	}
+	if !atStart || !atEnd {
+		t.Errorf("R10: klog V(%s) enabled at the start=%v and at the end=%v of the run, expected true and true", r10Verbosity, atStart, atEnd)
+	}
+	t.Logf("R10: klog verbosity v=%s for the whole run: V(%s) enabled at the start=%v, at the end=%v", r10Verbosity, r10Verbosity, atStart, atEnd)
+
+	// Positive control of the raised verbosity: lines that the client library logged for
+	// the requests of this run.
+	var requestLines, listLines, rejectedLines, headerLines int
+	for _, line := range strings.Split(string(logged), "\n") {
+		if strings.Contains(line, srv.srv.URL) || strings.Contains(line, rejecting.srv.URL) {
+			requestLines++
+		}
+		if strings.Contains(line, srv.srv.URL+"/api/v1/namespaces/a/pods") {
+			listLines++
+		}
+		if strings.Contains(line, rejecting.srv.URL+"/api") {
+			rejectedLines++
+		}
+		if strings.Contains(strings.ToLower(line), "authorization") {
+			headerLines++
+		}
+	}
+	if listLines < 1 || rejectedLines < 1 {
+		t.Errorf("R10 verbosity positive control: klog lines naming the list or get request URL=%d and the rejected attempt's URL=%d, expected at least 1 each", listLines, rejectedLines)
+	}
+	t.Logf("R10 verbosity positive control: klog output bytes=%d, lines naming a fake server URL=%d (list and get requests %d, rejected attempt %d), lines naming the Authorization header=%d",
+		len(logged), requestLines, listLines, rejectedLines, headerLines)
+
 	kc, _ := os.ReadFile(path)
 	_, _, auth := srv.seen()
 	positive := canaryCount(kc, token) + canaryCount([]byte(strings.Join(auth, "\n")), token)
 	if positive < 2 {
 		t.Errorf("R10 positive control: %d findings in the kubeconfig and the received Authorization headers, expected at least 2", positive)
 	}
-	inStderr, inOutput := canaryCount(errOut, token), canaryCount(collected, token)
-	if inStderr != 0 || inOutput != 0 {
-		t.Errorf("R10: token canary found %d times on stderr and %d times in texts, errors and responses, expected 0", inStderr, inOutput)
+	inKlog, inStdout, inStderr, inOutput := canaryCount(logged, token), canaryCount(outOut, token), canaryCount(errOut, token), canaryCount(collected, token)
+	if inKlog != 0 || inStdout != 0 || inStderr != 0 || inOutput != 0 {
+		t.Errorf("R10: token canary found %d times in the klog output, %d on stdout, %d on stderr and %d in texts, errors and responses, expected 0",
+			inKlog, inStdout, inStderr, inOutput)
 	}
-	t.Logf("R10: stderr bytes=%d findings=%d; texts, errors and responses bytes=%d findings=%d; positive control findings=%d",
-		len(errOut), inStderr, len(collected), inOutput, positive)
+	t.Logf("R10: klog output bytes=%d findings=%d; stdout bytes=%d findings=%d; stderr bytes=%d findings=%d; texts, errors and responses bytes=%d findings=%d; positive control findings=%d",
+		len(logged), inKlog, len(outOut), inStdout, len(errOut), inStderr, len(collected), inOutput, positive)
 }
 
 type rejectAll struct{}
