@@ -78,11 +78,16 @@ func checkRequest(req *http.Request) (target, error) {
 	if req.Method != http.MethodGet {
 		return target{}, refuse("method %s", req.Method)
 	}
-	if req.Header.Get("Upgrade") != "" || strings.Contains(strings.ToLower(req.Header.Get("Connection")), "upgrade") {
-		return target{}, refuse("upgrade request")
-	}
-	for name := range req.Header {
-		if strings.HasPrefix(strings.ToLower(name), "impersonate-") {
+	// Header field names are matched in any case: a map key that is not in canonical
+	// form is sent as it is, and Header.Get would not find it.
+	for name, values := range req.Header {
+		lower := strings.ToLower(name)
+		switch {
+		case lower == "upgrade":
+			return target{}, refuse("upgrade request (header %s)", name)
+		case lower == "connection" && strings.Contains(strings.ToLower(strings.Join(values, ",")), "upgrade"):
+			return target{}, refuse("upgrade request (header %s)", name)
+		case strings.HasPrefix(lower, "impersonate-"):
 			return target{}, refuse("impersonation header %s", name)
 		}
 	}
