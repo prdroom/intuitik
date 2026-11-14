@@ -871,3 +871,98 @@ jobs:
           if [ "$self_test_code" -ne 0 ] || [ "$product_code" -ne 0 ] || [ "$test_code" -ne 0 ] || [ "$list_code" -ne 0 ]; then
             exit 1
           fi
+
+  # Credential program process tests on Windows (packet M1-T3b section 7): the runner, the helper
+  # entry and the job object of internal/kube/credexec, the K-EP mapping and the entry point. The
+  # frontend is built first because the Go program embeds it (go:embed all:dist). The list check
+  # fails unless every test of internal/kube/credexec/REQUIRED_TESTS_WINDOWS ran and passed.
+  credexec-windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          package-manager-cache: false
+
+      - name: Frontend build
+        working-directory: web
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Build product and e2etest binaries
+        shell: bash
+        env:
+          VERSION: 0.0.0-dev
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          out="${RUNNER_TEMP}/e2e-bin"
+          mkdir -p "$out"
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath \
+            -ldflags "-X main.version=${VERSION} -X main.commit=${commit}" \
+            -o "${out}/intuitik-windows-amd64.exe" ./cmd/intuitik
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -tags e2etest \
+            -ldflags "-X main.version=${VERSION} -X main.commit=${commit}" \
+            -o "${out}/intuitik-e2etest-windows-amd64.exe" ./cmd/intuitik
+          sha256sum "${out}/intuitik-windows-amd64.exe" "${out}/intuitik-e2etest-windows-amd64.exe"
+
+      - name: credexec-windows tests and list check
+        shell: bash
+        run: |
+          set -uo pipefail
+          export INTUITIK_E2E_BINARY="${RUNNER_TEMP}/e2e-bin/intuitik-windows-amd64.exe"
+          export INTUITIK_E2E_TEST_BINARY="${RUNNER_TEMP}/e2e-bin/intuitik-e2etest-windows-amd64.exe"
+          report="${RUNNER_TEMP}/credexec-windows.json"
+          test_code=0
+          go test -count=1 -json -run "^($(grep -E '^Test' internal/kube/credexec/REQUIRED_TESTS_WINDOWS | tr -d '\r' | paste -sd'|' -))$" ./internal/kube/... ./cmd/intuitik/... > "$report" || test_code=$?
+          list_code=0
+          python - internal/kube/credexec/REQUIRED_TESTS_WINDOWS "$report" <<'PY' || list_code=$?
+          import json, sys
+          list_path, report_path = sys.argv[1], sys.argv[2]
+          names = [l.strip() for l in open(list_path, encoding="utf-8") if l.strip() and not l.strip().startswith("#")]
+          seen = {}
+          for line in open(report_path, encoding="utf-8"):
+              if not line.startswith("{"):
+                  print(line, end="")
+                  continue
+              event = json.loads(line)
+              if event.get("Action") == "output":
+                  print(event.get("Output", ""), end="")
+              if event.get("Test") and event.get("Action") in ("pass", "fail", "skip"):
+                  seen.setdefault(event["Test"], []).append(event["Action"])
+          bad = 0
+          if not names:
+              print("list check: the list is empty")
+              bad = 1
+          if len(set(names)) != len(names):
+              print("list check: the list names a test more than once")
+              bad = 1
+          for name in names:
+              results = seen.get(name, [])
+              result = "missing" if not results else "pass" if all(r == "pass" for r in results) else ",".join(sorted(set(results)))
+              print(f"list check: {name} {result}")
+              if result != "pass":
+                  bad = 1
+          print(f"list check: {len(names)} listed, {'pass' if bad == 0 else 'fail'}")
+          sys.exit(bad)
+          PY
+          echo "go test exit=${test_code} list check exit=${list_code}"
+          if [ "$test_code" -ne 0 ] || [ "$list_code" -ne 0 ]; then
+            exit 1
+          fi
