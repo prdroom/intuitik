@@ -47,6 +47,9 @@ func HelperMain(args []string, stdout io.Writer) int {
 		return 0
 	}
 	if sm.exitAfterStart {
+		// The program has time to start and record itself; the helper then exits
+		// before its result frame.
+		time.Sleep(time.Second)
 		os.Exit(3)
 	}
 	over := make(chan struct{})

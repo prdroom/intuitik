@@ -39,6 +39,7 @@ type credRecord struct {
 	auth   string // the Authorization header
 	certCN string // the common name of the client certificate, "" without one
 	path   string
+	remote string // the client address of the connection that carried the request
 }
 
 // kind names the credential of a record for the test log, never its value.
@@ -82,7 +83,7 @@ func newCredServer(t *testing.T) *credServer {
 }
 
 func (s *credServer) serve(w http.ResponseWriter, r *http.Request) {
-	rec := credRecord{auth: r.Header.Get("Authorization"), path: r.URL.Path}
+	rec := credRecord{auth: r.Header.Get("Authorization"), path: r.URL.Path, remote: r.RemoteAddr}
 	if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
 		rec.certCN = r.TLS.PeerCertificates[0].Subject.CommonName
 	}

@@ -144,9 +144,12 @@ func TestE6_RefreshContract(t *testing.T) {
 		for _, r := range recs {
 			cns = append(cns, r.certCN)
 		}
-		t.Logf("E6 certificate: read %d %v; certificates received %v; new TLS handshakes %d", s, err, cns, srv.handshakes.Load()-hs)
-		if s != 200 || len(cns) != 2 || cns[0] != "e6-cert-one" || cns[1] != "e6-cert-two" || srv.handshakes.Load()-hs < 2 {
-			t.Errorf("E6 certificate: read %d, certificates %v, handshakes %d; want 200, [e6-cert-one e6-cert-two] and a new handshake", s, cns, srv.handshakes.Load()-hs)
+		// The first request may reuse the attempt's connection; the request with the new
+		// certificate must come on a new connection, that is after a new handshake.
+		newConn := len(recs) == 2 && recs[0].remote != recs[1].remote
+		t.Logf("E6 certificate: read %d %v; certificates received %v; the new certificate on a new connection %v; new TLS handshakes %d", s, err, cns, newConn, srv.handshakes.Load()-hs)
+		if s != 200 || len(cns) != 2 || cns[0] != "e6-cert-one" || cns[1] != "e6-cert-two" || !newConn || srv.handshakes.Load()-hs < 1 {
+			t.Errorf("E6 certificate: read %d, certificates %v, new connection %v, handshakes %d; want 200, [e6-cert-one e6-cert-two] and a new handshake for the new certificate", s, cns, newConn, srv.handshakes.Load()-hs)
 		}
 	})
 
