@@ -333,7 +333,18 @@ func startPanel(t *testing.T, o panelOpts) *panel {
 	p := &panel{t: t, stdout: &lines{}, stderr: &lines{}, done: make(chan struct{}), openLog: openLog, bin: bin}
 	p.cmd = exec.Command(bin)
 	p.cmd.Env = env
-	p.cmd.Stdout, p.cmd.Stderr = p.stdout, p.stderr
+	// intuitik's stdout and stderr are pipes that this function owns and copies itself,
+	// so that the wait for the process does not depend on who else holds them: a
+	// program that intuitik started can inherit stderr and outlive intuitik.
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	errR, errW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.cmd.Stdout, p.cmd.Stderr = outW, errW
 	var stdin io.Closer
 	if o.pty {
 		master, slave, err := openPTY()
@@ -356,15 +367,51 @@ func startPanel(t *testing.T, o panelOpts) *panel {
 	if err := p.cmd.Start(); err != nil {
 		t.Fatalf("starting %s: %v", bin, err)
 	}
+	outW.Close()
+	errW.Close()
+	// Each copy ends at end of file, when every holder of the pipe's write side is
+	// gone: that is the check that the output collection is complete.
+	copied := make(chan struct{}, 2)
+	go func() { io.Copy(p.stdout, outR); copied <- struct{}{} }()
+	go func() { io.Copy(p.stderr, errR); copied <- struct{}{} }()
+	// pipeBound bounds the wait for the pipes after intuitik has exited. Reaching it
+	// means a process that intuitik started still holds a pipe; the copies are then
+	// ended and the collection is incomplete.
+	const pipeBound = 10 * time.Second
+	var boundReached bool
+	var exitedAt time.Time
 	go func() {
-		p.cmd.Wait()
+		p.cmd.Wait() // the pipes are files, so this returns when the process exits
+		exitedAt = time.Now()
+		bound := time.After(pipeBound)
+		for n := 0; n < 2; n++ {
+			select {
+			case <-copied:
+				continue
+			case <-bound:
+			}
+			boundReached = true
+			outR.Close()
+			errR.Close()
+			for ; n < 2; n++ {
+				<-copied // reap the copy helpers
+			}
+		}
 		close(p.done)
 	}()
 	t.Cleanup(func() {
+		// The test's own observation windows and PID checks have run; the process is
+		// ended only now.
 		stdin.Close()
 		p.cmd.Process.Kill()
 		<-p.done
 		allOutput.add(p.stdout.bytes(), p.stderr.bytes())
+		t.Logf("K-CLEANUP %s: intuitik ended; output pipes closed within %s of the exit: %v; output collection complete: %v",
+			filepath.Base(bin), pipeBound, !boundReached, !boundReached)
+		if boundReached {
+			t.Errorf("K-CLEANUP %s: a process that intuitik started still held its output pipes %s after intuitik exited at %s; the output collection is incomplete, so this run of %s does not count as a pass",
+				filepath.Base(bin), pipeBound, exitedAt.Format(time.RFC3339Nano), t.Name())
+		}
 	})
 	deadline := time.Now().Add(30 * time.Second)
 	for {

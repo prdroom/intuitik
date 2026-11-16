@@ -175,19 +175,35 @@ func TestK_ExecRefreshBeforeW1(t *testing.T) {
 func TestK_ExecRefreshAfterW1(t *testing.T) {
 	srv := newCredServer(t)
 	tokA, tokB := "tok-a-"+randomHex(8), "tok-b-"+randomHex(8)
+	names := map[string]string{tokA: "A", tokB: "B"}
+	// Preparation: the initial exec connection (refreshSetup), the initial server record,
+	// the credential expired, and the read requested after W1.
 	p, prog := refreshSetup(t, srv, "token="+tokA+";expiry=11", "sleep=3s;token="+tokB)
+	initial := srv.received(0, names)
+	if fmt.Sprint(initial) != "[A]" {
+		t.Fatalf("preparation: the initial server record is %v, want [A]", initial)
+	}
 	before := srv.count()
 	untilAfterStart(p, w1+3*time.Second)
+	requested := time.Since(p.started)
+	t.Logf("preparation: initial server record %v; credential A expires 11 s after its run; read requested %s after the attempt start (W1 %s)",
+		initial, requested.Round(10*time.Millisecond), w1)
+
+	// Result: a second program start after W1, the read answered 200, connected, and the
+	// server received only the new credential B.
 	status := p.readOnce(30 * time.Second)
 	starts := prog.startTimes()
 	o, _ := p.cluster()
-	got := srv.received(before, map[string]string{tokA: "A", tokB: "B"})
-	if len(starts) == 2 {
-		t.Logf("K-REFRESH-AFTER-W1: refresh run started %s after the attempt start (W1 %s), read answered %d; state %s; server received %v",
-			starts[1].Sub(p.started).Round(10*time.Millisecond), w1, status, o.State, got)
+	got := srv.received(before, names)
+	if len(starts) >= 2 {
+		t.Logf("K-REFRESH-AFTER-W1: second real start after W1: the refresh run started %s after the attempt start (start record %q); read answered %d; state %s; server received %v",
+			starts[1].Sub(p.started).Round(10*time.Millisecond), prog.lines("starts")[1], status, o.State, got)
+	} else {
+		t.Logf("K-REFRESH-AFTER-W1: no second program start recorded: the refresh run's deadline passed before the program started; read answered %d; state %s; server received %v",
+			status, o.State, got)
 	}
 	if len(starts) != 2 || starts[1].Sub(p.started) < w1 {
-		t.Fatalf("preparation: program starts %d; the refresh did not start after W1", len(starts))
+		t.Errorf("K-REFRESH-AFTER-W1: program starts %d; want a second start after W1", len(starts))
 	}
 	if status != 200 || o.State != "connected" || fmt.Sprint(got) != "[B]" {
 		t.Errorf("K-REFRESH-AFTER-W1: read %d, state %q (%s), server %v; want 200, connected and B", status, o.State, str(o.Message), got)
