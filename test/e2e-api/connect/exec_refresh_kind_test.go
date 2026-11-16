@@ -269,13 +269,13 @@ func TestK_ExecSwitchDuringRefresh(t *testing.T) {
 	alive, took := gone(pids, switched, 2*time.Second)
 	final := p.mustSettle()
 	newErr := window(p.stderr, errBefore, 3*time.Second)
-	later, _ := p.cluster()
+	settled, _ := p.cluster()
 	t.Logf("K-SWITCH-REFRESH: refresh PIDs %v alive %v %s after the switch; final %s %s, state after 3 s %s; stderr since the switch %q",
-		pids, alive, took.Round(10*time.Millisecond), final.State, str(final.Context), later.State, newErr)
+		pids, alive, took.Round(10*time.Millisecond), final.State, str(final.Context), settled.State, newErr)
 	if len(alive) != 0 {
 		t.Errorf("K-SWITCH-REFRESH: PIDs %v alive, want the refresh tree gone within 2 s of the switch", alive)
 	}
-	if final.State != "connected" || later.State != "connected" || str(later.Context) != "kind-ok" || len(newErr) != 0 {
-		t.Errorf("K-SWITCH-REFRESH: state %q then %q (%s), stderr %q; want connected on kind-ok and no line", final.State, later.State, str(later.Context), newErr)
+	if final.State != "connected" || settled.State != "connected" || str(settled.Context) != "kind-ok" || len(newErr) != 0 {
+		t.Errorf("K-SWITCH-REFRESH: state %q then %q (%s), stderr %q; want connected on kind-ok and no line", final.State, settled.State, str(settled.Context), newErr)
 	}
 }

@@ -141,7 +141,7 @@ func (g *Generation) Attempt(name string) Outcome {
 	return o.with(StateUnreachable, "K-UR", kUR(o.Server, o.Context, osErr))
 }
 
-// finish keeps a connected outcome as the start of later state changes.
+// finish keeps a connected outcome as the start of the state changes after it.
 func (g *Generation) finish(o Outcome) Outcome {
 	if o.State == StateConnected && !o.Canceled {
 		g.connected(o)

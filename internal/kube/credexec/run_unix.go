@@ -62,7 +62,7 @@ func run(ctx context.Context, s Spec, path string, admit Admit) Result {
 		res.Class = ClassInvalid
 	}
 	// The program has exited: end what it left in its group, which also closes a pipe
-	// that a descendant held, and stop reading at most pipeGrace later.
+	// that a descendant held, and stop reading at most pipeGrace after the exit.
 	end()
 	var out *cappedBuffer
 	select {

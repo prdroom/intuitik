@@ -182,7 +182,7 @@ func (g *Generation) runLocked(ctx context.Context) obtained {
 }
 
 // runContext is the context of one run (E4): a run of the attempt runs under the
-// attempt's context and ends at its W1 instant; every later run runs under the
+// attempt's context and ends at its W1 instant; every other run runs under the
 // generation's context with its own 10 s from its own start.
 func (g *Generation) runContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx != nil {
@@ -241,7 +241,7 @@ func (g *Generation) reportRejected() {
 	g.report(StateCredentialsRejected, "K-AU", func(base Outcome) string { return kAU(base.Cluster, base.Context) })
 }
 
-// connected keeps the connected outcome of the attempt as the start of later changes.
+// connected keeps the connected outcome of the attempt as the start of the changes after it.
 func (g *Generation) connected(o Outcome) {
 	g.mu.Lock()
 	g.base = o
