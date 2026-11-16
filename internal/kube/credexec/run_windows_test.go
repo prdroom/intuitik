@@ -84,6 +84,7 @@ func TestRun_DeadlineEndsTree(t *testing.T) {
 	f := newFakeRun(t, "child=detached;hang")
 	r, took := runHelper(t, f, binary(t, "INTUITIK_E2E_BINARY"), nil, 5*time.Second)
 	t.Logf("E11-DEADLINE: class %s, run took %s (deadline 5s)", r.Class, took.Round(time.Millisecond))
+	requireJob(t, "E11-DEADLINE", r)
 	if r.Class != ClassTimeout || took > 6*time.Second {
 		t.Errorf("E11-DEADLINE: class %q after %s, want timeout within 6s", r.Class, took.Round(time.Millisecond))
 	}

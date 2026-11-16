@@ -372,16 +372,18 @@ func startPanel(t *testing.T, o panelOpts) *panel {
 	// Each copy ends at end of file, when every holder of the pipe's write side is
 	// gone: that is the check that the output collection is complete.
 	copied := make(chan struct{}, 2)
-	go func() { io.Copy(p.stdout, outR); copied <- struct{}{} }()
-	go func() { io.Copy(p.stderr, errR); copied <- struct{}{} }()
+	var copyErr [2]error // set before each copy reports, read after p.done
+	go func() { _, copyErr[0] = io.Copy(p.stdout, outR); copied <- struct{}{} }()
+	go func() { _, copyErr[1] = io.Copy(p.stderr, errR); copied <- struct{}{} }()
 	// pipeBound bounds the wait for the pipes after intuitik has exited. Reaching it
 	// means a process that intuitik started still holds a pipe; the copies are then
 	// ended and the collection is incomplete.
 	const pipeBound = 10 * time.Second
 	var boundReached bool
 	var exitedAt time.Time
+	var waitErr error
 	go func() {
-		p.cmd.Wait() // the pipes are files, so this returns when the process exits
+		waitErr = p.cmd.Wait() // the pipes are files, so this returns when the process exits
 		exitedAt = time.Now()
 		bound := time.After(pipeBound)
 		for n := 0; n < 2; n++ {
@@ -406,11 +408,14 @@ func startPanel(t *testing.T, o panelOpts) *panel {
 		p.cmd.Process.Kill()
 		<-p.done
 		allOutput.add(p.stdout.bytes(), p.stderr.bytes())
-		t.Logf("K-CLEANUP %s: intuitik ended; output pipes closed within %s of the exit: %v; output collection complete: %v",
-			filepath.Base(bin), pipeBound, !boundReached, !boundReached)
-		if boundReached {
-			t.Errorf("K-CLEANUP %s: a process that intuitik started still held its output pipes %s after intuitik exited at %s; the output collection is incomplete, so this run of %s does not count as a pass",
-				filepath.Base(bin), pipeBound, exitedAt.Format(time.RFC3339Nano), t.Name())
+		// The collection is complete only when both copies read to end of file without an
+		// error before the bound. The process's own end (killed here) is recorded too.
+		complete := !boundReached && copyErr[0] == nil && copyErr[1] == nil
+		t.Logf("K-CLEANUP %s: intuitik ended (wait: %v); output pipes closed within %s of the exit: %v; copy errors stdout %v, stderr %v; output collection complete: %v",
+			filepath.Base(bin), waitErr, pipeBound, !boundReached, copyErr[0], copyErr[1], complete)
+		if !complete {
+			t.Errorf("K-CLEANUP %s: the output collection is incomplete (pipes held %v after intuitik exited at %s, copy errors %v %v), so this run of %s does not count as a pass",
+				filepath.Base(bin), boundReached, exitedAt.Format(time.RFC3339Nano), copyErr[0], copyErr[1], t.Name())
 		}
 	})
 	deadline := time.Now().Add(30 * time.Second)

@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"path/filepath"
 	"strings"
@@ -24,8 +25,26 @@ import (
 type credCase struct {
 	name    string
 	plans   []string
-	trigger bool                                  // e2etest binary with READ-TRIGGER-T3b
-	after   func(t *testing.T, p *panel, s *credServer) // the step after the first attempt
+	trigger bool                                      // e2etest binary with READ-TRIGGER-T3b
+	after   func(t *testing.T, p *panel, s *credServer) int // the read after the first attempt; its answer
+	tokens  map[string]string                         // names of the tokens the server may record
+	want    string                                    // the server record of the read (READ-TRIGGER-T3b)
+	// NEGFIX-T3b: the canary the refresh run prints, and the read's answer and server
+	// record under the negative fixture refresh-output-leak (the refresh run fails there).
+	refreshed            string
+	leakRead             int
+	leakWant             string
+}
+
+// leakFixture is the negative fixture of NEGFIX-T3b: the read route of cluster-read-route,
+// and a refresh run's output put into its K-EP text.
+const leakFixture = "refresh-output-leak"
+
+// subRun is what one panel of a case produced: its output and API bodies, collected the
+// same way for every sub-run.
+type subRun struct {
+	output    [][]byte
+	responses [][]byte
 }
 
 // TestK_ExecCredentialFreeOutput (acceptance 7, E8): canaries in the program's stdout (a
@@ -62,14 +81,16 @@ func TestK_ExecCredentialFreeOutput(t *testing.T) {
 		{name: "first run", plans: []string{stderr + "token=" + first}},
 		{name: "first run with a client certificate", plans: []string{stderr + "certfile=" + certFile + ";keyfile=" + keyFile}},
 		{name: "refresh on expiry", trigger: true, plans: []string{stderr + "token=" + expiryA + ";expiry=3", stderr + "token=" + expiryB},
-			after: func(t *testing.T, p *panel, s *credServer) {
+			tokens: map[string]string{expiryA: "A", expiryB: "B"}, want: "[B]", refreshed: expiryB, leakRead: 503, leakWant: "[]",
+			after: func(t *testing.T, p *panel, s *credServer) int {
 				untilAfterStart(p, 4*time.Second)
-				p.readOnce(30 * time.Second)
+				return p.readOnce(30 * time.Second)
 			}},
 		{name: "refresh after 401", trigger: true, plans: []string{stderr + "token=" + rejectA, stderr + "token=" + rejectB},
-			after: func(t *testing.T, p *panel, s *credServer) {
+			tokens: map[string]string{rejectA: "A", rejectB: "B"}, want: "[A B]", refreshed: rejectB, leakRead: 401, leakWant: "[A]",
+			after: func(t *testing.T, p *panel, s *credServer) int {
 				s.reject(rejectA)
-				p.readOnce(30 * time.Second)
+				return p.readOnce(30 * time.Second)
 			}},
 		{name: "malformed output", plans: []string{stderr + "raw=" + paths["malformed"]}},
 		{name: "wrong API version", plans: []string{stderr + "version=client.authentication.k8s.io/v1beta1;token=" + version}},
@@ -78,29 +99,73 @@ func TestK_ExecCredentialFreeOutput(t *testing.T) {
 		{name: "timeout", plans: []string{stderr + "hang"}},
 	}
 	var output, responses, fixtures [][]byte
-	for _, c := range cases {
+	// run starts one panel for case c with fixture ("" for the release binary) and returns
+	// what it produced. readWant and recordWant are the read's expected answer and server
+	// record; for a case without a read they are unused.
+	run := func(c credCase, fixture string, readWant int, recordWant string) subRun {
 		srv := newCredServer(t)
-		_, user := newProgram(t, "IfAvailable", c.plans...)
+		prog, user := newProgram(t, "IfAvailable", c.plans...)
 		raw := (&kube{current: "exec-ctx"}).withServer("fake-c", srv).user("exec-user", user).context("exec-ctx", "fake-c", "exec-user").bytes()
 		fixtures = append(fixtures, raw)
 		kc := writeFile(t, filepath.Join(t.TempDir(), "kubeconfig"), raw)
 		opts := panelOpts{kubeconfig: strPtr(kc)}
-		if c.trigger {
-			opts.test, opts.fixture = true, readFixture
+		if fixture != "" {
+			opts.test, opts.fixture = true, fixture
 		}
 		p := startPanel(t, opts)
 		o := p.mustSettle()
+		label := c.name
+		if fixture != "" {
+			label += " [" + fixture + "]"
+		}
 		if c.after != nil {
-			c.after(t, p, srv)
+			// Preparation: connected on the first run, with 0 findings of either canary.
+			early := secretscan.Count(append(p.stdout.bytes(), p.stderr.bytes()...), c.refreshed)
+			if o.State != "connected" || early != 0 {
+				t.Fatalf("preparation: K-E8 case %s: state %s, refresh canary already found %d times", label, o.State, early)
+			}
+			// READ-TRIGGER-T3b: the read, the program starts and the server record show that
+			// the product's refresh path ran in this case.
+			before := srv.count()
+			status := c.after(t, p, srv)
+			got := fmt.Sprint(srv.received(before, c.tokens))
+			t.Logf("K-E8 case %s: read answered %d; program starts %d %q; server record of the read %s (want %d, 2 starts, %s)",
+				label, status, prog.starts(), prog.lines("starts"), got, readWant, recordWant)
+			if status != readWant || prog.starts() != 2 || got != recordWant {
+				t.Errorf("K-E8 case %s: read %d, starts %d, server record %s; want %d, 2 starts and %s", label, status, prog.starts(), got, readWant, recordWant)
+			}
 		}
 		_, r := p.cluster()
-		responses = append(responses, r.raw)
 		final, _ := p.cluster()
 		p.cmd.Process.Kill()
 		<-p.done
-		output = append(output, p.stdout.bytes(), p.stderr.bytes())
-		allOutput.add(p.stdout.bytes(), p.stderr.bytes())
-		t.Logf("K-E8 case %s: binary %s%s; first state %s, final state %s", c.name, binaryInfo(t, p), map[bool]string{true: ", fixture " + readFixture, false: ""}[c.trigger], o.State, final.State)
+		t.Logf("K-E8 case %s: binary %s%s; first state %s, final state %s", label, binaryInfo(t, p), map[bool]string{true: ", fixture " + fixture, false: ""}[fixture != ""], o.State, final.State)
+		return subRun{output: [][]byte{p.stdout.bytes(), p.stderr.bytes()}, responses: [][]byte{r.raw}}
+	}
+	for _, c := range cases {
+		fixture := ""
+		if c.trigger {
+			fixture = readFixture
+		}
+		normal := run(c, fixture, 200, c.want)
+		output = append(output, normal.output...)
+		responses = append(responses, normal.responses...)
+		allOutput.add(normal.output...)
+		if !c.trigger {
+			continue
+		}
+		// NEGFIX-T3b: the same case with the negative fixture. Same binary, plan and read;
+		// the same collection and the same searcher. The refresh run's own canary must be
+		// found; in the normal sub-run it must not (checked with every canary below).
+		leak := run(c, leakFixture, c.leakRead, c.leakWant)
+		leakOut, leakAPI := bytes.Join(leak.output, []byte("\n")), bytes.Join(leak.responses, []byte("\n"))
+		nOut, nAPI := secretscan.Count(bytes.Join(normal.output, []byte("\n")), c.refreshed), secretscan.Count(bytes.Join(normal.responses, []byte("\n")), c.refreshed)
+		fOut, fAPI := secretscan.Count(leakOut, c.refreshed), secretscan.Count(leakAPI, c.refreshed)
+		t.Logf("K-E8 NEGFIX case %s: refresh canary in the normal sub-run (fixture %s) output %d, API bodies %d; with the negative fixture %s output %d, API bodies %d (want at least 1)",
+			c.name, readFixture, nOut, nAPI, leakFixture, fOut, fAPI)
+		if fOut+fAPI == 0 {
+			t.Errorf("K-E8 NEGFIX case %s: the canary search did not find the refresh run's canary under the negative fixture %s", c.name, leakFixture)
+		}
 	}
 	for _, f := range files {
 		fixtures = append(fixtures, f)

@@ -61,6 +61,13 @@ var admitHooks struct {
 
 var errGenerationClosed = errors.New("readonly: the generation is closed")
 
+// refreshOutputText is nil in the product build and inert there. Only the e2etest
+// build's negative fixture refresh-output-leak (fixture_e2etest.go) sets it (packet
+// M1-T3b NEGFIX-T3b): the output of a refresh run then goes into the K-EP text that
+// runLocked builds for that run, so that the E8 canary search shows it detects such a
+// leak.
+var refreshOutputText func(stdout []byte) string
+
 // NewGeneration makes the generation of one attempt. Its context lives until Close or
 // the end of ctx. run starts credential programs; changed receives each state change
 // after connected and is called at most once per generation.
@@ -165,6 +172,10 @@ func (g *Generation) runLocked(ctx context.Context) obtained {
 		}
 	default:
 		got.fail = failReason(res.Class, res.Code)
+	}
+	if leak := refreshOutputText; leak != nil && ctx == nil && res.Class == "ok" {
+		// A refresh run (a run after connected) under the negative fixture only.
+		got.cred, got.fail = nil, failReason("invalid", 0)+leak(res.Stdout)
 	}
 
 	g.mu.Lock()

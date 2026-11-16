@@ -71,6 +71,10 @@ var fixtures = map[string]Fixture{
 	// clusterRoute, the test trigger of a read after connected. It is not a defect;
 	// registerFixtureRoutes adds the route.
 	"cluster-read-route": {},
+	// M1-T3b NEGFIX-T3b: the read route of cluster-read-route plus one defect, set in
+	// internal/kube/readonly/fixture_e2etest.go: a refresh run's output goes into its
+	// K-EP text.
+	"refresh-output-leak": {},
 }
 
 // clusterProbePath is the probe route of the "cluster-probe-route" fixture. Its answer
@@ -93,7 +97,7 @@ func registerFixtureRoutes(s *server) {
 		s.clusterRoute(http.MethodGet, clusterProbePath, func(w http.ResponseWriter, r *http.Request, c *readonly.Client) {
 			writeJSON(w, map[string]int64{"calls": calls.Add(1)})
 		})
-	case "cluster-read-route":
+	case "cluster-read-route", "refresh-output-leak":
 		// One logical read: one call of Client.Get on clusterReadTarget. The answer is
 		// only the status code of that read (502 when it got no answer); the response
 		// body is closed unread and nothing else is written.

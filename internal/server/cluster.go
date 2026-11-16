@@ -95,13 +95,14 @@ func (c *cluster) start(name string) clusterObject {
 	c.mu.Unlock()
 	go func() {
 		o := attempt(ctx, name)
+		// The line is printed under the same lock that checked the generation, so a
+		// newer start cannot come between the check and the line.
 		c.mu.Lock()
+		defer c.mu.Unlock()
 		if o.Canceled || gen != c.gen {
-			c.mu.Unlock()
 			return
 		}
 		c.outcome, c.connecting = o, false
-		c.mu.Unlock()
 		c.print(o)
 	}()
 	if c.started != nil {
@@ -127,15 +128,15 @@ func (c *cluster) stop() {
 // changed applies a state change after connected that generation gen reported: a
 // refresh that failed (K-EP) or credentials rejected again (K-AU). It is dropped unless
 // gen is still the current generation and its attempt connected; the line is printed
-// once (EP-1).
+// once (EP-1), under the same lock that checked the generation, so a switch or retry
+// cannot come between the check and the line.
 func (c *cluster) changed(gen int, o readonly.Outcome) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	if gen != c.gen || c.connecting || c.outcome.State != readonly.StateConnected {
-		c.mu.Unlock()
 		return
 	}
 	c.outcome = o
-	c.mu.Unlock()
 	c.print(o)
 }
 

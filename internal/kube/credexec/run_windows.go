@@ -3,6 +3,7 @@
 package credexec
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -35,6 +36,11 @@ func run(ctx context.Context, s Spec, path string, admit Admit) Result {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: detachedProcess}
 	res, out := start(ctx, cmd, s.Stderr, frameLimit, admit)
 	if res.Closed || (res.Class != "" && res.Class != ClassExit) {
+		// A run that ended at the deadline keeps the job result the helper had already
+		// written: its control line comes before the program starts.
+		if bytes.HasPrefix(out, []byte(JobOK+"\n")) {
+			res.Job = JobOK
+		}
 		res.Starts = 0
 		return res
 	}
@@ -116,7 +122,7 @@ func start(ctx context.Context, cmd *exec.Cmd, stderr *os.File, limit int, admit
 		out = <-read
 	}
 	if res.Class != "" {
-		return res, nil
+		return res, out.buf
 	}
 	if out.over {
 		res.Class = ClassInvalid
