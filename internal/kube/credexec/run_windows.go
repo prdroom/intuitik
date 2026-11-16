@@ -40,15 +40,8 @@ func run(ctx context.Context, s Spec, path string, admit Admit) Result {
 	}
 	// The helper's own exit code is not an outcome: only its frame is (E7).
 	f, ok := parseFrame(out)
-	forced := false
 	if !ok {
-		// RED-STUB E7: a broken frame is handled as a refused job, so the program is
-		// started again.
-		f.refused, forced = true, true
-	}
-	if f.refused && !forced {
-		// RED-STUB O-T3b-1 (b): a refused job ends the run as invalid without a start.
-		return Result{Class: ClassInvalid, Job: JobRefused}
+		return Result{Class: ClassInvalid, Job: JobOK}
 	}
 	if !f.refused {
 		r := Result{Class: f.class, Code: f.code, Starts: 1, Job: JobOK}

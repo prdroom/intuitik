@@ -73,8 +73,10 @@ func NewGeneration(ctx context.Context, run Runner, changed func(Outcome)) *Gene
 // lock; Close then takes the source lock, marks the source closed, so that no run starts
 // any more, and cancels the generation's context, which ends every running program tree.
 func (g *Generation) Close() {
-	// RED-STUB acceptance 4 (E5): the replaced generation is not closed; its runs go on
-	// and new ones start.
+	g.mu.Lock()
+	g.open = false
+	g.mu.Unlock()
+	g.cancel()
 }
 
 // setProgram keeps the exec entry of the attempt's context in the source (D1).
@@ -159,8 +161,7 @@ func (g *Generation) runLocked(ctx context.Context) obtained {
 		if c, ok := parseCredential(res.Stdout, version); ok {
 			got.cred = c
 		} else {
-			// RED-STUB acceptance 7 (E8, E9): the program's output in the error text.
-			got.fail = failReason("invalid", 0) + ": " + string(res.Stdout)
+			got.fail = failReason("invalid", 0)
 		}
 	default:
 		got.fail = failReason(res.Class, res.Code)
@@ -171,10 +172,6 @@ func (g *Generation) runLocked(ctx context.Context) obtained {
 	switch {
 	case got.fail != "":
 		g.failed = got.fail
-	case got.cred != nil && g.cur != nil:
-		// RED-STUB acceptance 3 (ii): the credential of a refresh run that ended in time
-		// is not applied; the old one is kept.
-		got.cred = g.cur
 	case got.cred != nil:
 		g.cur = got.cred
 	}
@@ -189,13 +186,9 @@ func (g *Generation) runLocked(ctx context.Context) obtained {
 // generation's context with its own 10 s from its own start.
 func (g *Generation) runContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx != nil {
-		// RED-STUB acceptance 4 (E5, D7): a run of the attempt is not ended by the
-		// attempt's end; it runs under the generation's context with 10 s of its own.
-		return context.WithTimeout(g.ctx, AttemptTimeout)
+		return context.WithCancel(ctx)
 	}
-	// RED-STUB acceptance 3 (i): a refresh run gets the attempt's W1 instant as its
-	// deadline.
-	return context.WithDeadline(g.ctx, g.start.Add(AttemptTimeout))
+	return context.WithTimeout(g.ctx, AttemptTimeout)
 }
 
 // admit is the start gate of a run (E5): the process starts only inside the source lock

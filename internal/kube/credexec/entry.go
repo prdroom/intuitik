@@ -31,17 +31,11 @@ func helperArgs(command string, args []string) []string {
 
 // parseEntry accepts exactly the grammar of helperArgs with an absolute command.
 func parseEntry(args []string) (command string, rest []string, ok bool) {
-	// RED-STUB E12: any argument list with a command after "--" is accepted.
-	for i, a := range args {
-		if a == "--" && i+1 < len(args) {
-			return args[i+1], args[i+2:], true
-		}
+	if len(args) < 4 || args[0] != "--cap" || args[1] != strconv.Itoa(MaxOutput) || args[2] != "--" {
+		return "", nil, false
 	}
-	if len(args) > 0 {
-		return args[len(args)-1], nil, true
+	if !filepath.IsAbs(args[3]) {
+		return "", nil, false
 	}
-	return "", nil, false
+	return args[3], args[4:], true
 }
-
-var _ = filepath.IsAbs
-var _ = strconv.Itoa

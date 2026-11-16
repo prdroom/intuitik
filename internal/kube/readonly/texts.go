@@ -52,7 +52,9 @@ const textUnknown = "(unknown)"
 
 // slot is the value of a server, cluster or context slot: "(unknown)" for an empty one.
 func slot(s string) string {
-	// RED-STUB acceptance 5 (UV): the current main behaviour, an empty slot stays empty.
+	if s == "" {
+		return textUnknown
+	}
 	return s
 }
 

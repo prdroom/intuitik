@@ -86,7 +86,6 @@ type execCredential struct {
 // is always false: intuitik gives the program no input (E2).
 func execProgram(e *clientcmdapi.ExecConfig, cfg *rest.Config) (Program, error) {
 	info := execCredential{TypeMeta: metav1.TypeMeta{APIVersion: e.APIVersion, Kind: execKind}}
-	info.Spec.Interactive = true // RED-STUB acceptance 6 (E2): spec.interactive true
 	if e.ProvideClusterInfo {
 		c, err := rest.ConfigToExecCluster(cfg)
 		if err != nil {
@@ -187,9 +186,8 @@ func parseCredential(out []byte, apiVersion string) (*credential, bool) {
 // token file, a username or a client certificate with its key. Such an entry does not
 // use its exec entry, as in client-go and kubectl (E10, SC).
 func staticCredential(u *clientcmdapi.AuthInfo) bool {
-	// RED-STUB acceptance 9 (E10): the program runs even when a static credential is
-	// present.
-	return false
+	return u.Token != "" || u.TokenFile != "" || u.Username != "" ||
+		((u.ClientCertificate != "" || len(u.ClientCertificateData) > 0) && (u.ClientKey != "" || len(u.ClientKeyData) > 0))
 }
 
 // withCredential is a dedicated copy of cfg that carries only cred (E10): every
@@ -211,17 +209,15 @@ func withCredential(cfg *rest.Config, cred *credential) *rest.Config {
 // failReason is the <reason> of K-EP (EP-R) for a run's class, or for the class
 // "interactive" of an exec entry with interactiveMode Always, decided before any run.
 func failReason(class string, code int) string {
-	// RED-STUB acceptance 2 (RED-T3b): each class gives the reason of another class; the
-	// state transition is kept.
 	switch class {
 	case "exit":
-		return "not found"
-	case "not-found":
-		return textTimeout
-	case "timeout":
-		return "no valid credential in its output"
-	case "interactive":
 		return fmt.Sprintf("exit code %d", code)
+	case "not-found":
+		return "not found"
+	case "timeout":
+		return textTimeout
+	case "interactive":
+		return "needs input from a terminal"
 	}
-	return "needs input from a terminal"
+	return "no valid credential in its output"
 }

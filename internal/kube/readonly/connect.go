@@ -117,8 +117,12 @@ func (g *Generation) Attempt(name string) Outcome {
 		return g.finish(o)
 	default:
 	}
-	// RED-STUB acceptance 4 (D7): the attempt's end does not fail the source, so a late
-	// read of this attempt can start a program.
+	// W1 has passed: a late read of this attempt starts no program (D7).
+	g.mu.Lock()
+	if g.failed == "" {
+		g.failed = failReason("timeout", 0)
+	}
+	g.mu.Unlock()
 	o, read, running := p.get()
 	if g.ctx.Err() != nil {
 		o.Canceled = true
@@ -127,9 +131,14 @@ func (g *Generation) Attempt(name string) Outcome {
 	if running != "" {
 		return o.with(StateCredentialProgramFailed, "K-EP", kEP(running, o.Context, failReason("timeout", 0)))
 	}
-	// RED-STUB acceptance 5 (E14): the current main behaviour, without UR-K.
-	_ = read
-	return o.with(StateUnreachable, "K-UR", kUR(o.Server, o.Context, textTimeout))
+	osErr := textTimeout
+	if !read {
+		osErr = textKubeconfigTimeout
+		if o.Context == "" {
+			o.Context = name
+		}
+	}
+	return o.with(StateUnreachable, "K-UR", kUR(o.Server, o.Context, osErr))
 }
 
 // finish keeps a connected outcome as the start of later state changes.
@@ -259,7 +268,7 @@ func attempt(ctx, actx context.Context, name string, p *progress, g *Generation)
 		return o.with(StateKubeconfigInvalid, "K-IV1", text(textIV1, path, err.Error()))
 	}
 	version := cfg.ExecProvider.APIVersion
-	// RED-STUB acceptance 9 (E10): the exec provider stays on the configuration.
+	cfg.ExecProvider = nil
 	g.setProgram(prog, version, user.Exec.Command)
 	return probeExec(ctx, actx, o, cfg, path, g, user.Exec.Command, p)
 }
@@ -294,8 +303,6 @@ func probeExec(ctx, actx context.Context, o Outcome, cfg *rest.Config, path stri
 	}
 	if out.State == StateConnected {
 		out.config, out.gen = cfg, g
-		// RED-STUB acceptance 1 (RED-T3b): the state is kept, the line differs from K-OK.
-		out.Message += " A credential program signed in."
 	}
 	return out
 }

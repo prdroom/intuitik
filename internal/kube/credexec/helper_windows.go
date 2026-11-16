@@ -22,10 +22,7 @@ func HelperMain(args []string, stdout io.Writer) int {
 		return EntryRefused
 	}
 	sm := seams()
-	// RED-STUB E11: the helper reports the job without joining it, so only the program
-	// is ended.
-	var code syscall.Errno
-	joined := true
+	code, joined := joinKillOnCloseJob()
 	if sm.jobError != 0 {
 		code, joined = sm.jobError, false
 	}
@@ -42,7 +39,7 @@ func HelperMain(args []string, stdout io.Writer) int {
 	}
 	cmd := exec.Command(command, rest...)
 	cmd.Stdout, cmd.Stderr = w, os.Stderr
-	// RED-STUB acceptance 6 (E3): the program is started without DETACHED_PROCESS.
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: detachedProcess}
 	err = cmd.Start()
 	w.Close()
 	if err != nil {

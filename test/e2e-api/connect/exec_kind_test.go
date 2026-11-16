@@ -33,13 +33,13 @@ func TestK_ExecConnects(t *testing.T) {
 	took := time.Since(p.started)
 	want := fmt.Sprintf(textOK, "kind-c", "exec-ctx")
 	n := waitCount(p.stdout, want, 1)
-	t.Logf("K-EXEC-OK binary %s: state %s after %s (W1 %s), program starts %d; K-OK on stdout %d times\n  expected %q\n  actual   %q",
+	t.Logf("K-PROGRAM-OK binary %s: state %s after %s (W1 %s), program starts %d; K-OK on stdout %d times\n  expected %q\n  actual   %q",
 		binaryInfo(t, p), o.State, took.Round(10*time.Millisecond), w1, prog.starts(), n, want, str(o.Message))
 	if o.State != "connected" {
-		t.Fatalf("K-EXEC-OK: state %q message %q, want connected", o.State, str(o.Message))
+		t.Fatalf("K-PROGRAM-OK: state %q message %q, want connected", o.State, str(o.Message))
 	}
 	if str(o.Message) != want || n != 1 || took > w1 {
-		t.Errorf("K-EXEC-OK: message %q, K-OK lines %d, after %s; want the exact K-OK once within W1", str(o.Message), n, took.Round(10*time.Millisecond))
+		t.Errorf("K-PROGRAM-OK: message %q, K-OK lines %d, after %s; want the exact K-OK once within W1", str(o.Message), n, took.Round(10*time.Millisecond))
 	}
 }
 
@@ -53,12 +53,12 @@ func TestK_ExecAlwaysNotRun(t *testing.T) {
 	o := p.mustSettle()
 	want := fmt.Sprintf(textEP, prog.path, "exec-ctx", "needs input from a terminal")
 	n := waitCount(p.stderr, want, 1)
-	t.Logf("K-EXEC-ALWAYS: state %s, program starts %d, K-EP on stderr %d times\n  expected %q\n  actual   %q", o.State, prog.starts(), n, want, str(o.Message))
+	t.Logf("K-PROGRAM-ALWAYS: state %s, program starts %d, K-EP on stderr %d times\n  expected %q\n  actual   %q", o.State, prog.starts(), n, want, str(o.Message))
 	if o.State != "credential-program-failed" || str(o.Message) != want || n != 1 {
-		t.Errorf("K-EXEC-ALWAYS: state %q message %q, %d lines; want credential-program-failed with the exact K-EP once", o.State, str(o.Message), n)
+		t.Errorf("K-PROGRAM-ALWAYS: state %q message %q, %d lines; want credential-program-failed with the exact K-EP once", o.State, str(o.Message), n)
 	}
 	if prog.starts() != 0 {
-		t.Errorf("K-EXEC-ALWAYS: the program started %d times, want never", prog.starts())
+		t.Errorf("K-PROGRAM-ALWAYS: the program started %d times, want never", prog.starts())
 	}
 }
 
@@ -75,16 +75,16 @@ func TestK_ExecTimeout(t *testing.T) {
 	n := waitCount(p.stderr, want, 1)
 	alive, _ := gone(prog.pids(1), p.started, w1+2*time.Second)
 	cleaned := time.Since(p.started)
-	t.Logf("K-EXEC-TIMEOUT: state %s decided %s after the attempt start (bound W1 + 1 s = %s); K-EP lines %d; PIDs %v, alive at %s: %v (bound W1 + 2 s)\n  expected %q\n  actual   %q",
+	t.Logf("K-PROGRAM-TIMEOUT: state %s decided %s after the attempt start (bound W1 + 1 s = %s); K-EP lines %d; PIDs %v, alive at %s: %v (bound W1 + 2 s)\n  expected %q\n  actual   %q",
 		o.State, decided.Round(10*time.Millisecond), w1+time.Second, n, prog.pids(1), cleaned.Round(10*time.Millisecond), alive, want, str(o.Message))
 	if o.State != "credential-program-failed" || str(o.Message) != want || n != 1 {
-		t.Errorf("K-EXEC-TIMEOUT: state %q message %q, %d lines; want the exact K-EP once", o.State, str(o.Message), n)
+		t.Errorf("K-PROGRAM-TIMEOUT: state %q message %q, %d lines; want the exact K-EP once", o.State, str(o.Message), n)
 	}
 	if decided > w1+time.Second {
-		t.Errorf("K-EXEC-TIMEOUT: decided %s after the start, want within W1 + 1 s", decided.Round(10*time.Millisecond))
+		t.Errorf("K-PROGRAM-TIMEOUT: decided %s after the start, want within W1 + 1 s", decided.Round(10*time.Millisecond))
 	}
 	if len(prog.pids(1)) < 2 || len(alive) != 0 {
-		t.Errorf("K-EXEC-TIMEOUT: PIDs %v, alive %v; want the program and its descendant gone within W1 + 2 s", prog.pids(1), alive)
+		t.Errorf("K-PROGRAM-TIMEOUT: PIDs %v, alive %v; want the program and its descendant gone within W1 + 2 s", prog.pids(1), alive)
 	}
 }
 
@@ -98,9 +98,9 @@ func TestK_ExecStderrPassesThrough(t *testing.T) {
 	p := startPanel(t, panelOpts{kubeconfig: strPtr(kc)})
 	o := p.mustSettle()
 	n := waitCount(p.stderr, marker, 1)
-	t.Logf("K-EXEC-STDERR: state %s, the program's stderr marker on intuitik's stderr %d times", o.State, n)
+	t.Logf("K-PROGRAM-STDERR: state %s, the program's stderr marker on intuitik's stderr %d times", o.State, n)
 	if n < 1 {
-		t.Errorf("K-EXEC-STDERR: the marker is not on intuitik's stderr: %q", p.stderr.list())
+		t.Errorf("K-PROGRAM-STDERR: the marker is not on intuitik's stderr: %q", p.stderr.list())
 	}
 }
 
@@ -119,15 +119,15 @@ func TestK_ExecNoStdinOnTerminal(t *testing.T) {
 	o := p.mustSettle()
 	interactive := prog.info(1)["spec"]
 	stdin := prog.lines("stdin-1.txt")
-	t.Logf("K-EXEC-STDIN: state %s; the program's spec %v; stdin %v", o.State, interactive, stdin)
+	t.Logf("K-PROGRAM-STDIN: state %s; the program's spec %v; stdin %v", o.State, interactive, stdin)
 	if spec, _ := interactive.(map[string]any); spec == nil || spec["interactive"] != false {
-		t.Errorf("K-EXEC-STDIN: spec %v, want interactive false", interactive)
+		t.Errorf("K-PROGRAM-STDIN: spec %v, want interactive false", interactive)
 	}
 	if len(stdin) != 1 || stdin[0] != "eof 0" {
-		t.Errorf("K-EXEC-STDIN: stdin result %v, want end of file with 0 bytes", stdin)
+		t.Errorf("K-PROGRAM-STDIN: stdin result %v, want end of file with 0 bytes", stdin)
 	}
 	if o.State != "connected" {
-		t.Errorf("K-EXEC-STDIN: state %q message %q, want connected", o.State, str(o.Message))
+		t.Errorf("K-PROGRAM-STDIN: state %q message %q, want connected", o.State, str(o.Message))
 	}
 	before := len(strings.Split(strings.TrimSpace(readText(p.openLog)), "\n"))
 	p.master.Write([]byte("\n"))
@@ -137,9 +137,9 @@ func TestK_ExecNoStdinOnTerminal(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 		after = len(strings.Split(strings.TrimSpace(readText(p.openLog)), "\n"))
 	}
-	t.Logf("K-EXEC-STDIN: login addresses the opener received before Enter %d, after %d", before, after)
+	t.Logf("K-PROGRAM-STDIN: login addresses the opener received before Enter %d, after %d", before, after)
 	if after != before+1 {
-		t.Errorf("K-EXEC-STDIN: Enter gave %d new addresses, want 1 (intuitik's Enter handling)", after-before)
+		t.Errorf("K-PROGRAM-STDIN: Enter gave %d new addresses, want 1 (intuitik's Enter handling)", after-before)
 	}
 
 	switched := time.Now()
@@ -147,9 +147,9 @@ func TestK_ExecNoStdinOnTerminal(t *testing.T) {
 	o = p.mustSettle()
 	took := time.Since(switched)
 	want := fmt.Sprintf(textEP, ttyProg.path, "tty-ctx", "exit code 3")
-	t.Logf("K-EXEC-TTY: state %s after %s\n  expected %q\n  actual   %q", o.State, took.Round(10*time.Millisecond), want, str(o.Message))
+	t.Logf("K-PROGRAM-TTY: state %s after %s\n  expected %q\n  actual   %q", o.State, took.Round(10*time.Millisecond), want, str(o.Message))
 	if o.State != "credential-program-failed" || str(o.Message) != want || took > w1/2 {
-		t.Errorf("K-EXEC-TTY: state %q message %q after %s; want the exact K-EP with exit code 3 well before W1", o.State, str(o.Message), took.Round(10*time.Millisecond))
+		t.Errorf("K-PROGRAM-TTY: state %q message %q after %s; want the exact K-EP with exit code 3 well before W1", o.State, str(o.Message), took.Round(10*time.Millisecond))
 	}
 }
 

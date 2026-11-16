@@ -40,13 +40,13 @@ func TestK_ExecCancelledBySwitch(t *testing.T) {
 	time.Sleep(time.Until(runStart.Add(w1 + 3*time.Second)))
 	later, _ := p.cluster()
 	newErr := p.stderr.list()[errBefore:]
-	t.Logf("K-EXEC-SWITCH: old PIDs %v alive %v %s after the switch; final %s %s; past the old W1 state %s, stderr since the switch %q",
+	t.Logf("K-PROGRAM-SWITCH: old PIDs %v alive %v %s after the switch; final %s %s; past the old W1 state %s, stderr since the switch %q",
 		pids, alive, took.Round(10*time.Millisecond), final.State, str(final.Context), later.State, newErr)
 	if len(alive) != 0 {
-		t.Errorf("K-EXEC-SWITCH: PIDs %v alive, want the old program gone within 2 s of the switch", alive)
+		t.Errorf("K-PROGRAM-SWITCH: PIDs %v alive, want the old program gone within 2 s of the switch", alive)
 	}
 	if final.State != "connected" || later.State != "connected" || str(later.Context) != "kind-ok" || len(newErr) != 0 {
-		t.Errorf("K-EXEC-SWITCH: state %q then %q (%s), stderr %q; want connected on kind-ok and no line of the old attempt", final.State, later.State, str(later.Context), newErr)
+		t.Errorf("K-PROGRAM-SWITCH: state %q then %q (%s), stderr %q; want connected on kind-ok and no line of the old attempt", final.State, later.State, str(later.Context), newErr)
 	}
 }
 
@@ -60,13 +60,13 @@ func TestK_ExecRetryRunsAgain(t *testing.T) {
 	p := startPanel(t, panelOpts{kubeconfig: strPtr(kc)})
 	o := p.mustSettle()
 	failed := fmt.Sprintf(textEP, prog.path, "exec-ctx", "exit code 1")
-	t.Logf("K-EXEC-RETRY first attempt: state %s, starts %d, message %q", o.State, prog.starts(), str(o.Message))
+	t.Logf("K-PROGRAM-RETRY first attempt: state %s, starts %d, message %q", o.State, prog.starts(), str(o.Message))
 	if o.State != "credential-program-failed" || str(o.Message) != failed {
-		t.Errorf("K-EXEC-RETRY first attempt: state %q message %q, want the exact K-EP with exit code 1", o.State, str(o.Message))
+		t.Errorf("K-PROGRAM-RETRY first attempt: state %q message %q, want the exact K-EP with exit code 1", o.State, str(o.Message))
 	}
 	p.retry()
 	if !prog.waitStarts(2, 5*time.Second) || !prog.waitDescendants(1, 5*time.Second) {
-		t.Fatalf("K-EXEC-RETRY: the retry after the failure did not run the program again (starts %d)", prog.starts())
+		t.Fatalf("K-PROGRAM-RETRY: the retry after the failure did not run the program again (starts %d)", prog.starts())
 	}
 	secondStart := prog.startTimes()[1]
 	errBefore := len(p.stderr.list())
@@ -79,13 +79,13 @@ func TestK_ExecRetryRunsAgain(t *testing.T) {
 	later, _ := p.cluster()
 	newErr := p.stderr.list()[errBefore:]
 	ok := fmt.Sprintf(textOK, "kind-c", "exec-ctx")
-	t.Logf("K-EXEC-RETRY: starts %d; second run PIDs %v alive %v %s after the retry; final %s, past the second attempt's W1 %s; stderr since the retry %q; K-OK lines %d",
+	t.Logf("K-PROGRAM-RETRY: starts %d; second run PIDs %v alive %v %s after the retry; final %s, past the second attempt's W1 %s; stderr since the retry %q; K-OK lines %d",
 		prog.starts(), pids, alive, took.Round(10*time.Millisecond), final.State, later.State, newErr, p.stdout.count(ok))
 	if prog.starts() != 3 || len(alive) != 0 {
-		t.Errorf("K-EXEC-RETRY: starts %d, alive %v; want 3 starts and the second run gone within 2 s of the retry", prog.starts(), alive)
+		t.Errorf("K-PROGRAM-RETRY: starts %d, alive %v; want 3 starts and the second run gone within 2 s of the retry", prog.starts(), alive)
 	}
 	if final.State != "connected" || later.State != "connected" || len(newErr) != 0 || p.stdout.count(ok) != 1 {
-		t.Errorf("K-EXEC-RETRY: state %q then %q, stderr %q, K-OK %d; want connected, no line of the replaced attempt, K-OK once", final.State, later.State, newErr, p.stdout.count(ok))
+		t.Errorf("K-PROGRAM-RETRY: state %q then %q, stderr %q, K-OK %d; want connected, no line of the replaced attempt, K-OK once", final.State, later.State, newErr, p.stdout.count(ok))
 	}
 }
 
@@ -195,12 +195,12 @@ func TestK_ExecLateKubeconfigRead(t *testing.T) {
 	h.release(t, content)
 	newErr := window(p.stderr, errBefore, 3*time.Second)
 	later, _ := p.cluster()
-	t.Logf("K-EXEC-LATE: first attempt %s; retry %s with %d program start(s); after the release at W1 + 3 s: starts %d, stderr %q, state %s",
+	t.Logf("K-PROGRAM-LATE: first attempt %s; retry %s with %d program start(s); after the release at W1 + 3 s: starts %d, stderr %q, state %s",
 		first.State, retried.State, startsBefore, prog.starts(), newErr, later.State)
 	if retried.State != "connected" || startsBefore != 1 {
 		t.Fatalf("preparation: the retry did not connect with one run (state %s, starts %d)", retried.State, startsBefore)
 	}
 	if prog.starts() != startsBefore || len(newErr) != 0 || later.State != "connected" {
-		t.Errorf("K-EXEC-LATE: starts %d (want %d), stderr %q, state %s; want no program start and no line after the release", prog.starts(), startsBefore, newErr, later.State)
+		t.Errorf("K-PROGRAM-LATE: starts %d (want %d), stderr %q, state %s; want no program start and no line after the release", prog.starts(), startsBefore, newErr, later.State)
 	}
 }

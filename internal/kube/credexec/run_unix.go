@@ -27,8 +27,7 @@ func run(ctx context.Context, s Spec, path string, admit Admit) Result {
 	if s.Stderr != nil {
 		cmd.Stderr = s.Stderr
 	}
-	// RED-STUB acceptance 6 (E2, E3): stdin passed through and no new session.
-	cmd.Stdin = os.Stdin
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	err = admit(cmd.Start)
 	w.Close()
 	if errors.Is(err, ErrClosed) {
@@ -37,8 +36,8 @@ func run(ctx context.Context, s Spec, path string, admit Admit) Result {
 	if err != nil {
 		return Result{Class: ClassNotFound}
 	}
-	// RED-STUB E11: only the program is ended, not its group.
-	end := func() { cmd.Process.Kill() }
+	group := cmd.Process.Pid
+	end := func() { syscall.Kill(-group, syscall.SIGKILL) } // ESRCH: the group is gone
 
 	over := make(chan struct{})
 	read := make(chan *cappedBuffer, 1)

@@ -37,8 +37,7 @@ func parseFrame(out []byte) (f frame, ok bool) {
 	switch c := string(control); {
 	case c == JobOK:
 	case strings.HasPrefix(c, JobRefused+" "):
-		// RED-STUB E7: bytes after "job refused <code>" are accepted.
-		if _, err := strconv.ParseInt(strings.TrimPrefix(c, JobRefused+" "), 10, 64); err != nil {
+		if _, err := strconv.ParseInt(strings.TrimPrefix(c, JobRefused+" "), 10, 64); err != nil || len(rest) != 0 {
 			return frame{}, false
 		}
 		return frame{refused: true}, true
@@ -62,9 +61,8 @@ func parseFrame(out []byte) (f frame, ok bool) {
 	if err != nil {
 		return frame{}, false
 	}
-	// RED-STUB E7: a byte count different from the bytes read is accepted.
 	count, err := strconv.Atoi(fields[2])
-	if err != nil || count < 0 || count > MaxOutput {
+	if err != nil || count < 0 || count > MaxOutput || count != len(data) || fields[2] != strconv.Itoa(count) {
 		return frame{}, false
 	}
 	return frame{class: fields[0], code: int(code), stdout: data}, true
