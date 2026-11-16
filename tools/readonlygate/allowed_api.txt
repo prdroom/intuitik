@@ -4,7 +4,7 @@ const StateAuthProviderUnsupported State
 const StateCertificateMismatch State
 const StateConnected State
 const StateConnecting State
-const StateCredentialProgramUnsupported State
+const StateCredentialProgramFailed State
 const StateCredentialsMissing State
 const StateCredentialsRejected State
 const StateKubeconfigInvalid State
@@ -23,11 +23,19 @@ field Outcome.Paths []string
 field Outcome.Server string
 field Outcome.State State
 field Outcome.TextID string
+field Program.Args []string
+field Program.Command string
+field Program.Env []string
 field Resource.Group string
 field Resource.Resource string
 field Resource.Version string
+field RunResult.Class string
+field RunResult.Closed bool
+field RunResult.Code int
+field RunResult.Stdout []byte
 func Attempt func(ctx context.Context, name string) Outcome
 func NewClient func(o Outcome) (*Client, error)
+func NewGeneration func(ctx context.Context, run Runner, changed func(Outcome)) *Generation
 func UnknownContext func(name string) string
 method Client.Get func(ctx context.Context, path string) (*net/http.Response, error)
 method Client.List func(ctx context.Context, r Resource, namespace string) (*k8s.io/apimachinery/pkg/apis/meta/v1/unstructured.UnstructuredList, error)
@@ -35,9 +43,15 @@ method Client.Object func(ctx context.Context, r Resource, namespace string, nam
 method Client.PodLog func(ctx context.Context, namespace string, pod string, container string) (io.ReadCloser, error)
 method Client.Resources func() ([]*k8s.io/apimachinery/pkg/apis/meta/v1.APIResourceList, error)
 method Client.Watch func(ctx context.Context, r Resource, namespace string) (k8s.io/apimachinery/pkg/watch.Interface, error)
+method Generation.Attempt func(name string) Outcome
+method Generation.Close func()
 method Outcome.Stdout func() bool
 type Client struct
 type ContextEntry struct
+type Generation struct
 type Outcome struct
+type Program struct
 type Resource struct
+type RunResult struct
+type Runner func(ctx context.Context, p Program, admit func(start func() error) error) RunResult
 type State string

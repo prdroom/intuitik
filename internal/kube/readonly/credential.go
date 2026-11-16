@@ -19,8 +19,8 @@ func supportedAuthProvider(name string) bool {
 	return name == "oidc"
 }
 
-// credentialKind names the credential that cfg carries. An exec entry never reaches
-// this point in M1-T3a (it is decided before the client is built).
+// credentialKind names the credential that cfg carries. An exec context reaches this
+// point only with the credential of its program on a dedicated copy (withCredential).
 func credentialKind(cfg *rest.Config) string {
 	switch {
 	case cfg.BearerTokenFile != "":

@@ -1,0 +1,12 @@
+# Required list of the credexec-windows job (packet M1-T3b section 6.4): the job's list check
+# fails unless every name ran and passed.
+TestRun_NoConsole
+TestRun_NormalExitEndsDescendant
+TestRun_ParentExitsFirst
+TestRun_DeadlineEndsTree
+TestRun_DescendantHoldsPipe
+TestRun_JobHandleNotInherited
+TestRun_EntryGrammar
+TestE7_OutcomeClasses
+TestRun_HelperDiesAfterStart
+TestRun_JobRefused

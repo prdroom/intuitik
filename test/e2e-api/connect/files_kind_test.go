@@ -75,20 +75,25 @@ func TestK_KubeconfigLoading(t *testing.T) {
 	}
 }
 
-// TestK_KubeconfigUntouched (packet W4, section 6.6): the sha256 and modification time
-// of every kubeconfig file are the same before and after a run with context switches
-// and a retry.
+// TestK_KubeconfigUntouched (packet W4, section 6.6; M1-T3b E10): the sha256 and
+// modification time of every kubeconfig file are the same before and after a run with
+// context switches, a context whose credential program runs, and a retry.
 func TestK_KubeconfigUntouched(t *testing.T) {
 	dir := t.TempDir()
 	port, _ := closedPort(t)
+	token := serviceAccountToken(t, "intuitik-untouched-exec")
+	prog, user := newProgram(t, "IfAvailable", "tokenfile="+writeToken(t, token))
 	one := writeFile(t, filepath.Join(dir, "one"), (&kube{current: "kind-ok"}).withKind(t).bytes())
-	two := writeFile(t, filepath.Join(dir, "two"), (&kube{}).cluster("closed-c", "https://127.0.0.1:"+strconv.Itoa(port), kindCluster(t).caData).context("closed", "closed-c", "kind-admin").bytes())
+	two := writeFile(t, filepath.Join(dir, "two"), (&kube{}).cluster("closed-c", "https://127.0.0.1:"+strconv.Itoa(port), kindCluster(t).caData).context("closed", "closed-c", "kind-admin").
+		user("exec-user", user).context("exec-ctx", "kind-c", "exec-user").bytes())
 	before := map[string]string{one: fileStamp(t, one), two: fileStamp(t, two)}
 	time.Sleep(20 * time.Millisecond) // a write after this point has a later mtime
 	p := startPanel(t, panelOpts{kubeconfig: strPtr(one + ":" + two)})
 	steps := []string{fmt.Sprintf("start %s", p.mustSettle().State)}
 	p.switchTo("closed")
 	steps = append(steps, fmt.Sprintf("switch closed %s", p.mustSettle().State))
+	p.switchTo("exec-ctx")
+	steps = append(steps, fmt.Sprintf("switch exec-ctx %s (program starts %d)", p.mustSettle().State, prog.starts()))
 	p.switchTo("kind-ok")
 	steps = append(steps, fmt.Sprintf("switch kind-ok %s", p.mustSettle().State))
 	p.retry()

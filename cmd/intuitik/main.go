@@ -4,6 +4,9 @@
 //	intuitik            start the server on a random 127.0.0.1 port, print its listen
 //	                    address and open the login address in the browser (BROWSER)
 //	intuitik --version  print version= and commit= lines
+//
+// The first argument __credexec-run is the helper entry of credential programs on
+// Windows (internal/kube/credexec); its exact grammar is checked there.
 package main
 
 import (
@@ -14,8 +17,12 @@ import (
 	"io/fs"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 
+	"k8s.io/klog/v2"
+
+	"github.com/prdroom/intuitik/internal/kube/credexec"
 	"github.com/prdroom/intuitik/internal/server"
 )
 
@@ -31,7 +38,21 @@ var (
 var dist embed.FS
 
 func main() {
+	discardLibraryLogs()
+	// The helper entry branches before the normal flag handling, and only as the first
+	// argument (E12). RED-STUB E12: only on Windows; elsewhere the arguments reach the
+	// normal flag handling.
+	if runtime.GOOS == "windows" && len(os.Args) > 1 && os.Args[1] == credexec.EntryName {
+		os.Exit(credexec.HelperMain(os.Args[2:], os.Stdout))
+	}
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+// discardLibraryLogs makes klog, the log of the client library, write nothing to stderr,
+// stdout or a file (E13).
+func discardLibraryLogs() {
+	// RED-STUB E13: klog is not configured.
+	_ = klog.SetOutput
 }
 
 func run(args []string, stdout, stderr io.Writer) int {

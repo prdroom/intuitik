@@ -38,9 +38,35 @@ the state and text id they check.
   `credentials-missing`, K-NC (kind answers the anonymous request with HTTP 403;
   a test server with HTTP 401). `TestK_AnonymousForbidden`,
   `TestK_AnonymousUnauthorized`.
-- Credential program not run. Input: a context with an exec entry whose program
-  would create a marker file. Output: `credential-program-unsupported`, K-EX with
-  its command; the marker file does not exist afterwards. `TestK_ExecNotRun`.
+- Credential program connects. Input: a context whose exec entry runs a test
+  program that prints a valid credential. Output: `connected`, K-OK.
+  `TestK_ExecConnects`.
+- Credential program fails. Input: a program that exits 1, a missing command, a
+  program that hangs, a program with invalid output, an entry with
+  `interactiveMode: Always`. Output: `credential-program-failed`, K-EP with exactly
+  one of the five reasons; the hang decided within W1 + 1 s; the `Always` program not
+  started. `TestK_ExecTimeout`, `TestK_ExecAlwaysNotRun`, and the K-EP cases named in
+  6.4.
+- Credential refresh. Input: an expired credential; a 401 after `connected`; a
+  rejected new credential; a failed refresh run; two reads at once. Output: still
+  `connected`; K-AU; K-EP with the run's reason; one run for both reads.
+  `TestE6_RefreshContract` (job `readonly-gate`), `TestK_ExecRefresh`,
+  `TestK_ExecRefreshBeforeW1`, `TestK_ExecRefreshAfterW1`, `TestK_ExecRefreshTimeout`.
+- Credential program cancelled. Input: a switch while the first run or a refresh run
+  is running; a retry. Output: only the newest attempt's line and state; the old
+  program ended. `TestK_ExecCancelledBySwitch`, `TestK_ExecSwitchDuringRefresh`,
+  `TestK_ExecRetryRunsAgain`, `TestK_ExecLateKubeconfigRead`.
+- Kubeconfig read blocked. Input: a kubeconfig read held past W1. Output: the K-UR
+  line with `(unknown)` and the UR-K value, once. `TestK_KubeconfigReadBlocked`;
+  every text with a server, cluster or context slot prints `(unknown)` for an empty
+  value, `TestK_UnknownSlotsFormat` (job `readonly-gate`).
+- No terminal input for the program. `TestK_ExecNoStdinOnTerminal`, `TestRun_NoTTY`
+  (Linux), `TestRun_NoConsole` (Windows).
+- Processes ended. `TestRun_*` of 6.4 (Linux in `readonly-gate`, Windows in
+  `credexec-windows`).
+- Static credential wins. Input: a user entry with an exec entry and a token, token
+  file, basic auth or certificate pair. Output: the program is not run; the server
+  receives the static credential. `TestE10_AuthPrecedence` (job `readonly-gate`).
 - Unsupported auth provider. Input: `auth-provider: {name: gcp}`. Output:
   `auth-provider-unsupported`, K-AP. `TestK_States/K-AP`.
 - Certificate mismatch. Input: the kind server with a CA that is not its own.
@@ -69,7 +95,8 @@ the state and text id they check.
   server name in the body. `TestK_NoSessionNoClusterData`.
 - Cluster routes behind the gate. Output: 503 with the state and text in every
   failure state, the handler not called. `TestK_ClusterRouteGate`.
-- No credential in any output. `TestK_CredentialFreeOutput`, `TestK_ExecNotRun`.
+- No credential in any output. `TestK_CredentialFreeOutput`,
+  `TestK_ExecCredentialFreeOutput`, `TestK_ExecStderrPassesThrough`.
 
 ## How to get to it (user POV)
 
@@ -77,7 +104,8 @@ the state and text id they check.
 2. Run `intuitik` in a terminal.
 3. It prints `listening on http://127.0.0.1:<port>`, then
    `Connected to cluster <cluster> (context <context>).`, or one line on stderr
-   that names the cause and the fix.
+   that names the cause and the fix. For a context with a credential program, log
+   in with your cloud's login command first.
 4. The panel tab reads the state from `GET /api/cluster`; a context switch or a
    retry starts a new attempt.
 
@@ -99,9 +127,12 @@ body-contains: intuitik-embedded-page
 
 ## Gotchas
 
-- Tested only against kind on ubuntu. Contexts that sign in with a credential
-  program (most EKS, GKE and AKS kubeconfigs) get K-EX in this build; running them
-  is M1-T3b.
+- Contexts that sign in with a credential program are tested with test programs of
+  the standard protocol, on ubuntu (kind) and on Windows (process cleanup). The AWS,
+  Google Cloud and Azure programs themselves are not run; macOS process cleanup is not
+  verified yet.
+- A program that waits for input or a browser login does not connect; see the
+  README section.
 - The `KUBECONFIG` list separator is tested on linux (`:`) only; the Windows
   separator (`;`) is not tested in T3.
 - Real token expiry over time is not waited for; a token the server rejects stands

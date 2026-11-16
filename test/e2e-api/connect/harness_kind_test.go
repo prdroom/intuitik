@@ -45,7 +45,7 @@ const (
 	textIV4 = "The kubeconfig %s has no contexts. Run your cloud's login command to add one, or set KUBECONFIG to another kubeconfig file."
 	textAU  = "The cluster %s rejected the credentials of context %s (HTTP 401). They may have expired. Log in again with your cloud's login command, then retry from the intuitik tab or restart intuitik."
 	textNC  = "Context %s has no credentials for cluster %s. intuitik reads a cluster only with the credentials of your kubeconfig. Log in with your cloud's login command, then retry from the intuitik tab, or choose another context."
-	textEX  = "Context %s signs in with the credential program %s, which this build of intuitik does not run. Choose another context."
+	textEP  = "The credential program %s of context %s failed (%s). Run it in a terminal to see why, or log in again with your cloud's login command."
 	textAP  = `Context %s uses the auth provider "%s", which intuitik does not support. Update the kubeconfig with your cloud's current login command.`
 	textTL  = "The API server %s of context %s presented a certificate that the kubeconfig does not trust: %s. Check that the kubeconfig belongs to this cluster."
 	textUR  = "Cannot reach the API server %s of context %s: %s. Check your VPN or network connection, then retry from the intuitik tab or restart intuitik."
@@ -271,6 +271,7 @@ type panelOpts struct {
 	home       string  // HOME; "" means a new empty directory
 	test       bool    // run the e2etest build
 	fixture    string  // INTUITIK_TEST_FIXTURE
+	pty        bool    // stdin is a pseudo terminal that is also the controlling terminal
 }
 
 func strPtr(s string) *string { return &s }
@@ -286,6 +287,9 @@ type panel struct {
 	sess    string
 	csrf    string
 	started time.Time // when the listen line was seen; the first attempt starts after it
+	openLog string    // the addresses the opener received, one per line
+	master  *os.File  // the pseudo terminal's master side when opts.pty is set
+	bin     string    // the binary this panel runs
 }
 
 func startPanel(t *testing.T, o panelOpts) *panel {
@@ -326,13 +330,28 @@ func startPanel(t *testing.T, o panelOpts) *panel {
 	if o.fixture != "" {
 		env = append(env, "INTUITIK_TEST_FIXTURE="+o.fixture)
 	}
-	p := &panel{t: t, stdout: &lines{}, stderr: &lines{}, done: make(chan struct{})}
+	p := &panel{t: t, stdout: &lines{}, stderr: &lines{}, done: make(chan struct{}), openLog: openLog, bin: bin}
 	p.cmd = exec.Command(bin)
 	p.cmd.Env = env
 	p.cmd.Stdout, p.cmd.Stderr = p.stdout, p.stderr
-	stdin, err := p.cmd.StdinPipe()
-	if err != nil {
-		t.Fatal(err)
+	var stdin io.Closer
+	if o.pty {
+		master, slave, err := openPTY()
+		if err != nil {
+			t.Fatalf("pseudo terminal: %v", err)
+		}
+		p.master = master
+		p.cmd.Stdin = slave
+		setControllingTTY(p.cmd)
+		stdin = master
+		defer slave.Close()
+		go io.Copy(io.Discard, master)
+	} else {
+		pipe, err := p.cmd.StdinPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		stdin = pipe
 	}
 	if err := p.cmd.Start(); err != nil {
 		t.Fatalf("starting %s: %v", bin, err)

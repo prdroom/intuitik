@@ -20,12 +20,16 @@ type cluster struct {
 	override   string // the context chosen by a switch; "" follows the kubeconfig
 	gen        int
 	cancel     context.CancelFunc
+	generation *readonly.Generation // the current generation (packet M1-T3b E5)
 	print      func(o readonly.Outcome)
-	// attempt runs one connection attempt; nil is readonly.Attempt. started, when set,
-	// runs after start has launched an attempt and before it returns. Tests set both to
-	// put the attempt's publication before the handler's answer.
+	// attempt runs one connection attempt; nil is the attempt of the new generation.
+	// started, when set, runs after start has launched an attempt and before it
+	// returns. Tests set both to put the attempt's publication before the handler's
+	// answer.
 	attempt func(ctx context.Context, name string) readonly.Outcome
 	started func()
+	// run runs credential programs; nil is runCredentialProgram.
+	run readonly.Runner
 }
 
 // contextObject is one entry of the contexts list of the cluster object.
@@ -56,28 +60,40 @@ func orNull(s string) *string {
 	return &s
 }
 
-// start begins a new attempt for name ("" follows the kubeconfig). A running attempt
-// is canceled: the most recent request wins and a canceled attempt is never shown.
+// start begins a new attempt for name ("" follows the kubeconfig) in a new generation.
+// The previous generation is closed under the cluster lock (E5): it is marked closed by
+// the new generation number, its credential source is closed so that no program starts
+// any more, and its context is canceled, which ends its running programs. A canceled
+// attempt is never shown, and a state change of a closed generation is dropped.
 // It returns the cluster object in state connecting, taken under the same lock that
 // marks the attempt running, so the 202 answer of section 6.1 never shows a result
 // that the attempt published before the handler wrote its answer.
 func (c *cluster) start(name string) clusterObject {
 	c.mu.Lock()
+	c.gen++
+	gen := c.gen
+	if c.generation != nil {
+		c.generation.Close()
+	}
 	if c.cancel != nil {
 		c.cancel()
 	}
+	// ctx is the context of an attempt hook; the generation has its own.
 	ctx, cancel := context.WithCancel(context.Background())
-	c.gen++
-	gen := c.gen
+	run := c.run
+	if run == nil {
+		run = runCredentialProgram
+	}
+	g := readonly.NewGeneration(context.Background(), run, func(o readonly.Outcome) { c.changed(gen, o) })
+	c.generation = g
 	c.cancel, c.connecting, c.target = cancel, true, name
 	attempt := c.attempt
 	if attempt == nil {
-		attempt = readonly.Attempt
+		attempt = func(_ context.Context, name string) readonly.Outcome { return g.Attempt(name) }
 	}
 	_, obj := c.snapshotLocked()
 	c.mu.Unlock()
 	go func() {
-		defer cancel()
 		o := attempt(ctx, name)
 		c.mu.Lock()
 		if o.Canceled || gen != c.gen {
@@ -92,6 +108,35 @@ func (c *cluster) start(name string) clusterObject {
 		c.started()
 	}
 	return obj
+}
+
+// stop closes the current generation when intuitik stops, so that its running programs
+// are ended and none starts (E5).
+func (c *cluster) stop() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.gen++
+	if c.generation != nil {
+		c.generation.Close()
+	}
+	if c.cancel != nil {
+		c.cancel()
+	}
+}
+
+// changed applies a state change after connected that generation gen reported: a
+// refresh that failed (K-EP) or credentials rejected again (K-AU). It is dropped unless
+// gen is still the current generation and its attempt connected; the line is printed
+// once (EP-1).
+func (c *cluster) changed(gen int, o readonly.Outcome) {
+	c.mu.Lock()
+	if gen != c.gen || c.connecting || c.outcome.State != readonly.StateConnected {
+		c.mu.Unlock()
+		return
+	}
+	c.outcome = o
+	c.mu.Unlock()
+	c.print(o)
 }
 
 // snapshot returns the last outcome and the cluster object of the current state.

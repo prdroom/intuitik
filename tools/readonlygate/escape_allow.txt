@@ -4,3 +4,5 @@
 unsafe internal/server/term_darwin.go
 unsafe internal/server/term_linux.go
 os/exec internal/opener
+os/exec internal/kube/credexec
+unsafe internal/kube/credexec/job_windows.go

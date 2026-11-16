@@ -67,22 +67,45 @@ var fixtures = map[string]Fixture{
 	// M1-T3a D1 (TestK_ClusterRouteGate): the product plus one probe route registered
 	// through clusterRoute. It is not a defect; registerFixtureRoutes adds the route.
 	"cluster-probe-route": {},
+	// M1-T3b READ-TRIGGER-T3b: the product plus one read route registered through
+	// clusterRoute, the test trigger of a read after connected. It is not a defect;
+	// registerFixtureRoutes adds the route.
+	"cluster-read-route": {},
 }
 
 // clusterProbePath is the probe route of the "cluster-probe-route" fixture. Its answer
 // counts the calls of its handler, so that the gate's 503 answers show 0 calls.
 const clusterProbePath = "/api/fixture-cluster-probe"
 
+// clusterReadPath is the read route of the "cluster-read-route" fixture, and
+// clusterReadTarget the one fixed API path that its handler reads.
+const (
+	clusterReadPath   = "/api/fixture-cluster-read"
+	clusterReadTarget = "/api"
+)
+
 // registerFixtureRoutes registers the probe route of the "cluster-probe-route" fixture
-// through clusterRoute.
+// and the read route of the "cluster-read-route" fixture through clusterRoute.
 func registerFixtureRoutes(s *server) {
-	if s.o.Seams.Fixture.Name != "cluster-probe-route" {
-		return
+	switch s.o.Seams.Fixture.Name {
+	case "cluster-probe-route":
+		var calls atomic.Int64
+		s.clusterRoute(http.MethodGet, clusterProbePath, func(w http.ResponseWriter, r *http.Request, c *readonly.Client) {
+			writeJSON(w, map[string]int64{"calls": calls.Add(1)})
+		})
+	case "cluster-read-route":
+		// One logical read: one call of Client.Get on clusterReadTarget. The answer is
+		// only the status code of that read (502 when it got no answer); the response
+		// body is closed unread and nothing else is written.
+		s.clusterRoute(http.MethodGet, clusterReadPath, func(w http.ResponseWriter, r *http.Request, c *readonly.Client) {
+			status := http.StatusBadGateway
+			if resp, err := c.Get(r.Context(), clusterReadTarget); err == nil {
+				status = resp.StatusCode
+				resp.Body.Close()
+			}
+			w.WriteHeader(status)
+		})
 	}
-	var calls atomic.Int64
-	s.clusterRoute(http.MethodGet, clusterProbePath, func(w http.ResponseWriter, r *http.Request, c *readonly.Client) {
-		writeJSON(w, map[string]int64{"calls": calls.Add(1)})
-	})
 }
 
 // FixtureNamed returns the fixture of that name; ok is false for an unknown name.

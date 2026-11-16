@@ -43,6 +43,9 @@ func NewClient(o Outcome) (*Client, error) {
 	if o.State != StateConnected || o.config == nil {
 		return nil, errors.New("readonly: the active context is not connected")
 	}
+	if o.gen != nil {
+		return o.gen.client(o.config)
+	}
 	return newClient(o.config)
 }
 
