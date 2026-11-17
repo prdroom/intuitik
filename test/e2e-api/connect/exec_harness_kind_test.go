@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -258,7 +259,8 @@ func (k *kube) withServer(name string, s *credServer) *kube {
 }
 
 // readOnce sends one request to the read route of READ-TRIGGER-T3b and returns the status
-// it answered (the status of the product's read, or 503 from the gate).
+// it answered (the status of the product's read, or 503 from the gate). The raw response
+// (status line, headers and body) joins the collected API responses.
 func (p *panel) readOnce(timeout time.Duration) int {
 	p.t.Helper()
 	req, _ := http.NewRequest("GET", p.origin+readPath, nil)
@@ -268,7 +270,9 @@ func (p *panel) readOnce(timeout time.Duration) int {
 	if err != nil {
 		return 0
 	}
+	raw, _ := httputil.DumpResponse(resp, true)
 	resp.Body.Close()
+	allOutput.addResponse(raw)
 	return resp.StatusCode
 }
 

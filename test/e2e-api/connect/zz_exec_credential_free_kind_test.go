@@ -112,6 +112,11 @@ func TestK_ExecCredentialFreeOutput(t *testing.T) {
 		if fixture != "" {
 			opts.test, opts.fixture = true, fixture
 		}
+		// Every API response of this panel (its polls, the final reads and the read
+		// trigger's answer) is collected from here on.
+		allOutput.mu.Lock()
+		respStart := len(allOutput.responses)
+		allOutput.mu.Unlock()
 		p := startPanel(t, opts)
 		o := p.mustSettle()
 		label := c.name
@@ -135,12 +140,16 @@ func TestK_ExecCredentialFreeOutput(t *testing.T) {
 				t.Errorf("K-E8 case %s: read %d, starts %d, server record %s; want %d, 2 starts and %s", label, status, prog.starts(), got, readWant, recordWant)
 			}
 		}
-		_, r := p.cluster()
+		p.cluster()
 		final, _ := p.cluster()
 		p.cmd.Process.Kill()
 		<-p.done
 		t.Logf("K-E8 case %s: binary %s%s; first state %s, final state %s", label, binaryInfo(t, p), map[bool]string{true: ", fixture " + fixture, false: ""}[fixture != ""], o.State, final.State)
-		return subRun{output: [][]byte{p.stdout.bytes(), p.stderr.bytes()}, responses: [][]byte{r.raw}}
+		allOutput.mu.Lock()
+		resps := append([][]byte(nil), allOutput.responses[respStart:]...)
+		allOutput.mu.Unlock()
+		t.Logf("K-E8 case %s: %d API responses collected for the search", label, len(resps))
+		return subRun{output: [][]byte{p.stdout.bytes(), p.stderr.bytes()}, responses: resps}
 	}
 	for _, c := range cases {
 		fixture := ""

@@ -78,34 +78,88 @@ func TestK_KubeconfigLoading(t *testing.T) {
 // TestK_KubeconfigUntouched (packet W4, section 6.6; M1-T3b E10): the sha256 and
 // modification time of every kubeconfig file are the same before and after a run with
 // context switches, a context whose credential program runs, and a retry.
+//
+// KWFIX-T3b: two sub-runs of the e2etest binary from fresh, equal initial states. The
+// normal sub-run finds both files unchanged. The fixture sub-run selects the negative
+// fixture kubeconfig-write-after-exec, whose product process appends a comment to the
+// exec context's file (two) after the exec run; the same comparison must find two
+// changed and one unchanged, and stderr must name two in exactly one write line.
 func TestK_KubeconfigUntouched(t *testing.T) {
-	dir := t.TempDir()
-	port, _ := closedPort(t)
-	token := serviceAccountToken(t, "intuitik-untouched-exec")
-	prog, user := newProgram(t, "IfAvailable", "tokenfile="+writeToken(t, token))
-	one := writeFile(t, filepath.Join(dir, "one"), (&kube{current: "kind-ok"}).withKind(t).bytes())
-	two := writeFile(t, filepath.Join(dir, "two"), (&kube{}).cluster("closed-c", "https://127.0.0.1:"+strconv.Itoa(port), kindCluster(t).caData).context("closed", "closed-c", "kind-admin").
-		user("exec-user", user).context("exec-ctx", "kind-c", "exec-user").bytes())
-	before := map[string]string{one: fileStamp(t, one), two: fileStamp(t, two)}
-	time.Sleep(20 * time.Millisecond) // a write after this point has a later mtime
-	p := startPanel(t, panelOpts{kubeconfig: strPtr(one + ":" + two)})
-	steps := []string{fmt.Sprintf("start %s", p.mustSettle().State)}
-	p.switchTo("closed")
-	steps = append(steps, fmt.Sprintf("switch closed %s", p.mustSettle().State))
-	p.switchTo("exec-ctx")
-	steps = append(steps, fmt.Sprintf("switch exec-ctx %s (program starts %d)", p.mustSettle().State, prog.starts()))
-	p.switchTo("kind-ok")
-	steps = append(steps, fmt.Sprintf("switch kind-ok %s", p.mustSettle().State))
-	p.retry()
-	steps = append(steps, fmt.Sprintf("retry %s", p.mustSettle().State))
-	t.Logf("K-W4 steps: %s", strings.Join(steps, ", "))
-	for _, f := range []string{one, two} {
-		after := fileStamp(t, f)
-		t.Logf("K-W4 %s before %s", f, before[f])
-		t.Logf("K-W4 %s after  %s", f, after)
-		if after != before[f] {
-			t.Errorf("K-W4 %s changed during the run: before %s, after %s", f, before[f], after)
+	const writeFixture = "kubeconfig-write-after-exec"
+	sub := func(fixture string) (one, two string, changed map[string]bool, errLines []string) {
+		label, account := "normal", "intuitik-untouched-exec"
+		if fixture != "" {
+			label, account = "fixture "+fixture, "intuitik-untouched-exec-fixture"
 		}
+		dir := t.TempDir()
+		port, _ := closedPort(t)
+		token := serviceAccountToken(t, account)
+		prog, user := newProgram(t, "IfAvailable", "tokenfile="+writeToken(t, token))
+		one = writeFile(t, filepath.Join(dir, "one"), (&kube{current: "kind-ok"}).withKind(t).bytes())
+		two = writeFile(t, filepath.Join(dir, "two"), (&kube{}).cluster("closed-c", "https://127.0.0.1:"+strconv.Itoa(port), kindCluster(t).caData).context("closed", "closed-c", "kind-admin").
+			user("exec-user", user).context("exec-ctx", "kind-c", "exec-user").bytes())
+		before := map[string]string{one: fileStamp(t, one), two: fileStamp(t, two)}
+		time.Sleep(20 * time.Millisecond) // a write after this point has a newer mtime
+		p := startPanel(t, panelOpts{kubeconfig: strPtr(one + ":" + two), test: true, fixture: fixture})
+		t.Logf("K-W4 %s: binary %s", label, binaryInfo(t, p))
+		var steps []string
+		step := func(name, want string) {
+			got := p.mustSettle().State
+			steps = append(steps, fmt.Sprintf("%s %s", name, got))
+			if got != want {
+				t.Errorf("K-W4 %s: step %q state %q, want %q", label, name, got, want)
+			}
+		}
+		step("start", "connected")
+		p.switchTo("closed")
+		step("switch closed", "unreachable")
+		startsBefore := prog.starts()
+		p.switchTo("exec-ctx")
+		o := p.mustSettle()
+		startsAfter := prog.starts()
+		steps = append(steps, fmt.Sprintf("switch exec-ctx %s (program starts %d before, %d after)", o.State, startsBefore, startsAfter))
+		if o.State != "connected" || startsBefore != 0 || startsAfter < 1 {
+			t.Errorf("K-W4 %s: switch exec-ctx state %q, program starts %d before and %d after; want connected, 0 and at least 1", label, o.State, startsBefore, startsAfter)
+		}
+		p.switchTo("kind-ok")
+		step("switch kind-ok", "connected")
+		p.retry()
+		step("retry", "connected")
+		t.Logf("K-W4 %s steps: %s", label, strings.Join(steps, ", "))
+		changed = map[string]bool{}
+		for _, f := range []string{one, two} {
+			after := fileStamp(t, f)
+			t.Logf("K-W4 %s: %s before %s", label, f, before[f])
+			t.Logf("K-W4 %s: %s after  %s", label, f, after)
+			changed[f] = after != before[f]
+		}
+		for _, l := range p.stderr.list() {
+			if strings.HasPrefix(l, "fixture "+writeFixture+":") {
+				errLines = append(errLines, l)
+			}
+		}
+		t.Logf("K-W4 %s: fixture lines on stderr %q", label, errLines)
+		return one, two, changed, errLines
+	}
+
+	one, two, changed, lines := sub("")
+	for _, f := range []string{one, two} {
+		if changed[f] {
+			t.Errorf("K-W4 normal: %s changed during the run", f)
+		}
+	}
+	if len(lines) != 0 {
+		t.Errorf("K-W4 normal: fixture lines on stderr %q, want none", lines)
+	}
+
+	one, two, changed, lines = sub(writeFixture)
+	wrote := "fixture " + writeFixture + ": wrote " + two
+	detected := len(lines) == 1 && lines[0] == wrote && changed[two] && !changed[one]
+	t.Logf("K-W4 KWFIX: fixture sub-run write lines %q (want exactly %q), two changed %v, one changed %v; detection %v",
+		lines, wrote, changed[two], changed[one], detected)
+	if !detected {
+		t.Errorf("K-W4 KWFIX: the fileStamp comparison did not show the expected detection under %s: lines %q, two changed %v, one changed %v",
+			writeFixture, lines, changed[two], changed[one])
 	}
 }
 

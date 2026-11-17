@@ -75,6 +75,10 @@ var fixtures = map[string]Fixture{
 	// internal/kube/readonly/fixture_e2etest.go: a refresh run's output goes into its
 	// K-EP text.
 	"refresh-output-leak": {},
+	// M1-T3b KWFIX-T3b: the product plus one defect, set in
+	// internal/kube/readonly/fixture_e2etest.go: after an exec run gave a credential, the
+	// product process appends a comment to the context's kubeconfig file.
+	"kubeconfig-write-after-exec": {},
 }
 
 // clusterProbePath is the probe route of the "cluster-probe-route" fixture. Its answer

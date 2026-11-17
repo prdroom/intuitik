@@ -273,12 +273,22 @@ func attempt(ctx, actx context.Context, name string, p *progress, g *Generation)
 	return probeExec(ctx, actx, o, cfg, path, g, user.Exec.Command, p)
 }
 
+// afterExecRun is nil in the product build and inert there. Only the e2etest build's
+// negative fixture kubeconfig-write-after-exec (fixture_e2etest.go) sets it (packet
+// M1-T3b KWFIX-T3b): probeExec then calls it with the kubeconfig path of the context
+// after an exec run gave a credential, so that TestK_KubeconfigUntouched shows its file
+// comparison detects a kubeconfig write by the product process on this path.
+var afterExecRun func(kubeconfigPath string)
+
 // probeExec is the probe of an exec context (D4): the first run under the attempt's
 // context, the probe with its credential and, on a 401, one refresh and one repeat
 // inside the same W1.
 func probeExec(ctx, actx context.Context, o Outcome, cfg *rest.Config, path string, g *Generation, command string, p *progress) Outcome {
 	p.setRunning(command)
 	got := g.current(actx)
+	if h := afterExecRun; h != nil && got.cred != nil && !got.closed && got.fail == "" {
+		h(path)
+	}
 	p.setRunning("")
 	if ctx.Err() != nil || got.closed {
 		o.Canceled = true
