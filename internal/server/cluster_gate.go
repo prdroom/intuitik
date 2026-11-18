@@ -79,6 +79,9 @@ func (s *server) readGate(w http.ResponseWriter, r *http.Request, h readHandler)
 		if !current() {
 			return nil, graph.ErrStopped
 		}
+		if h := s.cluster.afterAdmit; h != nil {
+			h()
+		}
 		c, err := readonly.NewClient(o)
 		if err != nil {
 			return nil, graph.ErrStopped

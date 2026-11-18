@@ -59,6 +59,11 @@ type fakeAPI struct {
 	requests  []string
 	opens     int
 	reused    []string
+
+	// ownerVersion, when set for "<kind>/<name>", is the apiVersion of that object in
+	// the answer of an owner GET, whatever version was requested (REDSPLIT-T5
+	// amendment A2). Unset, an owner GET answers the requested version.
+	ownerVersion map[string]string
 }
 
 func newFake() *fakeAPI {
@@ -294,6 +299,9 @@ func (r *fakeReader) Object(ctx context.Context, res readonly.Resource, namespac
 		if kind != "" && f.match(res, kind, u) && u.GetNamespace() == namespace && u.GetName() == name {
 			c := u.DeepCopy()
 			c.SetAPIVersion(apiVersion(res.Group, res.Version))
+			if v, ok := f.ownerVersion[kind+"/"+name]; ok {
+				c.SetAPIVersion(v)
+			}
 			return c, nil
 		}
 	}

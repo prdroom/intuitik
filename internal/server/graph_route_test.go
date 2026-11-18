@@ -458,3 +458,43 @@ func TestGraphCall_EndedByStateChange(t *testing.T) {
 		})
 	}
 }
+
+// TestGraphCall_SwitchAfterCheck (REDSPLIT-T5 amendment A2, CLIENT-PER-REQ-T5 point 3):
+// the context is switched after the call's check that its generation is current and
+// before the operation's client sends its request. The old generation has an unexpired
+// credential. No request of the old generation may reach the old server, and the answer
+// is the gate's answer with no nodes.
+func TestGraphCall_SwitchAfterCheck(t *testing.T) {
+	api := newGraphAPI(t)
+	s := connectGraph(t, api, &fakeRunner{plans: []runPlan{{token: "tok-a"}}})
+	s.cluster.attempt = func(context.Context, string) readonly.Outcome {
+		return readonly.Outcome{State: readonly.StateUnreachable, TextID: "K-UR", Message: "switch target of the test"}
+	}
+	before := api.count()
+	hooks := 0
+	switched := -1
+	s.cluster.afterAdmit = func() {
+		hooks++
+		if hooks != 1 {
+			return
+		}
+		// The switch completes here, inside the window, before the operation's client is
+		// made; the old request resumes only after start has returned.
+		s.cluster.start("other")
+		switched = api.count()
+	}
+	code, body := graphCall(t, s, "?namespace="+graphNS)
+	got := api.since(before)
+	_, hasNodes := body["nodes"]
+	t.Logf("FA2-T5 G4 input=switch-after-check hook runs %d (want 1), requests at the switch %d, requests of the call on the old server %d %v (want 0), answer %d state %v nodes-present %v",
+		hooks, switched-before, len(got), got, code, body["state"], hasNodes)
+	if hooks != 1 {
+		t.Errorf("switch after check: the hook ran %d times, want 1", hooks)
+	}
+	if len(got) != 0 {
+		t.Errorf("switch after check: %d requests of the old generation reached the old server after the switch, want 0: %v", len(got), got)
+	}
+	if code != http.StatusServiceUnavailable || hasNodes {
+		t.Errorf("switch after check: answer %d, nodes present %v; want 503 and no nodes", code, hasNodes)
+	}
+}

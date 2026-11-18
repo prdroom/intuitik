@@ -30,6 +30,10 @@ type cluster struct {
 	started func()
 	// run runs credential programs; nil is runCredentialProgram.
 	run readonly.Runner
+	// afterAdmit, when set, runs in a graph call after the check that its generation is
+	// still current and before the client of the operation is made, outside the lock.
+	// Only tests set it (REDSPLIT-T5 amendment A2).
+	afterAdmit func()
 }
 
 // contextObject is one entry of the contexts list of the cluster object.

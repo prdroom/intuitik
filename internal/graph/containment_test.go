@@ -667,3 +667,28 @@ func TestContainment_StoppedCall(t *testing.T) {
 		t.Errorf("stopped call: error %v, %d requests, %d nodes; want ErrStopped after 3 requests and no node", err, len(f.requests), len(a.Nodes))
 	}
 }
+
+// TestContainment_OwnerVersionMismatch (G2, G4; REDSPLIT-T5 amendment A2): the
+// reference names example.com/v1; the owner GET is sent at v1 and answers v2 with the same
+// uid, kind, name and namespace. The owner is read once, and both children that reference
+// it (the second use a cache hit) are owner-missing.
+func TestContainment_OwnerVersionMismatch(t *testing.T) {
+	f := newFake()
+	f.crd("example.com", "v1", "Widget", "wdgts", "v1")
+	f.crd("example.com", "v2", "Widget", "wdgts", "v1")
+	f.add(
+		obj("example.com/v1", "Widget", "w1", "w-1"),
+		obj("v1", "Pod", "first", "p-1", ctl("example.com/v1", "Widget", "w1", "w-1")),
+		obj("v1", "Pod", "second", "p-2", ctl("example.com/v1", "Widget", "w1", "w-1")),
+	)
+	f.ownerVersion = map[string]string{"Widget/w1": "example.com/v2"}
+	a := mustBuild(t, f)
+	gets := f.count("GET example.com/v1/wdgts " + testNS + "/w1")
+	t.Logf("FA2-T5 G2 input=owner-version-mismatch requested example.com/v1, returned %s; owner GETs %d (want 1)", f.ownerVersion["Widget/w1"], gets)
+	check(t, "G2", "owner-version-mismatch", a,
+		want{"Pod", "first", "-", StateMissing, "Owner Widget/w1 not found"},
+		want{"Pod", "second", "-", StateMissing, "Owner Widget/w1 not found"})
+	if gets != 1 {
+		t.Errorf("G2: %d owner GETs of Widget/w1, want 1", gets)
+	}
+}
