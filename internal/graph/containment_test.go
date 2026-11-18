@@ -13,7 +13,7 @@ import (
 // Unit tests of the containment engine (packet FA2-T5 sections 3.3 and 6.2, job unit).
 // Each checked object prints one line:
 //   FA2-T5 <criterion> input=<fixture> expected=<kind/name parent state> actual=<same> result=<PASS|FAIL>
-// and text criteria add expected-text and actual-text, with U+2014 printed as —.
+// and text criteria add expected-text and actual-text, with U+2014 printed as \u2014.
 
 // contextLimit bounds one Build of a unit test; a loop that hangs fails on it.
 const contextLimit = 5 * time.Second
@@ -27,7 +27,7 @@ type want struct {
 }
 
 // printable writes U+2014 as its escape, so the log stays ASCII.
-func printable(s string) string { return strings.ReplaceAll(s, "—", `—`) }
+func printable(s string) string { return strings.ReplaceAll(s, "\u2014", `\u2014`) }
 
 // place is the actual place of the object kind/name in a: "absent" when it is not a node.
 func place(a Answer, kind, name string) (parent string, state State, text string, ok bool) {
@@ -92,7 +92,7 @@ func mustBuild(t *testing.T, f *fakeAPI) Answer {
 func TestOwnerText(t *testing.T) {
 	cases := []struct{ name, got, want string }{
 		{"owner-missing", OwnerText(StateMissing, "Deployment", "gone"), "Owner Deployment/gone not found"},
-		{"owner-forbidden", OwnerText(StateForbidden, "ReplicaSet", "web"), "Owner not readable — no permission"},
+		{"owner-forbidden", OwnerText(StateForbidden, "ReplicaSet", "web"), "Owner not readable \u2014 no permission"},
 		{"owner-cluster-scoped", OwnerText(StateClusterScoped, "Node", "kind-control-plane"), "Owner Node/kind-control-plane is cluster-scoped"},
 		{"owner-loop", OwnerText(StateLoop, "ReplicaSet", "a"), "Owner ReplicaSet/a not shown: owner references form a loop"},
 		{"none", OwnerText(StateNone, "Pod", "x"), ""},
@@ -113,7 +113,7 @@ func TestOwnerText(t *testing.T) {
 	}
 	forbidden := OwnerText(StateForbidden, "", "")
 	r, _ := utf8.DecodeRuneInString(forbidden[len("Owner not readable "):])
-	if r != '—' {
+	if r != '\u2014' {
 		t.Errorf("owner-forbidden: the character after \"readable \" is %U, want U+2014", r)
 	}
 }
@@ -269,7 +269,7 @@ func TestContainment_OwnerMissing(t *testing.T) {
 // TestContainment_OwnerForbidden (C9, C10): a 403 on the owner is "no permission",
 // whether the owner exists or not, and never "not found".
 func TestContainment_OwnerForbidden(t *testing.T) {
-	forbidden := "Owner not readable — no permission"
+	forbidden := "Owner not readable \u2014 no permission"
 	t.Run("owner-exists", func(t *testing.T) {
 		f := newFake().add(
 			obj("apps/v1", "ReplicaSet", "rs-a", "rs-a"),
@@ -365,7 +365,7 @@ func TestContainment_ClusterScopedOwner(t *testing.T) {
 	f := node()
 	f.gets["Node/kind-control-plane"] = fail{status: 403}
 	check(t, "C13", "static-pod-nodes-403", mustBuild(t, f),
-		want{"Pod", "etcd-kind-control-plane", "-", StateForbidden, "Owner not readable — no permission"})
+		want{"Pod", "etcd-kind-control-plane", "-", StateForbidden, "Owner not readable \u2014 no permission"})
 	if n := len(mustBuild(t, node()).Nodes); n != 1 {
 		t.Errorf("C13: %d nodes, want 1 (a Node is never a node of the namespace)", n)
 	}
@@ -493,7 +493,7 @@ func TestContainment_SecretOwner(t *testing.T) {
 	f = fixture()
 	f.gets["Secret/s1"] = fail{status: 403}
 	check(t, "C14b", "secret-owner-get-403", mustBuild(t, f),
-		want{"Pod", "p-s1", "-", StateForbidden, "Owner not readable — no permission"})
+		want{"Pod", "p-s1", "-", StateForbidden, "Owner not readable \u2014 no permission"})
 }
 
 // TestContainment_ListRefused (C17, GA-4): a refused LIST of a listed kind is reported in
@@ -507,7 +507,7 @@ func TestContainment_ListRefused(t *testing.T) {
 	f.lists["apps/replicasets"] = fail{status: 403}
 	f.gets["ReplicaSet/rs-a"] = fail{status: 403}
 	a := mustBuild(t, f)
-	check(t, "C17", "replicasets-list-403", a, want{"Pod", "pod-a", "-", StateForbidden, "Owner not readable — no permission"})
+	check(t, "C17", "replicasets-list-403", a, want{"Pod", "pod-a", "-", StateForbidden, "Owner not readable \u2014 no permission"})
 	got := ""
 	for _, r := range a.Refused {
 		if r.Kind == "ReplicaSet" {

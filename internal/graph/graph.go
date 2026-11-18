@@ -107,7 +107,7 @@ func OwnerText(s State, kind, name string) string {
 	case StateMissing:
 		return fmt.Sprintf("Owner %s/%s not found", kind, name)
 	case StateForbidden:
-		return "Owner not readable — no permission"
+		return "Owner not readable \u2014 no permission"
 	case StateClusterScoped:
 		return fmt.Sprintf("Owner %s/%s is cluster-scoped", kind, name)
 	case StateLoop:

@@ -46,16 +46,44 @@ func (s *server) gate(w http.ResponseWriter, r *http.Request, h clusterHandler) 
 	h(w, r, c)
 }
 
-// oneClientRead is R2 of REDSPLIT-T5 (decision 974302a8): it runs h with one client made
-// from the current snapshot, without the gate's 503 answer and without a generation
-// check, so every operation of the call uses that one client. When no client can be made
-// the answer has no node.
-func (s *server) oneClientRead(w http.ResponseWriter, r *http.Request, h func(w http.ResponseWriter, r *http.Request, open graph.Open)) {
-	o, _ := s.cluster.snapshot()
-	c, err := readonly.NewClient(o)
-	if err != nil {
-		writeJSON(w, graph.Answer{Namespace: r.URL.Query().Get("namespace"), Nodes: []graph.Node{}, Refused: []graph.Refusal{}})
+// readHandler is the handler of a cluster route that makes several cluster operations in
+// one call (packet FA2-T5 D.3). open makes the client of one operation; current reports
+// that the call's generation is still the cluster's and still connected.
+type readHandler func(w http.ResponseWriter, r *http.Request, open graph.Open, current func() bool)
+
+// readRoute registers a cluster route whose handler reads through readGate. Like every
+// cluster route, it answers 503 with the cluster object while the state is not connected.
+func (s *server) readRoute(method, path string, h readHandler) {
+	s.routes = append(s.routes, Route{
+		Method: method,
+		Path:   path,
+		Auth:   authSession,
+		Kind:   routeCluster,
+		Handle: func(s *server, w http.ResponseWriter, r *http.Request) { s.readGate(w, r, h) },
+	})
+}
+
+// readGate binds one call to the generation that is connected when the call starts
+// (CLIENT-PER-REQ-T5). Each call of open first checks that this generation is still the
+// cluster's and still connected, then makes one new client on it with the constructor of
+// the gate; it never takes a new snapshot, and no lock is held while the client is made.
+// A failed check or constructor ends the call with graph.ErrStopped.
+func (s *server) readGate(w http.ResponseWriter, r *http.Request, h readHandler) {
+	o, obj, gen := s.cluster.admit()
+	if o.State != readonly.StateConnected || obj.State != string(readonly.StateConnected) {
+		writeJSONStatus(w, http.StatusServiceUnavailable, obj)
 		return
 	}
-	h(w, r, func(context.Context) (graph.Reader, error) { return c, nil })
+	current := func() bool { return s.cluster.current(gen) }
+	open := func(ctx context.Context) (graph.Reader, error) {
+		if !current() {
+			return nil, graph.ErrStopped
+		}
+		c, err := readonly.NewClient(o)
+		if err != nil {
+			return nil, graph.ErrStopped
+		}
+		return c, nil
+	}
+	h(w, r, open, current)
 }

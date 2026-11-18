@@ -1,7 +1,10 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"net/http"
+	"time"
 
 	"github.com/prdroom/intuitik/internal/graph"
 )
@@ -9,26 +12,40 @@ import (
 // containmentPath is the graph route of packet FA2-T5 D.1.
 const containmentPath = "/api/graph/containment"
 
-// registerClusterRoutes registers the product's cluster routes. R2 of REDSPLIT-T5
-// (decision 974302a8): the graph route is still registered outside the cluster gate; it
-// reads through the composite stub engine with one client for the whole call and no
-// generation check (oneClientRead), and answers 200 with what the stub gives.
+// graphLimit bounds one graph call. A lookup still without an answer then fails the call
+// with the reason "no answer" (GA-3).
+const graphLimit = 30 * time.Second
+
+// registerClusterRoutes registers the product's cluster routes.
 func (s *server) registerClusterRoutes() {
-	s.routes = append(s.routes, Route{
-		Method: http.MethodGet,
-		Path:   containmentPath,
-		Auth:   authSession,
-		Kind:   routeCluster,
-		Handle: func(s *server, w http.ResponseWriter, r *http.Request) { s.oneClientRead(w, r, s.handleContainment) },
-	})
+	s.readRoute(http.MethodGet, containmentPath, s.handleContainment)
 }
 
-// handleContainment answers what the engine gives for the namespace of the request.
-func (s *server) handleContainment(w http.ResponseWriter, r *http.Request, open graph.Open) {
+// handleContainment is GET /api/graph/containment?namespace=<name> (D.1): the containment
+// answer of one namespace. A call that stopped because its generation is no longer the
+// cluster's or no longer connected answers as the gate does for the state now (GA-2); a
+// call that failed as a whole answers 502 with the GA-3 text and no nodes.
+func (s *server) handleContainment(w http.ResponseWriter, r *http.Request, open graph.Open, current func() bool) {
 	ns := r.URL.Query().Get("namespace")
-	a, err := graph.Build(r.Context(), open, ns)
-	if err != nil || a.Nodes == nil {
-		a = graph.Answer{Namespace: ns, Nodes: []graph.Node{}, Refused: []graph.Refusal{}}
+	if !graph.ValidNamespace(ns) {
+		writeJSONStatus(w, http.StatusBadRequest, struct{}{})
+		return
 	}
-	writeJSON(w, a)
+	ctx, cancel := context.WithTimeout(r.Context(), graphLimit)
+	defer cancel()
+	a, err := graph.Build(ctx, open, ns)
+	if err == nil && current() {
+		writeJSON(w, a)
+		return
+	}
+	if err == nil || errors.Is(err, graph.ErrStopped) || !current() {
+		_, obj := s.cluster.snapshot()
+		writeJSONStatus(w, http.StatusServiceUnavailable, obj)
+		return
+	}
+	var le *graph.LoadError
+	if !errors.As(err, &le) {
+		le = &graph.LoadError{Namespace: ns, Reason: graph.NoAnswer}
+	}
+	writeJSONStatus(w, http.StatusBadGateway, map[string]string{"namespace": ns, "text": le.Error()})
 }

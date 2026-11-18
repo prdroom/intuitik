@@ -40,7 +40,7 @@ const (
 	textUR = "Cannot reach the API server %s of context %s: %s. Check your VPN or network connection, then retry from the intuitik tab or restart intuitik."
 
 	textMissing       = "Owner %s/%s not found"
-	textForbidden     = "Owner not readable — no permission"
+	textForbidden     = "Owner not readable \u2014 no permission"
 	textClusterScoped = "Owner %s/%s is cluster-scoped"
 	textKinds         = "Couldn't load %s (%d)"
 
@@ -629,7 +629,7 @@ type want struct {
 }
 
 // printable writes U+2014 as its escape, so the log stays ASCII.
-func printable(s string) string { return strings.ReplaceAll(s, "—", `—`) }
+func printable(s string) string { return strings.ReplaceAll(s, "\u2014", `\u2014`) }
 
 // check compares each expected object with the answer and prints its line:
 // FA2-T5 <criterion> input=<fixture> expected=<kind/name parent state> actual=<same> result=<PASS|FAIL>.
