@@ -107,8 +107,8 @@ func tlsMismatch(t *testing.T, caData string) string {
 	return cve.Err.Error()
 }
 
-// credentialProgram writes the exec credential program of the K-EX fixtures. Started,
-// it would create the marker file.
+// credentialProgram writes a credential program that creates the marker file and prints
+// an ExecCredential without a credential (K-EP "no valid credential in its output").
 func credentialProgram(t *testing.T, dir string) (program, marker string) {
 	t.Helper()
 	marker = filepath.Join(dir, "credential-program-ran")
@@ -188,10 +188,21 @@ func stateFixtures() []stateFixture {
 			kc := single(t, dir, (&kube{current: "no-creds"}).withKind(t).user("nobody", map[string]any{}).context("no-creds", "kind-c", "nobody"))
 			return fixtureRun{kubeconfig: kc, message: fmt.Sprintf(textNC, "no-creds", "kind-c"), recover: bySwitch(t)}
 		}},
-		{"credential program not run", "credential-program-unsupported", "K-EX", func(t *testing.T, dir string) fixtureRun {
+		{"credential program exits 1", "credential-program-failed", "K-EP", func(t *testing.T, dir string) fixtureRun {
+			prog, user := newProgram(t, "IfAvailable", "exit=1")
+			kc := single(t, dir, (&kube{current: "exec-ctx"}).withKind(t).user("exec-user", user).context("exec-ctx", "kind-c", "exec-user"))
+			return fixtureRun{kubeconfig: kc, message: fmt.Sprintf(textEP, prog.path, "exec-ctx", "exit code 1"), recover: bySwitch(t)}
+		}},
+		{"credential program not found", "credential-program-failed", "K-EP", func(t *testing.T, dir string) fixtureRun {
+			missing := filepath.Join(dir, "no-such-credential-program")
+			user := map[string]any{"exec": map[string]any{"apiVersion": "client.authentication.k8s.io/v1", "command": missing, "interactiveMode": "Never"}}
+			kc := single(t, dir, (&kube{current: "exec-ctx"}).withKind(t).user("exec-user", user).context("exec-ctx", "kind-c", "exec-user"))
+			return fixtureRun{kubeconfig: kc, message: fmt.Sprintf(textEP, missing, "exec-ctx", "not found"), recover: bySwitch(t)}
+		}},
+		{"credential program without a valid credential", "credential-program-failed", "K-EP", func(t *testing.T, dir string) fixtureRun {
 			program, _ := credentialProgram(t, dir)
 			kc := single(t, dir, (&kube{current: "exec-ctx"}).withKind(t).user("exec-user", execUser(program)).context("exec-ctx", "kind-c", "exec-user"))
-			return fixtureRun{kubeconfig: kc, message: fmt.Sprintf(textEX, "exec-ctx", program), recover: bySwitch(t)}
+			return fixtureRun{kubeconfig: kc, message: fmt.Sprintf(textEP, program, "exec-ctx", "no valid credential in its output"), recover: bySwitch(t)}
 		}},
 		{"unsupported auth provider", "auth-provider-unsupported", "K-AP", func(t *testing.T, dir string) fixtureRun {
 			kc := single(t, dir, (&kube{current: "gcp-ctx"}).withKind(t).user("gcp-user", map[string]any{"auth-provider": map[string]any{"name": "gcp"}}).context("gcp-ctx", "kind-c", "gcp-user"))

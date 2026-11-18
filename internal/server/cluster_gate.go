@@ -36,6 +36,8 @@ func (s *server) gate(w http.ResponseWriter, r *http.Request, h clusterHandler) 
 	}
 	c, err := readonly.NewClient(o)
 	if err != nil {
+		// A failed credential program run may have changed the state just now.
+		_, obj = s.cluster.snapshot()
 		writeJSONStatus(w, http.StatusServiceUnavailable, obj)
 		return
 	}

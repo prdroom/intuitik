@@ -156,6 +156,7 @@ func Run(o Options) int {
 
 	select {
 	case <-o.Stop:
+		s.cluster.stop()
 		s.stop()
 		releaseListener(ln)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -165,6 +166,7 @@ func Run(o Options) int {
 	case err := <-served:
 		// The listener closed while running (S1): every token and session goes with
 		// the process.
+		s.cluster.stop()
 		s.st.mu.Lock()
 		s.st.tokens, s.st.sessions = nil, nil
 		s.st.mu.Unlock()

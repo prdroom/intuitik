@@ -45,7 +45,7 @@ const (
 	textIV4 = "The kubeconfig %s has no contexts. Run your cloud's login command to add one, or set KUBECONFIG to another kubeconfig file."
 	textAU  = "The cluster %s rejected the credentials of context %s (HTTP 401). They may have expired. Log in again with your cloud's login command, then retry from the intuitik tab or restart intuitik."
 	textNC  = "Context %s has no credentials for cluster %s. intuitik reads a cluster only with the credentials of your kubeconfig. Log in with your cloud's login command, then retry from the intuitik tab, or choose another context."
-	textEX  = "Context %s signs in with the credential program %s, which this build of intuitik does not run. Choose another context."
+	textEP  = "The credential program %s of context %s failed (%s). Run it in a terminal to see why, or log in again with your cloud's login command."
 	textAP  = `Context %s uses the auth provider "%s", which intuitik does not support. Update the kubeconfig with your cloud's current login command.`
 	textTL  = "The API server %s of context %s presented a certificate that the kubeconfig does not trust: %s. Check that the kubeconfig belongs to this cluster."
 	textUR  = "Cannot reach the API server %s of context %s: %s. Check your VPN or network connection, then retry from the intuitik tab or restart intuitik."
@@ -271,6 +271,7 @@ type panelOpts struct {
 	home       string  // HOME; "" means a new empty directory
 	test       bool    // run the e2etest build
 	fixture    string  // INTUITIK_TEST_FIXTURE
+	pty        bool    // stdin is a pseudo terminal that is also the controlling terminal
 }
 
 func strPtr(s string) *string { return &s }
@@ -286,6 +287,9 @@ type panel struct {
 	sess    string
 	csrf    string
 	started time.Time // when the listen line was seen; the first attempt starts after it
+	openLog string    // the addresses the opener received, one per line
+	master  *os.File  // the pseudo terminal's master side when opts.pty is set
+	bin     string    // the binary this panel runs
 }
 
 func startPanel(t *testing.T, o panelOpts) *panel {
@@ -326,26 +330,93 @@ func startPanel(t *testing.T, o panelOpts) *panel {
 	if o.fixture != "" {
 		env = append(env, "INTUITIK_TEST_FIXTURE="+o.fixture)
 	}
-	p := &panel{t: t, stdout: &lines{}, stderr: &lines{}, done: make(chan struct{})}
+	p := &panel{t: t, stdout: &lines{}, stderr: &lines{}, done: make(chan struct{}), openLog: openLog, bin: bin}
 	p.cmd = exec.Command(bin)
 	p.cmd.Env = env
-	p.cmd.Stdout, p.cmd.Stderr = p.stdout, p.stderr
-	stdin, err := p.cmd.StdinPipe()
+	// intuitik's stdout and stderr are pipes that this function owns and copies itself,
+	// so that the wait for the process does not depend on who else holds them: a
+	// program that intuitik started can inherit stderr and outlive intuitik.
+	outR, outW, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
+	}
+	errR, errW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.cmd.Stdout, p.cmd.Stderr = outW, errW
+	var stdin io.Closer
+	if o.pty {
+		master, slave, err := openPTY()
+		if err != nil {
+			t.Fatalf("pseudo terminal: %v", err)
+		}
+		p.master = master
+		p.cmd.Stdin = slave
+		setControllingTTY(p.cmd)
+		stdin = master
+		defer slave.Close()
+		go io.Copy(io.Discard, master)
+	} else {
+		pipe, err := p.cmd.StdinPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		stdin = pipe
 	}
 	if err := p.cmd.Start(); err != nil {
 		t.Fatalf("starting %s: %v", bin, err)
 	}
+	outW.Close()
+	errW.Close()
+	// Each copy ends at end of file, when every holder of the pipe's write side is
+	// gone: that is the check that the output collection is complete.
+	copied := make(chan struct{}, 2)
+	var copyErr [2]error // set before each copy reports, read after p.done
+	go func() { _, copyErr[0] = io.Copy(p.stdout, outR); copied <- struct{}{} }()
+	go func() { _, copyErr[1] = io.Copy(p.stderr, errR); copied <- struct{}{} }()
+	// pipeBound bounds the wait for the pipes after intuitik has exited. Reaching it
+	// means a process that intuitik started still holds a pipe; the copies are then
+	// ended and the collection is incomplete.
+	const pipeBound = 10 * time.Second
+	var boundReached bool
+	var exitedAt time.Time
+	var waitErr error
 	go func() {
-		p.cmd.Wait()
+		waitErr = p.cmd.Wait() // the pipes are files, so this returns when the process exits
+		exitedAt = time.Now()
+		bound := time.After(pipeBound)
+		for n := 0; n < 2; n++ {
+			select {
+			case <-copied:
+				continue
+			case <-bound:
+			}
+			boundReached = true
+			outR.Close()
+			errR.Close()
+			for ; n < 2; n++ {
+				<-copied // reap the copy helpers
+			}
+		}
 		close(p.done)
 	}()
 	t.Cleanup(func() {
+		// The test's own observation windows and PID checks have run; the process is
+		// ended only now.
 		stdin.Close()
 		p.cmd.Process.Kill()
 		<-p.done
 		allOutput.add(p.stdout.bytes(), p.stderr.bytes())
+		// The collection is complete only when both copies read to end of file without an
+		// error before the bound. The process's own end (killed here) is recorded too.
+		complete := !boundReached && copyErr[0] == nil && copyErr[1] == nil
+		t.Logf("K-CLEANUP %s: intuitik ended (wait: %v); output pipes closed within %s of the exit: %v; copy errors stdout %v, stderr %v; output collection complete: %v",
+			filepath.Base(bin), waitErr, pipeBound, !boundReached, copyErr[0], copyErr[1], complete)
+		if !complete {
+			t.Errorf("K-CLEANUP %s: the output collection is incomplete (pipes held %v after intuitik exited at %s, copy errors %v %v), so this run of %s does not count as a pass",
+				filepath.Base(bin), boundReached, exitedAt.Format(time.RFC3339Nano), copyErr[0], copyErr[1], t.Name())
+		}
 	})
 	deadline := time.Now().Add(30 * time.Second)
 	for {
@@ -392,6 +463,9 @@ func (p *panel) login(openLog string) {
 	}
 	body, _ := json.Marshal(map[string]string{"t": token})
 	resp := p.request("POST", "/api/session", body, false)
+	// The session answer is an API response of this panel too (M1-T3b F6): it joins the
+	// collected responses that the canary searches read.
+	allOutput.addResponse(resp.raw)
 	var v struct{ Session, Csrf string }
 	if resp.status != 200 || json.Unmarshal(resp.body, &v) != nil || v.Session == "" {
 		p.t.Fatalf("login exchange: status %d body %q", resp.status, resp.body)

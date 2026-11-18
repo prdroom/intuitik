@@ -6,14 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	rbacv1 "k8s.io/api/rbac/v1"
-
-	"github.com/prdroom/intuitik/test/e2e-api/server/secretscan"
 )
 
 // TestK_ConnectedNeedsAuthenticatedAnswer (packet W3, section 6.3): /version answers an
@@ -145,44 +142,6 @@ func TestK_CredentialsRejected(t *testing.T) {
 		t.Logf("K-AU %s: expected state credentials-rejected K-AU, actual %s %s", name, o.State, str(o.TextID))
 		if o.State != "credentials-rejected" || str(o.Message) != fmt.Sprintf(textAU, "kind-c", name) {
 			t.Errorf("K-AU %s: state %q message %q, want credentials-rejected with K-AU", name, o.State, str(o.Message))
-		}
-	}
-}
-
-// TestK_ExecNotRun (packet section 6.7): a context whose only credential is an exec entry
-// is credential-program-unsupported with the exact K-EX line once per attempt. The
-// program, which would create a marker file, is never started, at start or on retry,
-// and the exec canaries are in no output.
-func TestK_ExecNotRun(t *testing.T) {
-	dir := t.TempDir()
-	program, marker := credentialProgram(t, dir)
-	raw := (&kube{current: "exec-ctx"}).withKind(t).user("exec-user", execUser(program)).context("exec-ctx", "kind-c", "exec-user").bytes()
-	kc := writeFile(t, filepath.Join(dir, "kubeconfig"), raw)
-	p := startPanel(t, panelOpts{kubeconfig: strPtr(kc)})
-	line := fmt.Sprintf(textEX, "exec-ctx", program)
-	for attempt := 1; attempt <= 2; attempt++ {
-		if attempt == 2 {
-			p.retry()
-		}
-		o := p.mustSettle()
-		n := waitCount(p.stderr, line, attempt)
-		_, statErr := os.Stat(marker)
-		ran := statErr == nil
-		t.Logf("K-EX attempt %d: state %s text_id %s, K-EX lines %d, marker file exists %v", attempt, o.State, str(o.TextID), n, ran)
-		if o.State != "credential-program-unsupported" || str(o.Message) != line || n != attempt {
-			t.Errorf("K-EX attempt %d: state %q message %q, %d K-EX lines; want credential-program-unsupported, the exact K-EX line, %d lines", attempt, o.State, str(o.Message), n, attempt)
-		}
-		if ran {
-			t.Errorf("K-EX attempt %d: the credential program ran (marker %s exists); stderr %q", attempt, marker, p.stderr.list())
-		}
-	}
-	_, arg, env := canaries()
-	for _, c := range []struct{ name, value string }{{"exec argument", arg}, {"exec environment value", env}} {
-		control := secretscan.Count(raw, c.value)
-		found := secretscan.Count(p.stdout.bytes(), c.value) + secretscan.Count(p.stderr.bytes(), c.value)
-		t.Logf("K-EX canary %s: positive control %d, found in the output of this run %d", c.name, control, found)
-		if control == 0 || found != 0 {
-			t.Errorf("K-EX canary %s: positive control %d (want at least 1), found %d (want 0)", c.name, control, found)
 		}
 	}
 }

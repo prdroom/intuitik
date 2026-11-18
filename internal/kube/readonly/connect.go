@@ -1,7 +1,9 @@
 // Package readonly is the only package of intuitik that reads the kubeconfig and calls
-// the API server (packet M1-T3a, M1_TICKETS 7.1). It never writes a kubeconfig file and
-// never runs a credential program. internal/server gets a client only through its
-// cluster gate (NewClient, called in internal/server/cluster_gate.go).
+// the API server (packet M1-T3a, M1_TICKETS 7.1). It never writes a kubeconfig file. A
+// credential program of an exec entry runs only through the Runner that the caller
+// gives a Generation (packet M1-T3b); client-go's exec authenticator is never used.
+// internal/server gets a client only through its cluster gate (NewClient, called in
+// internal/server/cluster_gate.go).
 package readonly
 
 import (
@@ -34,16 +36,16 @@ const AttemptTimeout = 10 * time.Second
 type State string
 
 const (
-	StateConnecting                   State = "connecting"
-	StateConnected                    State = "connected"
-	StateNoKubeconfig                 State = "no-kubeconfig"
-	StateKubeconfigInvalid            State = "kubeconfig-invalid"
-	StateCredentialsRejected          State = "credentials-rejected"
-	StateCredentialsMissing           State = "credentials-missing"
-	StateCredentialProgramUnsupported State = "credential-program-unsupported"
-	StateAuthProviderUnsupported      State = "auth-provider-unsupported"
-	StateCertificateMismatch          State = "certificate-mismatch"
-	StateUnreachable                  State = "unreachable"
+	StateConnecting              State = "connecting"
+	StateConnected               State = "connected"
+	StateNoKubeconfig            State = "no-kubeconfig"
+	StateKubeconfigInvalid       State = "kubeconfig-invalid"
+	StateCredentialsRejected     State = "credentials-rejected"
+	StateCredentialsMissing      State = "credentials-missing"
+	StateCredentialProgramFailed State = "credential-program-failed"
+	StateAuthProviderUnsupported State = "auth-provider-unsupported"
+	StateCertificateMismatch     State = "certificate-mismatch"
+	StateUnreachable             State = "unreachable"
 )
 
 // ContextEntry is one context of the merged kubeconfig.
@@ -68,8 +70,10 @@ type Outcome struct {
 	// is never shown.
 	Canceled bool
 
-	// config is set only in the connected state; the gate builds the client from it.
+	// config is set only in the connected state; the gate builds the client from it. For
+	// an exec context it holds no credential, and gen gives each read its credential.
 	config *rest.Config
+	gen    *Generation
 }
 
 // Stdout reports whether the text goes to stdout (K-OK) rather than stderr.
@@ -82,40 +86,76 @@ func (o Outcome) with(state State, id, message string) Outcome {
 	return o
 }
 
+// Attempt is one attempt in a generation of its own that runs no credential program; an
+// exec context then fails with K-EP "not found".
+func Attempt(ctx context.Context, name string) Outcome {
+	return NewGeneration(ctx, nil, nil).Attempt(name)
+}
+
 // Attempt runs the loading rules again, reads the kubeconfig files anew (W2) and
 // connects to the named context, or to the kubeconfig's current context when name is
 // "". It sends one authenticated GET /api (W3). W1 starts here and covers the whole
-// attempt: reading the files, building the configuration and the request. When it
-// passes, the outcome is K-UR with what the attempt knew by then, even while a file
-// read is still blocked.
-func Attempt(ctx context.Context, name string) Outcome {
-	actx, cancel := context.WithTimeout(ctx, AttemptTimeout)
+// attempt: reading the files, building the configuration, the first run of a
+// credential program and the request. When it passes, the outcome is K-EP "no answer
+// within 10 s" while that run is in progress, and otherwise K-UR with what the attempt
+// knew by then, even while a file read is still blocked (E14). A cancel of the
+// generation means a newer attempt or the stop.
+func (g *Generation) Attempt(name string) Outcome {
+	g.start = time.Now()
+	actx, cancel := context.WithTimeout(g.ctx, AttemptTimeout)
 	defer cancel()
 	p := &progress{}
 	done := make(chan Outcome, 1)
-	go func() { done <- attempt(ctx, actx, name, p) }()
+	go func() { done <- attempt(g.ctx, actx, name, p, g) }()
 	select {
 	case o := <-done:
-		return o
+		return g.finish(o)
 	case <-actx.Done():
 	}
 	select {
 	case o := <-done:
-		return o
+		return g.finish(o)
 	default:
 	}
-	o := p.get()
-	if ctx.Err() != nil {
+	// W1 has passed: a late read of this attempt starts no program (D7).
+	g.mu.Lock()
+	if g.failed == "" {
+		g.failed = failReason("timeout", 0)
+	}
+	g.mu.Unlock()
+	o, read, running := p.get()
+	if g.ctx.Err() != nil {
 		o.Canceled = true
 		return o
 	}
-	return o.with(StateUnreachable, "K-UR", text(textUR, o.Server, o.Context, textTimeout))
+	if running != "" {
+		return o.with(StateCredentialProgramFailed, "K-EP", kEP(running, o.Context, failReason("timeout", 0)))
+	}
+	osErr := textTimeout
+	if !read {
+		osErr = textKubeconfigTimeout
+		if o.Context == "" {
+			o.Context = name
+		}
+	}
+	return o.with(StateUnreachable, "K-UR", kUR(o.Server, o.Context, osErr))
 }
 
-// progress is what a running attempt knows so far, for the outcome of W1.
+// finish keeps a connected outcome as the start of the state changes after it.
+func (g *Generation) finish(o Outcome) Outcome {
+	if o.State == StateConnected && !o.Canceled {
+		g.connected(o)
+	}
+	return o
+}
+
+// progress is what a running attempt knows so far, for the outcome of W1: the outcome
+// so far, whether the kubeconfig was read, and the command of a first run in progress.
 type progress struct {
-	mu sync.Mutex
-	o  Outcome
+	mu      sync.Mutex
+	o       Outcome
+	read    bool
+	running string
 }
 
 func (p *progress) set(o Outcome) {
@@ -124,15 +164,27 @@ func (p *progress) set(o Outcome) {
 	p.mu.Unlock()
 }
 
-func (p *progress) get() Outcome {
+func (p *progress) setRead() {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.o
+	p.read = true
+	p.mu.Unlock()
 }
 
-// attempt is the body of Attempt. ctx is the caller's context (a cancel means a newer
-// attempt or the stop); actx adds the W1 deadline.
-func attempt(ctx, actx context.Context, name string, p *progress) Outcome {
+func (p *progress) setRunning(command string) {
+	p.mu.Lock()
+	p.running = command
+	p.mu.Unlock()
+}
+
+func (p *progress) get() (Outcome, bool, string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.o, p.read, p.running
+}
+
+// attempt is the body of Attempt. ctx is the generation's context (a cancel means a
+// newer attempt or the stop); actx adds the W1 deadline.
+func attempt(ctx, actx context.Context, name string, p *progress, g *Generation) Outcome {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
 	rules.MigrationRules = nil // W4: the loading rules never copy or write a file
 	rules.Warner = func(error) {}
@@ -164,6 +216,7 @@ func attempt(ctx, actx context.Context, name string, p *progress) Outcome {
 	if err != nil {
 		return o.with(StateKubeconfigInvalid, "K-IV1", text(textIV1, found[0], err.Error()))
 	}
+	p.setRead()
 	o.Contexts = contextList(merged, order)
 	o.Current = merged.CurrentContext
 	p.set(o)
@@ -175,7 +228,7 @@ func attempt(ctx, actx context.Context, name string, p *progress) Outcome {
 	}
 	kctx := merged.Contexts[name]
 	if name == "" || kctx == nil {
-		return o.with(StateKubeconfigInvalid, "K-IV2", text(textIV2, o.Contexts[0].Name))
+		return o.with(StateKubeconfigInvalid, "K-IV2", text(textIV2, slot(o.Contexts[0].Name)))
 	}
 	o.Context, o.Cluster = name, kctx.Cluster
 	cluster := merged.Clusters[kctx.Cluster]
@@ -188,21 +241,80 @@ func attempt(ctx, actx context.Context, name string, p *progress) Outcome {
 		user = merged.AuthInfos[kctx.AuthInfo]
 	}
 	if cluster == nil || user == nil {
-		return o.with(StateKubeconfigInvalid, "K-IV3", text(textIV3, name))
+		return o.with(StateKubeconfigInvalid, "K-IV3", kIV3(name))
 	}
-	// Decided before any client is built: the exec entry never reaches client-go, so
-	// the credential program is never started (section 6.7).
-	if user.Exec != nil {
-		return o.with(StateCredentialProgramUnsupported, "K-EX", text(textEX, name, user.Exec.Command))
+	// D1, E10: a user entry with a static credential uses it and never its exec entry,
+	// as client-go and kubectl do. Otherwise an exec entry with interactiveMode Always
+	// is refused before any run (E2).
+	execEntry := user.Exec != nil && !staticCredential(user)
+	if execEntry && user.Exec.InteractiveMode == clientcmdapi.AlwaysExecInteractiveMode {
+		return o.with(StateCredentialProgramFailed, "K-EP", kEP(user.Exec.Command, name, failReason("interactive", 0)))
 	}
 	if user.AuthProvider != nil && !supportedAuthProvider(user.AuthProvider.Name) {
-		return o.with(StateAuthProviderUnsupported, "K-AP", text(textAP, name, user.AuthProvider.Name))
+		return o.with(StateAuthProviderUnsupported, "K-AP", kAP(name, user.AuthProvider.Name))
 	}
+	path := origin(kctx, found[0])
+	// client-go's validation of the exec entry still gives K-IV1.
 	cfg, err := clientcmd.NewNonInteractiveClientConfig(*merged, name, &clientcmd.ConfigOverrides{}, nil).ClientConfig()
 	if err != nil {
-		return o.with(StateKubeconfigInvalid, "K-IV1", text(textIV1, origin(kctx, found[0]), err.Error()))
+		return o.with(StateKubeconfigInvalid, "K-IV1", text(textIV1, path, err.Error()))
 	}
-	return probe(ctx, actx, o, guarded(cfg), origin(kctx, found[0]))
+	if !execEntry {
+		cfg.ExecProvider = nil // E10: no rest.Config of intuitik carries an exec provider
+		return probe(ctx, actx, o, guarded(cfg), path)
+	}
+	prog, err := execProgram(cfg.ExecProvider, cfg)
+	if err != nil {
+		return o.with(StateKubeconfigInvalid, "K-IV1", text(textIV1, path, err.Error()))
+	}
+	version := cfg.ExecProvider.APIVersion
+	cfg.ExecProvider = nil
+	g.setProgram(prog, version, user.Exec.Command)
+	return probeExec(ctx, actx, o, cfg, path, g, user.Exec.Command, p)
+}
+
+// afterExecRun is nil in the product build and inert there. Only the e2etest build's
+// negative fixture kubeconfig-write-after-exec (fixture_e2etest.go) sets it (packet
+// M1-T3b KWFIX-T3b): probeExec then calls it with the kubeconfig path of the context
+// after an exec run gave a credential, so that TestK_KubeconfigUntouched shows its file
+// comparison detects a kubeconfig write by the product process on this path.
+var afterExecRun func(kubeconfigPath string)
+
+// probeExec is the probe of an exec context (D4): the first run under the attempt's
+// context, the probe with its credential and, on a 401, one refresh and one repeat
+// inside the same W1.
+func probeExec(ctx, actx context.Context, o Outcome, cfg *rest.Config, path string, g *Generation, command string, p *progress) Outcome {
+	p.setRunning(command)
+	got := g.current(actx)
+	if h := afterExecRun; h != nil && got.cred != nil && !got.closed && got.fail == "" {
+		h(path)
+	}
+	p.setRunning("")
+	if ctx.Err() != nil || got.closed {
+		o.Canceled = true
+		return o
+	}
+	if got.fail != "" {
+		return o.with(StateCredentialProgramFailed, "K-EP", kEP(command, o.Context, got.fail))
+	}
+	out := probe(ctx, actx, o, guarded(withCredential(cfg, got.cred)), path)
+	if out.State == StateCredentialsRejected && !out.Canceled {
+		p.setRunning(command)
+		got = g.refresh(actx, got.cred)
+		p.setRunning("")
+		if ctx.Err() != nil || got.closed {
+			o.Canceled = true
+			return o
+		}
+		if got.fail != "" {
+			return o.with(StateCredentialProgramFailed, "K-EP", kEP(command, o.Context, got.fail))
+		}
+		out = probe(ctx, actx, o, guarded(withCredential(cfg, got.cred)), path)
+	}
+	if out.State == StateConnected {
+		out.config, out.gen = cfg, g
+	}
+	return out
 }
 
 // probe sends the one authenticated GET /api of an attempt and classifies its answer
@@ -227,12 +339,12 @@ func probe(ctx, actx context.Context, o Outcome, cfg *rest.Config, path string) 
 	}
 	if err != nil {
 		if actx.Err() != nil {
-			return o.with(StateUnreachable, "K-UR", text(textUR, o.Server, o.Context, textTimeout))
+			return o.with(StateUnreachable, "K-UR", kUR(o.Server, o.Context, textTimeout))
 		}
 		if msg, ok := tlsVerification(err); ok {
-			return o.with(StateCertificateMismatch, "K-TL", text(textTL, o.Server, o.Context, msg))
+			return o.with(StateCertificateMismatch, "K-TL", kTL(o.Server, o.Context, msg))
 		}
-		return o.with(StateUnreachable, "K-UR", text(textUR, o.Server, o.Context, osError(err)))
+		return o.with(StateUnreachable, "K-UR", kUR(o.Server, o.Context, osError(err)))
 	}
 	// The status line and headers are the answer; the body is never read, so a body
 	// that the server holds cannot turn an answer into K-UR. Closing it unread ends the
@@ -240,17 +352,17 @@ func probe(ctx, actx context.Context, o Outcome, cfg *rest.Config, path string) 
 	resp.Body.Close()
 	if kind == credentialNone {
 		// An anonymous request: any HTTP answer, 200 included (P-a).
-		return o.with(StateCredentialsMissing, "K-NC", text(textNC, o.Context, o.Cluster))
+		return o.with(StateCredentialsMissing, "K-NC", kNC(o.Context, o.Cluster))
 	}
 	switch resp.StatusCode {
 	case http.StatusOK, http.StatusForbidden:
 		// 403 with credentials is connected: permissions are T7a.
 		o.config = cfg
-		return o.with(StateConnected, "K-OK", text(textOK, o.Cluster, o.Context))
+		return o.with(StateConnected, "K-OK", kOK(o.Cluster, o.Context))
 	case http.StatusUnauthorized:
-		return o.with(StateCredentialsRejected, "K-AU", text(textAU, o.Cluster, o.Context))
+		return o.with(StateCredentialsRejected, "K-AU", kAU(o.Cluster, o.Context))
 	default:
-		return o.with(StateUnreachable, "K-HS", text(textHS, o.Server, o.Context, resp.StatusCode))
+		return o.with(StateUnreachable, "K-HS", kHS(o.Server, o.Context, resp.StatusCode))
 	}
 }
 

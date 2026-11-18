@@ -15,12 +15,12 @@ import (
 // TestK_ConnectingAnswer (packet M1-T3a section 6.1): POST /api/cluster/context and
 // POST /api/cluster/retry answer 202 with the cluster object in state connecting, also
 // when the attempt they start has already finished and been published before the
-// handler writes its answer. The attempt of the test finishes at once with K-EX, and the
+// handler writes its answer. The attempt of the test finishes at once with K-EP, and the
 // started hook of the cluster waits for that publication, so this order is forced on
 // every run instead of left to the scheduler.
 func TestK_ConnectingAnswer(t *testing.T) {
 	finished := readonly.Outcome{
-		State: readonly.StateCredentialProgramUnsupported, TextID: "K-EX", Message: "finished before the answer",
+		State: readonly.StateCredentialProgramFailed, TextID: "K-EP", Message: "finished before the answer",
 		Context: "ctx-a", Cluster: "cl-a", Server: "https://127.0.0.1:1",
 		Paths:    []string{"/kubeconfig"},
 		Contexts: []readonly.ContextEntry{{Name: "ctx-a", Cluster: "cl-a", Server: "https://127.0.0.1:1"}},
@@ -62,8 +62,8 @@ func TestK_ConnectingAnswer(t *testing.T) {
 		if obj["context"] != "ctx-a" {
 			t.Errorf("K-202 %s: answer context %v, want ctx-a", c.name, obj["context"])
 		}
-		if after.State != string(readonly.StateCredentialProgramUnsupported) {
-			t.Errorf("K-202 %s: state afterwards %q, want the finished attempt's %q", c.name, after.State, readonly.StateCredentialProgramUnsupported)
+		if after.State != string(readonly.StateCredentialProgramFailed) {
+			t.Errorf("K-202 %s: state afterwards %q, want the finished attempt's %q", c.name, after.State, readonly.StateCredentialProgramFailed)
 		}
 	}
 }
