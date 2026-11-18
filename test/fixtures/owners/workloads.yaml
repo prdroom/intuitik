@@ -1,0 +1,96 @@
+# Controller-made workloads of packet FA2-T5 C1 to C3 and C5, applied with -n into the
+# test namespace. Every pod template selects a node label that no node has, so the pods
+# stay Pending and the object set is stable for the request; only the DaemonSet's pod
+# runs on the kind node (C2: one Pod per kind node). The CronJob is suspended; its Job is
+# made by the test with the CronJob as owner (C3).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: web}
+  template:
+    metadata:
+      labels: {app: web}
+    spec:
+      nodeSelector: {intuitik.example/none: none}
+      terminationGracePeriodSeconds: 0
+      containers:
+        - {name: c, image: registry.k8s.io/pause:3.10}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: db
+spec:
+  replicas: 2
+  serviceName: db
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels: {app: db}
+  template:
+    metadata:
+      labels: {app: db}
+    spec:
+      nodeSelector: {intuitik.example/none: none}
+      terminationGracePeriodSeconds: 0
+      containers:
+        - {name: c, image: registry.k8s.io/pause:3.10}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: agent
+spec:
+  selector:
+    matchLabels: {app: agent}
+  template:
+    metadata:
+      labels: {app: agent}
+    spec:
+      terminationGracePeriodSeconds: 0
+      tolerations:
+        - {operator: Exists}
+      containers:
+        - {name: c, image: registry.k8s.io/pause:3.10}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: report
+spec:
+  schedule: "0 0 1 1 *"
+  suspend: true
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          nodeSelector: {intuitik.example/none: none}
+          containers:
+            - {name: c, image: registry.k8s.io/pause:3.10}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: once
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector: {intuitik.example/none: none}
+      terminationGracePeriodSeconds: 0
+      containers:
+        - {name: c, image: registry.k8s.io/pause:3.10}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: debug
+spec:
+  nodeSelector: {intuitik.example/none: none}
+  terminationGracePeriodSeconds: 0
+  containers:
+    - {name: c, image: registry.k8s.io/pause:3.10}

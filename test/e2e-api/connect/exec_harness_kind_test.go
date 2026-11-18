@@ -19,14 +19,37 @@ import (
 )
 
 // Harness of the credential program tests (packet M1-T3b): the fake program, a TLS fake
-// API server that records the credential of each request, and the read trigger of
-// READ-TRIGGER-T3b.
+// API server that answers by path and records the method, path and credential of each
+// request, and the read after connected: one call of the product's graph route (packet
+// FA2-T5 D.4, G8).
 
-// readFixture is the e2etest fixture whose route reads the cluster once (READ-TRIGGER-T3b).
+// readNamespace is the namespace of every graph call of these tests, readPath its route
+// and callK the number of requests of one call on the empty fake cluster: /apis and the
+// seven LISTs (D.3). It is the expected value of this harness, not a measurement.
 const (
-	readFixture = "cluster-read-route"
-	readPath    = "/api/fixture-cluster-read"
+	readNamespace = "default"
+	readPath      = "/api/graph/containment?namespace=" + readNamespace
+	callK         = 8
 )
+
+// callPaths is the request sequence of one graph call on the fake server (D.3).
+func callPaths() []string {
+	ns := readNamespace
+	return []string{"/apis",
+		"/api/v1/namespaces/" + ns + "/pods", "/apis/apps/v1/namespaces/" + ns + "/replicasets",
+		"/apis/apps/v1/namespaces/" + ns + "/deployments", "/apis/apps/v1/namespaces/" + ns + "/statefulsets",
+		"/apis/apps/v1/namespaces/" + ns + "/daemonsets", "/apis/batch/v1/namespaces/" + ns + "/jobs",
+		"/apis/batch/v1/namespaces/" + ns + "/cronjobs"}
+}
+
+// repeat is n copies of s.
+func repeat(s string, n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		out[i] = s
+	}
+	return out
+}
 
 var (
 	fakeOnce  sync.Once
@@ -195,13 +218,39 @@ func writeToken(t *testing.T, token string) string {
 	return writeFile(t, filepath.Join(t.TempDir(), "token"), []byte(token))
 }
 
-// credServer is a TLS fake API server that records the bearer token of every request and
-// answers 401 to a rejected token, 200 to every other request.
+// credRecord is one request the fake API server received.
+type credRecord struct{ method, path, token string }
+
+// credServer is a TLS fake API server that records the method, path and bearer token of
+// every request. It answers 401 to a rejected token; otherwise it answers by path: the
+// APIVersions document for /api, an APIGroupList with no group outside the built-in list
+// for /apis, an empty list of the right kind for the LIST of each of the seven kinds in
+// any namespace, and 404 for anything else.
 type credServer struct {
 	srv      *httptest.Server
 	mu       sync.Mutex
-	tokens   []string
+	records  []credRecord
 	rejected map[string]bool
+}
+
+// listKinds are the list kinds of the seven LISTs, by API prefix and resource.
+var listKinds = map[string]string{
+	"/api/v1/pods": "PodList", "/apis/apps/v1/replicasets": "ReplicaSetList", "/apis/apps/v1/deployments": "DeploymentList",
+	"/apis/apps/v1/statefulsets": "StatefulSetList", "/apis/apps/v1/daemonsets": "DaemonSetList",
+	"/apis/batch/v1/jobs": "JobList", "/apis/batch/v1/cronjobs": "CronJobList",
+}
+
+// listKind is the list kind of a namespaced LIST path of the seven kinds, or "".
+func listKind(path string) string {
+	prefix, rest, ok := strings.Cut(path, "/namespaces/")
+	if !ok {
+		return ""
+	}
+	_, resource, ok := strings.Cut(rest, "/")
+	if !ok || strings.Contains(resource, "/") {
+		return ""
+	}
+	return listKinds[prefix+"/"+resource]
 }
 
 func newCredServer(t *testing.T) *credServer {
@@ -210,7 +259,7 @@ func newCredServer(t *testing.T) *credServer {
 	s.srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		s.mu.Lock()
-		s.tokens = append(s.tokens, token)
+		s.records = append(s.records, credRecord{r.Method, r.URL.Path, token})
 		reject := s.rejected[token]
 		s.mu.Unlock()
 		if reject {
@@ -218,7 +267,17 @@ func newCredServer(t *testing.T) *credServer {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"kind":"APIVersions","versions":["v1"]}`))
+		switch {
+		case r.URL.Path == "/api":
+			w.Write([]byte(`{"kind":"APIVersions","versions":["v1"]}`))
+		case r.URL.Path == "/apis":
+			w.Write([]byte(`{"kind":"APIGroupList","apiVersion":"v1","groups":[]}`))
+		case listKind(r.URL.Path) != "":
+			fmt.Fprintf(w, `{"kind":%q,"apiVersion":"v1","metadata":{"resourceVersion":"1"},"items":[]}`, listKind(r.URL.Path))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"kind":"Status","apiVersion":"v1","status":"Failure","code":404,"reason":"NotFound"}`))
+		}
 	}))
 	t.Cleanup(s.srv.Close)
 	return s
@@ -237,8 +296,8 @@ func (s *credServer) received(from int, names map[string]string) []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []string
-	for _, tok := range s.tokens[from:] {
-		if n, ok := names[tok]; ok {
+	for _, r := range s.records[from:] {
+		if n, ok := names[r.token]; ok {
 			out = append(out, n)
 		} else {
 			out = append(out, "other")
@@ -247,10 +306,36 @@ func (s *credServer) received(from int, names map[string]string) []string {
 	return out
 }
 
+// paths are the paths of the requests from index from, in arrival order.
+func (s *credServer) paths(from int) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []string
+	for _, r := range s.records[from:] {
+		out = append(out, r.path)
+	}
+	return out
+}
+
+// pairs is the (method path, token name) record from index from, for the log.
+func (s *credServer) pairs(from int, names map[string]string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []string
+	for _, r := range s.records[from:] {
+		n, ok := names[r.token]
+		if !ok {
+			n = "other"
+		}
+		out = append(out, fmt.Sprintf("(%s %s, %s)", r.method, r.path, n))
+	}
+	return "[" + strings.Join(out, " ") + "]"
+}
+
 func (s *credServer) count() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return len(s.tokens)
+	return len(s.records)
 }
 
 // withServer adds the fake server as cluster name with its CA.
@@ -258,9 +343,10 @@ func (k *kube) withServer(name string, s *credServer) *kube {
 	return k.cluster(name, s.srv.URL, caOf(s.srv))
 }
 
-// readOnce sends one request to the read route of READ-TRIGGER-T3b and returns the status
-// it answered (the status of the product's read, or 503 from the gate). The raw response
-// (status line, headers and body) joins the collected API responses.
+// readOnce sends one call of the product's graph route (GET /api/graph/containment, packet
+// FA2-T5 G8) and returns the status it answered (200, or 503 from the gate for the state
+// then). The raw response (status line, headers and body) joins the collected API
+// responses.
 func (p *panel) readOnce(timeout time.Duration) int {
 	p.t.Helper()
 	req, _ := http.NewRequest("GET", p.origin+readPath, nil)

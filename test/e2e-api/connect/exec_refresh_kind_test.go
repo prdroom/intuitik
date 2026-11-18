@@ -5,18 +5,20 @@ package connect
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"sync"
 	"testing"
 	"time"
 )
 
 // Refresh after connected (acceptance 3 and 4a, E4, E5, E6). These tests start the
-// e2etest binary with the fixture "cluster-read-route" (READ-TRIGGER-T3b): its route
-// GET /api/fixture-cluster-read makes one Client.Get of /api, the only read after
-// connected that intuitik has. The credential source, the runner, refresh, state changes
-// and output are the product's. The fake API server records the token of each request.
+// release binary; the read after connected is one call of the product's graph route
+// GET /api/graph/containment (packet FA2-T5 G8, D.4), which makes callK requests on the
+// empty fake cluster. The credential source, the runner, refresh, state changes and
+// output are the product's. The fake API server records the method, path and token of
+// each request; a record is one call's, never compared across calls.
 
-// refreshSetup starts the e2etest binary on a kubeconfig whose current context exec-ctx
+// refreshSetup starts the release binary on a kubeconfig whose current context exec-ctx
 // uses the fake server, with the kind context kind-ok beside it. It waits for connected
 // and returns the panel, the program and the token names.
 func refreshSetup(t *testing.T, srv *credServer, plans ...string) (*panel, *program) {
@@ -24,9 +26,9 @@ func refreshSetup(t *testing.T, srv *credServer, plans ...string) (*panel, *prog
 	prog, user := newProgram(t, "IfAvailable", plans...)
 	kc := writeFile(t, filepath.Join(t.TempDir(), "kubeconfig"), (&kube{current: "exec-ctx"}).withKind(t).
 		withServer("fake-c", srv).user("exec-user", user).context("exec-ctx", "fake-c", "exec-user").bytes())
-	p := startPanel(t, panelOpts{kubeconfig: strPtr(kc), test: true, fixture: readFixture})
+	p := startPanel(t, panelOpts{kubeconfig: strPtr(kc)})
 	o := p.mustSettle()
-	t.Logf("preparation: binary %s, fixture %s; state %s after %s, program starts %d", binaryInfo(t, p), readFixture, o.State, time.Since(p.started).Round(10*time.Millisecond), prog.starts())
+	t.Logf("preparation: binary %s, read %s; state %s after %s, program starts %d", binaryInfo(t, p), readPath, o.State, time.Since(p.started).Round(10*time.Millisecond), prog.starts())
 	if o.State != "connected" {
 		t.Fatalf("preparation: the exec context did not connect: state %s message %q", o.State, str(o.Message))
 	}
@@ -40,11 +42,12 @@ func untilAfterStart(p *panel, d time.Duration) {
 	}
 }
 
-// TestK_ExecRefresh (acceptance 3, E6): through the read trigger, after connected: an
-// expired credential is replaced by a new run; a 401 runs the program once and repeats the
-// read once with the new credential; a new credential rejected again is K-AU once; a
-// failed refresh run is K-EP once and the program does not run again; two reads at once
-// cause one run. A successful refresh keeps connected and prints nothing (3 s window).
+// TestK_ExecRefresh (acceptance 3, E6): through the graph route, after connected: an
+// expired credential is replaced by a new run; a 401 runs the program once and repeats
+// that request once with the new credential, and the call's requests after it carry only
+// the new one; a new credential rejected again is K-AU once and ends the call; a failed
+// refresh run is K-EP once and the program does not run again; two reads at once cause
+// one run. A successful refresh keeps connected and prints nothing (3 s window).
 func TestK_ExecRefresh(t *testing.T) {
 	tokA, tokB := "tok-a-"+randomHex(8), "tok-b-"+randomHex(8)
 	names := map[string]string{tokA: "A", tokB: "B"}
@@ -66,10 +69,11 @@ func TestK_ExecRefresh(t *testing.T) {
 		untilAfterStart(p, 4*time.Second)
 		forced := time.Now()
 		status := p.readOnce(30 * time.Second)
-		got := srv.received(before, names)
-		t.Logf("K-REFRESH expiry: read forced %s after the start answered %d; program starts %d; server received %v (stub (ii) would send A)", forced.Sub(p.started).Round(10*time.Millisecond), status, prog.starts(), got)
-		if status != 200 || prog.starts() != 2 || len(got) != 1 || got[0] != "B" {
-			t.Errorf("K-REFRESH expiry: read %d, starts %d, server received %v; want 200, 2 starts and the new credential B only", status, prog.starts(), got)
+		got, paths := srv.received(before, names), srv.paths(before)
+		t.Logf("K-REFRESH expiry: read forced %s after the start answered %d; program starts %d; K=%d (want %d); server received %s (stub (ii) would send A)",
+			forced.Sub(p.started).Round(10*time.Millisecond), status, prog.starts(), len(got), callK, srv.pairs(before, names))
+		if status != 200 || prog.starts() != 2 || fmt.Sprint(got) != fmt.Sprint(repeat("B", callK)) || fmt.Sprint(paths) != fmt.Sprint(callPaths()) {
+			t.Errorf("K-REFRESH expiry: read %d, starts %d, server received %v %v; want 200, 2 starts and the K requests of one call with the new credential B only", status, prog.starts(), got, paths)
 		}
 		quiet(t, p, "K-REFRESH expiry", outBefore, errBefore)
 	})
@@ -80,10 +84,13 @@ func TestK_ExecRefresh(t *testing.T) {
 		outBefore, errBefore, before := len(p.stdout.list()), len(p.stderr.list()), srv.count()
 		srv.reject(tokA)
 		status := p.readOnce(30 * time.Second)
-		got := srv.received(before, names)
-		t.Logf("K-REFRESH 401: read answered %d; program starts %d; server received %v (A rejected; stub (ii) would repeat with A)", status, prog.starts(), got)
-		if status != 200 || prog.starts() != 2 || fmt.Sprint(got) != "[A B]" {
-			t.Errorf("K-REFRESH 401: read %d, starts %d, server received %v; want 200, 2 starts and [A B] (one repeat)", status, prog.starts(), got)
+		got, paths := srv.received(before, names), srv.paths(before)
+		wantTokens := append([]string{"A"}, repeat("B", callK)...)
+		wantPaths := append([]string{"/apis"}, callPaths()...)
+		t.Logf("K-REFRESH 401: read answered %d; program starts %d; K=%d plus the one repeat; server received %s (A rejected; stub (ii) would repeat with A)",
+			status, prog.starts(), callK, srv.pairs(before, names))
+		if status != 200 || prog.starts() != 2 || fmt.Sprint(got) != fmt.Sprint(wantTokens) || fmt.Sprint(paths) != fmt.Sprint(wantPaths) {
+			t.Errorf("K-REFRESH 401: read %d, starts %d, server received %v %v; want 200, 2 starts, %v (one repeat, A once) on %v", status, prog.starts(), got, paths, wantTokens, wantPaths)
 		}
 		quiet(t, p, "K-REFRESH 401", outBefore, errBefore)
 	})
@@ -97,10 +104,10 @@ func TestK_ExecRefresh(t *testing.T) {
 		o, _ := p.settle(5 * time.Second)
 		want := fmt.Sprintf(textAU, "fake-c", "exec-ctx")
 		n := waitCount(p.stderr, want, 1)
-		got := srv.received(before, names)
-		t.Logf("K-REFRESH rejected: read %d; starts %d; server received %v; state %s, K-AU lines %d", status, prog.starts(), got, o.State, n)
-		if o.State != "credentials-rejected" || str(o.Message) != want || n != 1 || fmt.Sprint(got) != "[A B]" {
-			t.Errorf("K-REFRESH rejected: state %q message %q, %d lines, server %v; want credentials-rejected with K-AU once after [A B]", o.State, str(o.Message), n, got)
+		got, paths := srv.received(before, names), srv.paths(before)
+		t.Logf("K-REFRESH rejected: read %d; starts %d; server received %s; state %s, K-AU lines %d", status, prog.starts(), srv.pairs(before, names), o.State, n)
+		if o.State != "credentials-rejected" || str(o.Message) != want || n != 1 || fmt.Sprint(got) != "[A B]" || fmt.Sprint(paths) != "[/apis /apis]" {
+			t.Errorf("K-REFRESH rejected: state %q message %q, %d lines, server %v %v; want credentials-rejected with K-AU once after [A B] on /apis (the call stops at the second 401)", o.State, str(o.Message), n, got, paths)
 		}
 	})
 
@@ -137,10 +144,14 @@ func TestK_ExecRefresh(t *testing.T) {
 			}()
 		}
 		wg.Wait()
-		got := srv.received(before, names)
-		t.Logf("K-REFRESH two reads: answers %v; program starts %d; server received %v (stub (ii) would send A)", statuses, prog.starts(), got)
-		if statuses[0] != 200 || statuses[1] != 200 || prog.starts() != 2 || fmt.Sprint(got) != "[B B]" {
-			t.Errorf("K-REFRESH two reads: answers %v, starts %d, server %v; want 200 200, one refresh run (2 starts) and [B B]", statuses, prog.starts(), got)
+		got, paths := srv.received(before, names), srv.paths(before)
+		sort.Strings(paths)
+		wantPaths := append(callPaths(), callPaths()...)
+		sort.Strings(wantPaths)
+		t.Logf("K-REFRESH two reads: answers %v; program starts %d; %d requests (want 2K = %d); server received %s (stub (ii) would send A)",
+			statuses, prog.starts(), len(got), 2*callK, srv.pairs(before, names))
+		if statuses[0] != 200 || statuses[1] != 200 || prog.starts() != 2 || fmt.Sprint(got) != fmt.Sprint(repeat("B", 2*callK)) || fmt.Sprint(paths) != fmt.Sprint(wantPaths) {
+			t.Errorf("K-REFRESH two reads: answers %v, starts %d, server %v; want 200 200, one refresh run (2 starts) and the 2K requests of two calls, every one with B", statuses, prog.starts(), got)
 		}
 	})
 }
@@ -157,16 +168,17 @@ func TestK_ExecRefreshBeforeW1(t *testing.T) {
 	status := p.readOnce(30 * time.Second)
 	starts := prog.startTimes()
 	o, _ := p.cluster()
-	got := srv.received(before, map[string]string{tokA: "A", tokB: "B"})
+	names := map[string]string{tokA: "A", tokB: "B"}
+	got, paths := srv.received(before, names), srv.paths(before)
 	if len(starts) == 2 {
-		t.Logf("K-REFRESH-BEFORE-W1: refresh run started %s after the attempt start, the read answered %d at %s (W1 %s); state %s; server received %v",
-			starts[1].Sub(p.started).Round(10*time.Millisecond), status, time.Since(p.started).Round(10*time.Millisecond), w1, o.State, got)
+		t.Logf("K-REFRESH-BEFORE-W1: refresh run started %s after the attempt start, the read answered %d at %s (W1 %s); state %s; K=%d; server received %s",
+			starts[1].Sub(p.started).Round(10*time.Millisecond), status, time.Since(p.started).Round(10*time.Millisecond), w1, o.State, callK, srv.pairs(before, names))
 	}
 	if len(starts) != 2 || starts[1].Sub(p.started) > w1/2 {
 		t.Fatalf("preparation: program starts %d; the refresh did not start before W1", len(starts))
 	}
-	if status != 200 || o.State != "connected" || fmt.Sprint(got) != "[B]" {
-		t.Errorf("K-REFRESH-BEFORE-W1: read %d, state %q (%s), server %v; want 200, connected and B: the refresh run ends after the attempt's W1 instant", status, o.State, str(o.Message), got)
+	if status != 200 || o.State != "connected" || fmt.Sprint(got) != fmt.Sprint(repeat("B", callK)) || fmt.Sprint(paths) != fmt.Sprint(callPaths()) {
+		t.Errorf("K-REFRESH-BEFORE-W1: read %d, state %q (%s), server %v %v; want 200, connected and the K requests of the call with B: the refresh run ends after the attempt's W1 instant", status, o.State, str(o.Message), got, paths)
 	}
 }
 
@@ -194,19 +206,19 @@ func TestK_ExecRefreshAfterW1(t *testing.T) {
 	status := p.readOnce(30 * time.Second)
 	starts := prog.startTimes()
 	o, _ := p.cluster()
-	got := srv.received(before, names)
+	got, paths := srv.received(before, names), srv.paths(before)
 	if len(starts) >= 2 {
-		t.Logf("K-REFRESH-AFTER-W1: second real start after W1: the refresh run started %s after the attempt start (start record %q); read answered %d; state %s; server received %v",
-			starts[1].Sub(p.started).Round(10*time.Millisecond), prog.lines("starts")[1], status, o.State, got)
+		t.Logf("K-REFRESH-AFTER-W1: second real start after W1: the refresh run started %s after the attempt start (start record %q); read answered %d; state %s; K=%d; server received %s",
+			starts[1].Sub(p.started).Round(10*time.Millisecond), prog.lines("starts")[1], status, o.State, callK, srv.pairs(before, names))
 	} else {
-		t.Logf("K-REFRESH-AFTER-W1: no second program start recorded: the refresh run's deadline passed before the program started; read answered %d; state %s; server received %v",
-			status, o.State, got)
+		t.Logf("K-REFRESH-AFTER-W1: no second program start recorded: the refresh run's deadline passed before the program started; read answered %d; state %s; server received %s",
+			status, o.State, srv.pairs(before, names))
 	}
 	if len(starts) != 2 || starts[1].Sub(p.started) < w1 {
 		t.Errorf("K-REFRESH-AFTER-W1: program starts %d; want a second start after W1", len(starts))
 	}
-	if status != 200 || o.State != "connected" || fmt.Sprint(got) != "[B]" {
-		t.Errorf("K-REFRESH-AFTER-W1: read %d, state %q (%s), server %v; want 200, connected and B", status, o.State, str(o.Message), got)
+	if status != 200 || o.State != "connected" || fmt.Sprint(got) != fmt.Sprint(repeat("B", callK)) || fmt.Sprint(paths) != fmt.Sprint(callPaths()) {
+		t.Errorf("K-REFRESH-AFTER-W1: read %d, state %q (%s), server %v %v; want 200, connected and the K requests of the call with B", status, o.State, str(o.Message), got, paths)
 	}
 }
 

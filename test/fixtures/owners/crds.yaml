@@ -1,0 +1,77 @@
+# Test CRDs of packet FA2-T5 (job e2e-graph). Widget: plural wdgts (not "widgets", G3),
+# served in v1 and v2, so the group's preferred version is v2 (C17c). Gadget: served in v1
+# only, in the same group (C17c). Secret of vault.example.com: a custom kind named Secret
+# in another group (C14b).
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: wdgts.example.com
+spec:
+  group: example.com
+  scope: Namespaced
+  names:
+    kind: Widget
+    plural: wdgts
+    singular: widget
+    listKind: WidgetList
+  versions:
+    - name: v1
+      served: true
+      storage: false
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true
+      subresources:
+        status: {}
+    - name: v2
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true
+      subresources:
+        status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: gadgets.example.com
+spec:
+  group: example.com
+  scope: Namespaced
+  names:
+    kind: Gadget
+    plural: gadgets
+    singular: gadget
+    listKind: GadgetList
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: vaultsecrets.vault.example.com
+spec:
+  group: vault.example.com
+  scope: Namespaced
+  names:
+    kind: Secret
+    plural: vaultsecrets
+    singular: vaultsecret
+    listKind: SecretList
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true

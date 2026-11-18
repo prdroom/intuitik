@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -21,24 +22,35 @@ import (
 )
 
 // credCase is one case of TestK_ExecCredentialFreeOutput: its program plans, whether it
-// uses the read trigger, and what happens after connected.
+// reads after connected, and what happens after connected.
 type credCase struct {
 	name    string
 	plans   []string
-	trigger bool                                      // e2etest binary with READ-TRIGGER-T3b
+	trigger bool                                      // a graph route call after connected (G8)
 	after   func(t *testing.T, p *panel, s *credServer) int // the read after the first attempt; its answer
 	tokens  map[string]string                         // names of the tokens the server may record
-	want    string                                    // the server record of the read (READ-TRIGGER-T3b)
+	want    string                                    // the server record of the read: one graph call
 	// NEGFIX-T3b: the canary the refresh run prints, and the read's answer and server
 	// record under the negative fixture refresh-output-leak (the refresh run fails there).
 	refreshed            string
 	leakRead             int
 	leakWant             string
+	// leakStdout, when set, is the refresh run's output under the negative fixture: the
+	// read then also leaves state credential-program-failed with the exact K-EP text that
+	// carries it (REDSPLIT-T5 974302a8, conflict 2).
+	leakStdout string
 }
 
-// leakFixture is the negative fixture of NEGFIX-T3b: the read route of cluster-read-route,
-// and a refresh run's output put into its K-EP text.
+// leakFixture is the negative fixture of NEGFIX-T3b: a refresh run's output put into its
+// K-EP text. Its read after connected is the product's graph route.
 const leakFixture = "refresh-output-leak"
+
+// credentialOutput is the output of the fake program for a token plan: the JSON that
+// credfake writes (a map, so its keys are in sorted order, with no newline).
+func credentialOutput(token string) string {
+	raw, _ := json.Marshal(map[string]any{"apiVersion": "client.authentication.k8s.io/v1", "kind": "ExecCredential", "status": map[string]any{"token": token}})
+	return string(raw)
+}
 
 // subRun is what one panel of a case produced: its output and API bodies, collected the
 // same way for every sub-run.
@@ -53,9 +65,10 @@ type subRun struct {
 // first run, refresh on expiry, refresh after 401, malformed output, wrong API version,
 // missing status, output over 1 MiB and timeout. Positive control in the same run: each
 // canary is found in its fixture (the kubeconfig or the program's output file). The
-// program's stderr marker is found at least once on intuitik's stderr. The two refresh
-// cases start the e2etest binary with READ-TRIGGER-T3b; every other case starts the
-// release binary. This file sorts last.
+// program's stderr marker is found at least once on intuitik's stderr. Every case starts
+// the release binary; the two refresh cases read after connected through the graph route
+// (packet FA2-T5 G8), and their NEGFIX sub-runs start the e2etest binary with the negative
+// fixture refresh-output-leak. This file sorts last.
 func TestK_ExecCredentialFreeOutput(t *testing.T) {
 	marker := "intuitik-exec-stderr-marker-" + randomHex(8)
 	tok := func(name string) string { return strings.Join([]string{"intuitik", "canary", name, randomHex(12)}, "-") }
@@ -81,13 +94,14 @@ func TestK_ExecCredentialFreeOutput(t *testing.T) {
 		{name: "first run", plans: []string{stderr + "token=" + first}},
 		{name: "first run with a client certificate", plans: []string{stderr + "certfile=" + certFile + ";keyfile=" + keyFile}},
 		{name: "refresh on expiry", trigger: true, plans: []string{stderr + "token=" + expiryA + ";expiry=3", stderr + "token=" + expiryB},
-			tokens: map[string]string{expiryA: "A", expiryB: "B"}, want: "[B]", refreshed: expiryB, leakRead: 503, leakWant: "[]",
+			tokens: map[string]string{expiryA: "A", expiryB: "B"}, want: fmt.Sprint(repeat("B", callK)), refreshed: expiryB, leakRead: 503, leakWant: "[]",
 			after: func(t *testing.T, p *panel, s *credServer) int {
 				untilAfterStart(p, 4*time.Second)
 				return p.readOnce(30 * time.Second)
 			}},
 		{name: "refresh after 401", trigger: true, plans: []string{stderr + "token=" + rejectA, stderr + "token=" + rejectB},
-			tokens: map[string]string{rejectA: "A", rejectB: "B"}, want: "[A B]", refreshed: rejectB, leakRead: 401, leakWant: "[A]",
+			tokens: map[string]string{rejectA: "A", rejectB: "B"}, want: fmt.Sprint(append([]string{"A"}, repeat("B", callK)...)), refreshed: rejectB,
+			leakRead: 503, leakWant: "[A]", leakStdout: credentialOutput(rejectB),
 			after: func(t *testing.T, p *panel, s *credServer) int {
 				s.reject(rejectA)
 				return p.readOnce(30 * time.Second)
@@ -129,15 +143,25 @@ func TestK_ExecCredentialFreeOutput(t *testing.T) {
 			if o.State != "connected" || early != 0 {
 				t.Fatalf("preparation: K-E8 case %s: state %s, refresh canary already found %d times", label, o.State, early)
 			}
-			// READ-TRIGGER-T3b: the read, the program starts and the server record show that
-			// the product's refresh path ran in this case.
+			// G8: the read (one graph call), the program starts and the server record show
+			// that the product's refresh path ran in this case.
 			before := srv.count()
 			status := c.after(t, p, srv)
 			got := fmt.Sprint(srv.received(before, c.tokens))
 			t.Logf("K-E8 case %s: read answered %d; program starts %d %q; server record of the read %s (want %d, 2 starts, %s)",
-				label, status, prog.starts(), prog.lines("starts"), got, readWant, recordWant)
+				label, status, prog.starts(), prog.lines("starts"), srv.pairs(before, c.tokens), readWant, recordWant)
 			if status != readWant || prog.starts() != 2 || got != recordWant {
 				t.Errorf("K-E8 case %s: read %d, starts %d, server record %s; want %d, 2 starts and %s", label, status, prog.starts(), got, readWant, recordWant)
+			}
+			if fixture == leakFixture && c.leakStdout != "" {
+				// REDSPLIT-T5 conflict 2: the failed refresh run leaves state
+				// credential-program-failed with the K-EP text that carries its output.
+				lo, _ := p.cluster()
+				wantEP := fmt.Sprintf(textEP, prog.path, "exec-ctx", "no valid credential in its output: "+c.leakStdout)
+				t.Logf("K-E8 case %s: state %s, message exact %v (want credential-program-failed and the K-EP text with the run's output)", label, lo.State, str(lo.Message) == wantEP)
+				if lo.State != "credential-program-failed" || str(lo.Message) != wantEP {
+					t.Errorf("K-E8 case %s: state %q message %q; want credential-program-failed with %q", label, lo.State, str(lo.Message), wantEP)
+				}
 			}
 		}
 		p.cluster()
@@ -162,11 +186,7 @@ func TestK_ExecCredentialFreeOutput(t *testing.T) {
 		return subRun{output: [][]byte{p.stdout.bytes(), p.stderr.bytes()}, responses: resps}
 	}
 	for _, c := range cases {
-		fixture := ""
-		if c.trigger {
-			fixture = readFixture
-		}
-		normal := run(c, fixture, 200, c.want)
+		normal := run(c, "", 200, c.want)
 		output = append(output, normal.output...)
 		responses = append(responses, normal.responses...)
 		allOutput.add(normal.output...)
@@ -180,8 +200,8 @@ func TestK_ExecCredentialFreeOutput(t *testing.T) {
 		leakOut, leakAPI := bytes.Join(leak.output, []byte("\n")), bytes.Join(leak.responses, []byte("\n"))
 		nOut, nAPI := secretscan.Count(bytes.Join(normal.output, []byte("\n")), c.refreshed), secretscan.Count(bytes.Join(normal.responses, []byte("\n")), c.refreshed)
 		fOut, fAPI := secretscan.Count(leakOut, c.refreshed), secretscan.Count(leakAPI, c.refreshed)
-		t.Logf("K-E8 NEGFIX case %s: refresh canary in the normal sub-run (fixture %s) output %d, API bodies %d; with the negative fixture %s output %d, API bodies %d (want at least 1)",
-			c.name, readFixture, nOut, nAPI, leakFixture, fOut, fAPI)
+		t.Logf("K-E8 NEGFIX case %s: refresh canary in the normal sub-run (release binary) output %d, API bodies %d; with the negative fixture %s output %d, API bodies %d (want at least 1)",
+			c.name, nOut, nAPI, leakFixture, fOut, fAPI)
 		if fOut+fAPI == 0 {
 			t.Errorf("K-E8 NEGFIX case %s: the canary search did not find the refresh run's canary under the negative fixture %s", c.name, leakFixture)
 		}

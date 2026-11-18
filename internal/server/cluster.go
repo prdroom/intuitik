@@ -147,6 +147,24 @@ func (c *cluster) snapshot() (readonly.Outcome, clusterObject) {
 	return c.snapshotLocked()
 }
 
+// admit is snapshot plus the generation number of that state, read under one lock: the
+// generation that a graph call is bound to (packet FA2-T5, CLIENT-PER-REQ-T5 point 1).
+func (c *cluster) admit() (readonly.Outcome, clusterObject, int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	o, obj := c.snapshotLocked()
+	return o, obj, c.gen
+}
+
+// current reports that generation gen is still the cluster's and that its state is still
+// connected (CLIENT-PER-REQ-T5 point 3). The lock is released before it returns, so no
+// caller holds it while it makes a client (point 4).
+func (c *cluster) current(gen int) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return gen == c.gen && !c.connecting && c.outcome.State == readonly.StateConnected
+}
+
 // snapshotLocked is snapshot for a caller that holds mu.
 func (c *cluster) snapshotLocked() (readonly.Outcome, clusterObject) {
 	o := c.outcome
