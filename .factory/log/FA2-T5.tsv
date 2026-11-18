@@ -1,0 +1,2 @@
+start_ts	end_ts	phase	decision	reason	evidence	result
+2026-11-18T18:00:54+09:00		start	FA2-T5	start on MERGED reply 343106f6 (operation=workflow-install, M = W, next = FA2-T5, exception E-WI): main = W read through the API, agent/FA2-T5 at W (HEAD = W, exact), start check exit 0, start commit S carries .factory/log/FA2-T5-wf.tsv byte for byte (WFLOG-T5 item 3), WIP PR, then red	approval 63d1350a; base W 8321435cb31bcd47051056479e24e70bd23502a1; installed ci.yml blob b631fac49a161ff114081fcada33185758a8b73e; FA2-T5-wf ledger hash 0d0e5066ec2ef9b129d2710182d7a47dd54e6691	open
