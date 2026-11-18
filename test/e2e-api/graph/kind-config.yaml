@@ -1,0 +1,44 @@
+# Graph kind cluster of job e2e-graph (packet FA2-T5 D.6). kind v0.33.0 generates kubeadm
+# v1beta4 for Kubernetes v1.37 (pkg/cluster/internal/kubeadm/config.go), and applies a JSON
+# 6902 patch only to the document of the same group, version and kind
+# (pkg/internal/patch/resource.go), so these patches append to kind's own argument lists.
+# - The controller manager runs every controller kind enables except the garbage
+#   collector, so a child whose owner is missing or recreated stays for the request.
+# - The API server writes an audit log at Metadata level (policy written by the workflow
+#   to /tmp/intuitik-graph-audit/audit-policy.yaml on the runner) to
+#   /var/log/kubernetes/audit/audit.log inside the node (G7).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraMounts:
+      - hostPath: /tmp/intuitik-graph-audit
+        containerPath: /etc/kubernetes/intuitik-audit
+        readOnly: true
+kubeadmConfigPatchesJSON6902:
+  - group: kubeadm.k8s.io
+    version: v1beta4
+    kind: ClusterConfiguration
+    patch: |
+      - op: add
+        path: /apiServer/extraArgs/-
+        value: {name: audit-policy-file, value: /etc/kubernetes/intuitik-audit/audit-policy.yaml}
+      - op: add
+        path: /apiServer/extraArgs/-
+        value: {name: audit-log-path, value: /var/log/kubernetes/audit/audit.log}
+      - op: add
+        path: /apiServer/extraVolumes
+        value:
+          - name: intuitik-audit-policy
+            hostPath: /etc/kubernetes/intuitik-audit
+            mountPath: /etc/kubernetes/intuitik-audit
+            readOnly: true
+            pathType: Directory
+          - name: intuitik-audit-log
+            hostPath: /var/log/kubernetes/audit
+            mountPath: /var/log/kubernetes/audit
+            readOnly: false
+            pathType: DirectoryOrCreate
+      - op: add
+        path: /controllerManager/extraArgs/-
+        value: {name: controllers, value: "*,bootstrapsigner,tokencleaner,-garbagecollector"}

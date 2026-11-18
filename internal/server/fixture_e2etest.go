@@ -67,13 +67,10 @@ var fixtures = map[string]Fixture{
 	// M1-T3a D1 (TestK_ClusterRouteGate): the product plus one probe route registered
 	// through clusterRoute. It is not a defect; registerFixtureRoutes adds the route.
 	"cluster-probe-route": {},
-	// M1-T3b READ-TRIGGER-T3b: the product plus one read route registered through
-	// clusterRoute, the test trigger of a read after connected. It is not a defect;
-	// registerFixtureRoutes adds the route.
-	"cluster-read-route": {},
-	// M1-T3b NEGFIX-T3b: the read route of cluster-read-route plus one defect, set in
+	// M1-T3b NEGFIX-T3b: the product plus one defect, set in
 	// internal/kube/readonly/fixture_e2etest.go: a refresh run's output goes into its
-	// K-EP text.
+	// K-EP text. The read after connected is the product's graph route (packet FA2-T5
+	// D.4).
 	"refresh-output-leak": {},
 	// M1-T3b KWFIX-T3b: the product plus one defect, set in
 	// internal/kube/readonly/fixture_e2etest.go: after an exec run gave a credential, the
@@ -85,33 +82,14 @@ var fixtures = map[string]Fixture{
 // counts the calls of its handler, so that the gate's 503 answers show 0 calls.
 const clusterProbePath = "/api/fixture-cluster-probe"
 
-// clusterReadPath is the read route of the "cluster-read-route" fixture, and
-// clusterReadTarget the one fixed API path that its handler reads.
-const (
-	clusterReadPath   = "/api/fixture-cluster-read"
-	clusterReadTarget = "/api"
-)
-
 // registerFixtureRoutes registers the probe route of the "cluster-probe-route" fixture
-// and the read route of the "cluster-read-route" fixture through clusterRoute.
+// through clusterRoute.
 func registerFixtureRoutes(s *server) {
 	switch s.o.Seams.Fixture.Name {
 	case "cluster-probe-route":
 		var calls atomic.Int64
 		s.clusterRoute(http.MethodGet, clusterProbePath, func(w http.ResponseWriter, r *http.Request, c *readonly.Client) {
 			writeJSON(w, map[string]int64{"calls": calls.Add(1)})
-		})
-	case "cluster-read-route", "refresh-output-leak":
-		// One logical read: one call of Client.Get on clusterReadTarget. The answer is
-		// only the status code of that read (502 when it got no answer); the response
-		// body is closed unread and nothing else is written.
-		s.clusterRoute(http.MethodGet, clusterReadPath, func(w http.ResponseWriter, r *http.Request, c *readonly.Client) {
-			status := http.StatusBadGateway
-			if resp, err := c.Get(r.Context(), clusterReadTarget); err == nil {
-				status = resp.StatusCode
-				resp.Body.Close()
-			}
-			w.WriteHeader(status)
 		})
 	}
 }

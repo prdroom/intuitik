@@ -1,0 +1,9 @@
+TestG_Containment
+TestG_OwnerMissing
+TestG_OwnerForbidden
+TestG_ListRefused
+TestG_ClusterScopedOwner
+TestG_SecretOwner
+TestG_CustomWithoutCRDList
+TestG_VersionPerResource
+TestG_RouteGate

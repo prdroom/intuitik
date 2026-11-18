@@ -30,6 +30,15 @@ type cluster struct {
 	started func()
 	// run runs credential programs; nil is runCredentialProgram.
 	run readonly.Runner
+	// afterAdmit, when set, runs in a graph call after the check that its generation is
+	// still current and before the client of the operation is made, outside the lock.
+	// Only tests set it (REDSPLIT-T5 amendment A2).
+	afterAdmit func()
+	// calls are the contexts of the running graph calls of the current generation, by
+	// call number. They are canceled under the lock when the generation stops being
+	// current or connected, so no call sends a request after that.
+	calls    map[int]context.CancelFunc
+	nextCall int
 }
 
 // contextObject is one entry of the contexts list of the cluster object.
@@ -72,6 +81,7 @@ func (c *cluster) start(name string) clusterObject {
 	c.mu.Lock()
 	c.gen++
 	gen := c.gen
+	c.cancelCallsLocked()
 	if c.generation != nil {
 		c.generation.Close()
 	}
@@ -117,6 +127,7 @@ func (c *cluster) stop() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.gen++
+	c.cancelCallsLocked()
 	if c.generation != nil {
 		c.generation.Close()
 	}
@@ -137,7 +148,43 @@ func (c *cluster) changed(gen int, o readonly.Outcome) {
 		return
 	}
 	c.outcome = o
+	c.cancelCallsLocked()
 	c.print(o)
+}
+
+// bind returns a context of parent for one graph call of generation gen and its
+// release. The context is canceled under the lock as soon as gen stops being the
+// cluster's or stops being connected (start, stop, changed), so a request of the call
+// that starts after that is never sent (CLIENT-PER-REQ-T5 point 3). ok is false when gen
+// is no longer current; the context is then already canceled.
+func (c *cluster) bind(parent context.Context, gen int) (ctx context.Context, release func(), ok bool) {
+	ctx, cancel := context.WithCancel(parent)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if gen != c.gen || c.connecting || c.outcome.State != readonly.StateConnected {
+		cancel()
+		return ctx, func() {}, false
+	}
+	if c.calls == nil {
+		c.calls = map[int]context.CancelFunc{}
+	}
+	c.nextCall++
+	id := c.nextCall
+	c.calls[id] = cancel
+	return ctx, func() {
+		c.mu.Lock()
+		delete(c.calls, id)
+		c.mu.Unlock()
+		cancel()
+	}, true
+}
+
+// cancelCallsLocked cancels the context of every running graph call. The caller holds mu.
+func (c *cluster) cancelCallsLocked() {
+	for id, cancel := range c.calls {
+		cancel()
+		delete(c.calls, id)
+	}
 }
 
 // snapshot returns the last outcome and the cluster object of the current state.
@@ -145,6 +192,24 @@ func (c *cluster) snapshot() (readonly.Outcome, clusterObject) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.snapshotLocked()
+}
+
+// admit is snapshot plus the generation number of that state, read under one lock: the
+// generation that a graph call is bound to (packet FA2-T5, CLIENT-PER-REQ-T5 point 1).
+func (c *cluster) admit() (readonly.Outcome, clusterObject, int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	o, obj := c.snapshotLocked()
+	return o, obj, c.gen
+}
+
+// current reports that generation gen is still the cluster's and that its state is still
+// connected (CLIENT-PER-REQ-T5 point 3). The lock is released before it returns, so no
+// caller holds it while it makes a client (point 4).
+func (c *cluster) current(gen int) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return gen == c.gen && !c.connecting && c.outcome.State == readonly.StateConnected
 }
 
 // snapshotLocked is snapshot for a caller that holds mu.

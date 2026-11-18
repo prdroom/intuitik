@@ -1,8 +1,10 @@
 package server
 
 import (
+	"context"
 	"net/http"
 
+	"github.com/prdroom/intuitik/internal/graph"
 	"github.com/prdroom/intuitik/internal/kube/readonly"
 )
 
@@ -42,4 +44,61 @@ func (s *server) gate(w http.ResponseWriter, r *http.Request, h clusterHandler) 
 		return
 	}
 	h(w, r, c)
+}
+
+// readHandler is the handler of a cluster route that makes several cluster operations in
+// one call (packet FA2-T5 D.3). open makes the client of one operation; current reports
+// that the call's generation is still the cluster's and still connected.
+type readHandler func(w http.ResponseWriter, r *http.Request, open graph.Open, current func() bool)
+
+// readRoute registers a cluster route whose handler reads through readGate. Like every
+// cluster route, it answers 503 with the cluster object while the state is not connected.
+func (s *server) readRoute(method, path string, h readHandler) {
+	s.routes = append(s.routes, Route{
+		Method: method,
+		Path:   path,
+		Auth:   authSession,
+		Kind:   routeCluster,
+		Handle: func(s *server, w http.ResponseWriter, r *http.Request) { s.readGate(w, r, h) },
+	})
+}
+
+// readGate binds one call to the generation that is connected when the call starts
+// (CLIENT-PER-REQ-T5). The call's context is canceled under the cluster lock as soon as
+// that generation stops being the cluster's or stops being connected, and every request
+// of the call is sent with that context, so no request goes out after a switch, a stop or
+// a state change, also one whose client was made just before it. Each call of open
+// checks the generation and the context, then makes one new client on that generation
+// with the constructor of the gate; it never takes a new snapshot, and no lock is held
+// while the client is made. A failed check or constructor ends the call with
+// graph.ErrStopped.
+func (s *server) readGate(w http.ResponseWriter, r *http.Request, h readHandler) {
+	o, obj, gen := s.cluster.admit()
+	if o.State != readonly.StateConnected || obj.State != string(readonly.StateConnected) {
+		writeJSONStatus(w, http.StatusServiceUnavailable, obj)
+		return
+	}
+	ctx, release, ok := s.cluster.bind(r.Context(), gen)
+	defer release()
+	if !ok {
+		_, obj = s.cluster.snapshot()
+		writeJSONStatus(w, http.StatusServiceUnavailable, obj)
+		return
+	}
+	r = r.WithContext(ctx)
+	current := func() bool { return ctx.Err() == nil && s.cluster.current(gen) }
+	open := func(opCtx context.Context) (graph.Reader, error) {
+		if opCtx.Err() != nil || !current() {
+			return nil, graph.ErrStopped
+		}
+		if h := s.cluster.afterAdmit; h != nil {
+			h()
+		}
+		c, err := readonly.NewClient(o)
+		if err != nil || opCtx.Err() != nil {
+			return nil, graph.ErrStopped
+		}
+		return c, nil
+	}
+	h(w, r, open, current)
 }

@@ -36,11 +36,13 @@ func (s *server) controlRoute(r Route) {
 }
 
 // registerRoutes registers every route of the server. Routes are registered only with
-// controlRoute and clusterRoute; the e2etest build appends its negative fixtures.
+// controlRoute, clusterRoute and readRoute; the e2etest build appends its negative
+// fixtures.
 func (s *server) registerRoutes() {
 	for _, r := range routeTable {
 		s.controlRoute(r)
 	}
+	s.registerClusterRoutes()
 	registerFixtureRoutes(s)
 	for _, r := range s.o.Seams.Fixture.ExtraRoutes {
 		r.Kind = routeFixture
