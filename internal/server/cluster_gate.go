@@ -1,8 +1,10 @@
 package server
 
 import (
+	"context"
 	"net/http"
 
+	"github.com/prdroom/intuitik/internal/graph"
 	"github.com/prdroom/intuitik/internal/kube/readonly"
 )
 
@@ -42,4 +44,18 @@ func (s *server) gate(w http.ResponseWriter, r *http.Request, h clusterHandler) 
 		return
 	}
 	h(w, r, c)
+}
+
+// oneClientRead is R2 of REDSPLIT-T5 (decision 974302a8): it runs h with one client made
+// from the current snapshot, without the gate's 503 answer and without a generation
+// check, so every operation of the call uses that one client. When no client can be made
+// the answer has no node.
+func (s *server) oneClientRead(w http.ResponseWriter, r *http.Request, h func(w http.ResponseWriter, r *http.Request, open graph.Open)) {
+	o, _ := s.cluster.snapshot()
+	c, err := readonly.NewClient(o)
+	if err != nil {
+		writeJSON(w, graph.Answer{Namespace: r.URL.Query().Get("namespace"), Nodes: []graph.Node{}, Refused: []graph.Refusal{}})
+		return
+	}
+	h(w, r, func(context.Context) (graph.Reader, error) { return c, nil })
 }
