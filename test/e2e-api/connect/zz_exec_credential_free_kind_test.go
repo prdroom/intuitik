@@ -112,8 +112,8 @@ func TestK_ExecCredentialFreeOutput(t *testing.T) {
 		if fixture != "" {
 			opts.test, opts.fixture = true, fixture
 		}
-		// Every API response of this panel (its polls, the final reads and the read
-		// trigger's answer) is collected from here on.
+		// Every API response of this panel (the session answer of its login, its polls,
+		// the final reads and the read trigger's answer) is collected from here on.
 		allOutput.mu.Lock()
 		respStart := len(allOutput.responses)
 		allOutput.mu.Unlock()
@@ -148,7 +148,17 @@ func TestK_ExecCredentialFreeOutput(t *testing.T) {
 		allOutput.mu.Lock()
 		resps := append([][]byte(nil), allOutput.responses[respStart:]...)
 		allOutput.mu.Unlock()
-		t.Logf("K-E8 case %s: %d API responses collected for the search", label, len(resps))
+		// The session answer is the one response that carries this panel's session.
+		sessions := 0
+		for _, r := range resps {
+			if bytes.Contains(r, []byte(p.sess)) {
+				sessions++
+			}
+		}
+		t.Logf("K-E8 case %s: %d API responses collected for the search, %d of them the POST /api/session answer", label, len(resps), sessions)
+		if sessions != 1 {
+			t.Errorf("K-E8 case %s: %d collected responses carry the panel's session; want the POST /api/session answer once", label, sessions)
+		}
 		return subRun{output: [][]byte{p.stdout.bytes(), p.stderr.bytes()}, responses: resps}
 	}
 	for _, c := range cases {

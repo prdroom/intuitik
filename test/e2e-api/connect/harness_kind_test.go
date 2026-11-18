@@ -463,6 +463,9 @@ func (p *panel) login(openLog string) {
 	}
 	body, _ := json.Marshal(map[string]string{"t": token})
 	resp := p.request("POST", "/api/session", body, false)
+	// The session answer is an API response of this panel too (M1-T3b F6): it joins the
+	// collected responses that the canary searches read.
+	allOutput.addResponse(resp.raw)
 	var v struct{ Session, Csrf string }
 	if resp.status != 200 || json.Unmarshal(resp.body, &v) != nil || v.Session == "" {
 		p.t.Fatalf("login exchange: status %d body %q", resp.status, resp.body)
