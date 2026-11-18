@@ -26,7 +26,9 @@ import (
 //   - the last ownerReference decides (C12);
 //   - an owner of kind Secret skipped (C14b);
 //   - the owner looked up by name only, at a plural made from its kind unless the CRD list
-//     names it (C6 to C8: a missing owner drops the child; G3: no discovery);
+//     names it (C6 to C8: a missing owner, or any lookup error in a group that /apis does
+//     not list, drops the child; G3: no discovery). R2b of REDSPLIT-T5 amendment A1
+//     (1210dc8f) adds the group rule for the C8 kind row;
 //   - found with the reference's UID: no parent and state none (C1 to C4, C13, C14);
 //   - found with another UID: the child inside that object (C7, G2);
 //   - 403 and every other lookup error: owner-missing (C9, C10, C11, G4);
@@ -121,8 +123,9 @@ func Build(ctx context.Context, open Open, namespace string) (Answer, error) {
 				ns = ""
 			}
 			owner, err := r.Object(ctx, readonly.Resource{Group: group, Version: version, Resource: resource}, ns, ref.Name)
+			_, served := preferred[group]
 			switch {
-			case err != nil && statusCode(err) == http.StatusNotFound:
+			case err != nil && (statusCode(err) == http.StatusNotFound || (group != "" && !served)):
 				continue
 			case err != nil:
 				n.Owner = Owner{State: StateMissing, Reference: ref.Kind + "/" + ref.Name, Text: OwnerText(StateMissing, ref.Kind, ref.Name)}
