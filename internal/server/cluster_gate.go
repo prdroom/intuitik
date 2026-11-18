@@ -64,26 +64,38 @@ func (s *server) readRoute(method, path string, h readHandler) {
 }
 
 // readGate binds one call to the generation that is connected when the call starts
-// (CLIENT-PER-REQ-T5). Each call of open first checks that this generation is still the
-// cluster's and still connected, then makes one new client on it with the constructor of
-// the gate; it never takes a new snapshot, and no lock is held while the client is made.
-// A failed check or constructor ends the call with graph.ErrStopped.
+// (CLIENT-PER-REQ-T5). The call's context is canceled under the cluster lock as soon as
+// that generation stops being the cluster's or stops being connected, and every request
+// of the call is sent with that context, so no request goes out after a switch, a stop or
+// a state change, also one whose client was made just before it. Each call of open
+// checks the generation and the context, then makes one new client on that generation
+// with the constructor of the gate; it never takes a new snapshot, and no lock is held
+// while the client is made. A failed check or constructor ends the call with
+// graph.ErrStopped.
 func (s *server) readGate(w http.ResponseWriter, r *http.Request, h readHandler) {
 	o, obj, gen := s.cluster.admit()
 	if o.State != readonly.StateConnected || obj.State != string(readonly.StateConnected) {
 		writeJSONStatus(w, http.StatusServiceUnavailable, obj)
 		return
 	}
-	current := func() bool { return s.cluster.current(gen) }
-	open := func(ctx context.Context) (graph.Reader, error) {
-		if !current() {
+	ctx, release, ok := s.cluster.bind(r.Context(), gen)
+	defer release()
+	if !ok {
+		_, obj = s.cluster.snapshot()
+		writeJSONStatus(w, http.StatusServiceUnavailable, obj)
+		return
+	}
+	r = r.WithContext(ctx)
+	current := func() bool { return ctx.Err() == nil && s.cluster.current(gen) }
+	open := func(opCtx context.Context) (graph.Reader, error) {
+		if opCtx.Err() != nil || !current() {
 			return nil, graph.ErrStopped
 		}
 		if h := s.cluster.afterAdmit; h != nil {
 			h()
 		}
 		c, err := readonly.NewClient(o)
-		if err != nil {
+		if err != nil || opCtx.Err() != nil {
 			return nil, graph.ErrStopped
 		}
 		return c, nil

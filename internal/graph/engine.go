@@ -450,9 +450,9 @@ func (c *call) resolve(ctx context.Context, ref metav1.OwnerReference) (State, *
 		}
 		return "", nil, c.fail(err)
 	}
-	// G2, also for an owner read from the cache.
-	og, _ := splitAPIVersion(obj.GetAPIVersion())
-	if string(obj.GetUID()) != string(ref.UID) || obj.GetKind() != ref.Kind || obj.GetName() != ref.Name || obj.GetNamespace() != ns || og != group {
+	// G2, also for an owner read from the cache: the complete apiVersion, the kind, the
+	// name, the namespace and the uid of the answer are the reference's.
+	if string(obj.GetUID()) != string(ref.UID) || obj.GetAPIVersion() != ref.APIVersion || obj.GetKind() != ref.Kind || obj.GetName() != ref.Name || obj.GetNamespace() != ns {
 		return StateMissing, nil, nil
 	}
 	if !res.Namespaced {
