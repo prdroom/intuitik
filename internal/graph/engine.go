@@ -111,7 +111,8 @@ type call struct {
 	gateway      bool        // discovery serves the Gateway API group
 	route        *listedKind // the HTTPRoute resource as listed, nil when not served
 	routeRefused bool        // the HTTPRoutes LIST was refused (403)
-	arrival      []*entry    // red stub (s7): the nodes in the order their LISTs answered
+
+	servicesRefused bool // the Services LIST was refused (403): a route target is not checkable
 }
 
 // Build reads the containment of namespace through open (packet D.1 to D.3). The cluster
@@ -356,7 +357,6 @@ func (c *call) add(u *unstructured.Unstructured, k listedKind) *entry {
 		e.kind = k.kind
 	}
 	c.entries[uid] = e
-	c.arrival = append(c.arrival, e)
 	return e
 }
 

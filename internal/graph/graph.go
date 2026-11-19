@@ -139,13 +139,20 @@ type Refusal struct {
 
 // LoadError is a call that failed as a whole (G4, GA-3): an owner lookup or a discovery
 // document that an owner decision needs ended with neither 403 nor 404, or a LIST or
-// /apis failed. Reason is the HTTP status number or "no answer".
+// /apis failed. Reason is the HTTP status number or "no answer". Kind is set only by the
+// LISTs of the bridge kinds (FA2-T6 B3), so the text names what failed.
 type LoadError struct {
 	Namespace string
 	Reason    string
+	Kind      string
 }
 
-func (e *LoadError) Error() string { return LoadText(e.Namespace, e.Reason) }
+func (e *LoadError) Error() string {
+	if e.Kind != "" {
+		return KindLoadText(e.Kind, e.Namespace, e.Reason)
+	}
+	return LoadText(e.Namespace, e.Reason)
+}
 
 // NoAnswer is the reason of a request that got no HTTP answer (P-T5-3).
 const NoAnswer = "no answer"
@@ -180,6 +187,26 @@ func GroupText(group, version, reason string) string {
 func LoadText(namespace, reason string) string {
 	return fmt.Sprintf("Couldn't load owners in %s (%s)", namespace, reason)
 }
+
+// KindLoadText is the text of a call that failed as a whole on the LIST of a bridge kind
+// (FA2-T6 C11).
+func KindLoadText(kind, namespace, reason string) string {
+	return fmt.Sprintf("Couldn't load %s in %s (%s)", Plural(kind), namespace, reason)
+}
+
+// The texts of an HTTPRoute bridge and of an unsupported version (FA2-T6 section 3.2).
+const ServicesForbiddenText = "no permission to read Services"
+
+// ServiceNotFoundText is BT-3: the Services LIST succeeded and the target is not there.
+func ServiceNotFoundText(name string) string { return fmt.Sprintf("Service %s not found", name) }
+
+// OtherNamespaceText is BT-5: the target is in another namespace and is not read.
+func OtherNamespaceText(namespace, name string) string {
+	return fmt.Sprintf("Service %s/%s is in another namespace (not checked)", namespace, name)
+}
+
+// UnsupportedText is BT-6.
+func UnsupportedText(version string) string { return "Unsupported version " + version }
 
 // Plural is the plural of a kind name for the texts: ReplicaSet -> ReplicaSets,
 // Policy -> Policies, Ingress -> Ingresses.
