@@ -98,6 +98,7 @@ type entry struct {
 	ref, text                   string
 	placed                      bool
 	obj                         *unstructured.Unstructured // the object as read
+	cluster                     bool                       // a cluster-scoped node (PV, StorageClass)
 }
 
 // call is one graph call: its caches live only as long as the call (G5).
@@ -113,13 +114,22 @@ type call struct {
 	routeRefused bool        // the HTTPRoutes LIST was refused (403)
 
 	servicesRefused bool // the Services LIST was refused (403): a route target is not checkable
+
+	served             map[string]bool                       // every group of /apis
+	lists              map[string]bool                       // "<group>/<kind>" -> listed (true) or refused (false)
+	nsLists, nsRefused int                                   // the namespaced LISTs sent and refused
+	pvs, classes       map[string]*unstructured.Unstructured // the cluster objects read by 6.3 (7), by name
+	pvRefused          bool                                  // the PersistentVolumes LIST was refused (403)
+	classRefused       bool                                  // the StorageClasses LIST was refused (403)
+	nsStatus           int                                   // the HTTP status of the Namespace GET
 }
 
 // Build reads the containment of namespace through open (packet D.1 to D.3). The cluster
 // operations run one after another in the fixed order of D.3, each on its own client. An
 // error is ErrStopped (or another error of open), the context's error, or a *LoadError.
 func Build(ctx context.Context, open Open, namespace string) (Answer, error) {
-	c := &call{open: open, ns: namespace, docs: map[string]*document{}, owners: map[string]*fetched{}, entries: map[string]*entry{}}
+	c := &call{open: open, ns: namespace, docs: map[string]*document{}, owners: map[string]*fetched{}, entries: map[string]*entry{},
+		served: map[string]bool{}, lists: map[string]bool{}, pvs: map[string]*unstructured.Unstructured{}, classes: map[string]*unstructured.Unstructured{}}
 	groups, err := c.groups(ctx)
 	if err != nil {
 		return Answer{}, err
@@ -149,10 +159,13 @@ func Build(ctx context.Context, open Open, namespace string) (Answer, error) {
 				if c.route != nil && k == *c.route {
 					c.routeRefused = true
 				}
+				c.listedAs(k, false)
 				continue
 			}
+			// Red stub (t5): the LIST failure keeps the owners text.
 			return Answer{}, c.fail(err)
 		}
+		c.listedAs(k, true)
 		for i := range list.Items {
 			c.add(&list.Items[i], k)
 		}
@@ -167,6 +180,12 @@ func Build(ctx context.Context, open Open, namespace string) (Answer, error) {
 	if err := c.listBridgeKinds(ctx, &refused); err != nil {
 		return Answer{}, err
 	}
+	// (6) to (8) The ConfigMaps and Secrets as metadata, the volumes and classes when there
+	// is a claim, and the Namespace object (FA2-T7a 6.3).
+	if err := c.readStates(ctx, &refused); err != nil {
+		return Answer{}, err
+	}
+	c.clusterNodes()
 	a := Answer{Namespace: namespace, Nodes: []Node{}, Refused: refused, Bridges: []Bridge{}, Unsupported: []Unsupported{}}
 	for _, e := range c.sorted() {
 		n := Node{UID: e.uid, APIVersion: e.apiVersion, Kind: e.kind, Name: e.name, Owner: Owner{State: e.state, Reference: e.ref, Text: e.text}}
@@ -190,10 +209,12 @@ func Build(ctx context.Context, open Open, namespace string) (Answer, error) {
 		group, version, _ := strings.Cut(k, "/")
 		a.Refused = append(a.Refused, Refusal{Group: group, Version: version, Status: d.status, Reason: d.reason, Text: GroupText(group, version, d.reason)})
 	}
-	// (6) The bridges, from the objects already read (FA2-T6 E.4).
+	// (9) The bridges and their states, from the objects already read (FA2-T6 E.4,
+	// FA2-T7a 6.4), and the state of the namespace (6.5).
 	if err := c.bridges(ctx, &a); err != nil {
 		return Answer{}, err
 	}
+	a.NamespaceState = c.namespaceState(&a)
 	return a, nil
 }
 
@@ -242,6 +263,9 @@ func (c *call) groups(ctx context.Context) ([]group, error) {
 	for _, g := range list.Groups {
 		if g.Name == gatewayGroup {
 			c.gateway = true
+		}
+		if c.served != nil {
+			c.served[g.Name] = true
 		}
 		if builtInGroups[g.Name] {
 			continue
@@ -336,11 +360,16 @@ func (c *call) otherKinds(groups []group) []listedKind {
 
 // list sends the LIST of one kind in the call's namespace.
 func (c *call) list(ctx context.Context, res readonly.Resource) (*unstructured.UnstructuredList, error) {
+	return c.listAt(ctx, res, c.ns)
+}
+
+// listAt sends the LIST of one kind in namespace ("" for a cluster-wide LIST).
+func (c *call) listAt(ctx context.Context, res readonly.Resource, namespace string) (*unstructured.UnstructuredList, error) {
 	r, err := c.reader(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return r.List(ctx, res, c.ns)
+	return r.List(ctx, res, namespace)
 }
 
 // add keeps one object of the namespace as a node.

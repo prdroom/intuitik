@@ -1,0 +1,181 @@
+# Bridge state fixtures of packet FA2-T7a, applied with -n graph-states by
+# test/e2e-api/graph/zz_states_kind_test.go. Every Pod stays Pending (no node matches its
+# node selector); only its spec is read.
+# C7: Service num (targetPort 9000, no container declares it) and Service num-ok (targetPort
+# 8080, declared). C10: Service web whose selector matches no Pod. C11: Service api2 (named
+# targetPort http, the container port is named web) and Service api3 (named and declared).
+# C12: Pod pay naming a ConfigMap and a Secret that do not exist. C13: claim data-f of a
+# StorageClass that does not exist. C14 (T7a-C14-PORT): Service api with port 80 named
+# http, an Ingress to Service gone, an Ingress to api port 81, another Ingress to api port
+# name metrics, and an HPA to Deployment nope (the HTTPRoute to api port 81 is made by the
+# test after the Gateway API CRDs are served).
+apiVersion: v1
+kind: Service
+metadata: {name: num}
+spec:
+  selector: {app: num}
+  ports:
+    - {port: 9000, targetPort: 9000}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: num-1
+  labels: {app: num}
+spec:
+  nodeSelector: {intuitik.example/none: none}
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: c
+      image: registry.k8s.io/pause:3.10
+      ports:
+        - {containerPort: 8080}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: num-ok}
+spec:
+  selector: {app: num-ok}
+  ports:
+    - {port: 80, targetPort: 8080}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ok-1
+  labels: {app: num-ok}
+spec:
+  nodeSelector: {intuitik.example/none: none}
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: c
+      image: registry.k8s.io/pause:3.10
+      ports:
+        - {containerPort: 8080}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: web}
+spec:
+  selector: {app: web}
+  ports:
+    - {port: 80}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: api2}
+spec:
+  selector: {app: api2}
+  ports:
+    - {port: 80, targetPort: http}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: api2-1
+  labels: {app: api2}
+spec:
+  nodeSelector: {intuitik.example/none: none}
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: c
+      image: registry.k8s.io/pause:3.10
+      ports:
+        - {name: web, containerPort: 8080}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: api3}
+spec:
+  selector: {app: api3}
+  ports:
+    - {port: 80, targetPort: http}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: api3-1
+  labels: {app: api3}
+spec:
+  nodeSelector: {intuitik.example/none: none}
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: c
+      image: registry.k8s.io/pause:3.10
+      ports:
+        - {name: http, containerPort: 8080}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: pay}
+spec:
+  nodeSelector: {intuitik.example/none: none}
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: c
+      image: registry.k8s.io/pause:3.10
+      env:
+        - name: K
+          valueFrom: {configMapKeyRef: {name: payments-config, key: k}}
+        - name: S
+          valueFrom: {secretKeyRef: {name: payments-key, key: s}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: data-f}
+spec:
+  storageClassName: fast
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: {storage: 1Gi}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: api}
+spec:
+  ports:
+    - {name: http, port: 80}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: {name: to-gone}
+spec:
+  defaultBackend: {service: {name: gone, port: {number: 80}}}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: {name: to-81}
+spec:
+  defaultBackend: {service: {name: api, port: {number: 81}}}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: {name: to-metrics}
+spec:
+  defaultBackend: {service: {name: api, port: {name: metrics}}}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: nope}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: nope}
+  maxReplicas: 2
+---
+# C8: Pod opt naming a ConfigMap and a Secret that do not exist, both optional.
+apiVersion: v1
+kind: Pod
+metadata: {name: opt}
+spec:
+  nodeSelector: {intuitik.example/none: none}
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: c
+      image: registry.k8s.io/pause:3.10
+      env:
+        - name: FF
+          valueFrom: {configMapKeyRef: {name: feature-flags, key: "on", optional: true}}
+      volumeMounts:
+        - {name: m, mountPath: /m}
+  volumes:
+    - name: m
+      secret: {secretName: maybe, optional: true}

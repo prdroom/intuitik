@@ -48,8 +48,9 @@ func (s *server) gate(w http.ResponseWriter, r *http.Request, h clusterHandler) 
 
 // readHandler is the handler of a cluster route that makes several cluster operations in
 // one call (packet FA2-T5 D.3). open makes the client of one operation; current reports
-// that the call's generation is still the cluster's and still connected.
-type readHandler func(w http.ResponseWriter, r *http.Request, open graph.Open, current func() bool)
+// that the call's generation is still the cluster's and still connected; contextNamespace
+// is the namespace of the admitted kubeconfig context, "" when it names none (FA2-T7a 6.5).
+type readHandler func(w http.ResponseWriter, r *http.Request, open graph.Open, current func() bool, contextNamespace string)
 
 // readRoute registers a cluster route whose handler reads through readGate. Like every
 // cluster route, it answers 503 with the cluster object while the state is not connected.
@@ -100,5 +101,5 @@ func (s *server) readGate(w http.ResponseWriter, r *http.Request, h readHandler)
 		}
 		return c, nil
 	}
-	h(w, r, open, current)
+	h(w, r, open, current, o.Namespace)
 }

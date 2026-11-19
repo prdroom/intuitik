@@ -53,6 +53,8 @@ type ContextEntry struct {
 	Name    string
 	Cluster string
 	Server  string
+	// Namespace is the context's namespace, "" when it names none.
+	Namespace string
 }
 
 // Outcome is the result of one connection attempt.
@@ -63,6 +65,8 @@ type Outcome struct {
 	Context  string // "" where unknown
 	Cluster  string
 	Server   string
+	// Namespace is the namespace of the context, "" when it names none.
+	Namespace string
 	Paths    []string       // the files the loading rules looked at, in loading order (W5)
 	Contexts []ContextEntry // every context of the merged kubeconfig, in loading order
 	Current  string         // the kubeconfig's current context, "" if none
@@ -230,7 +234,7 @@ func attempt(ctx, actx context.Context, name string, p *progress, g *Generation)
 	if name == "" || kctx == nil {
 		return o.with(StateKubeconfigInvalid, "K-IV2", text(textIV2, slot(o.Contexts[0].Name)))
 	}
-	o.Context, o.Cluster = name, kctx.Cluster
+	o.Context, o.Cluster, o.Namespace = name, kctx.Cluster, kctx.Namespace
 	cluster := merged.Clusters[kctx.Cluster]
 	if cluster != nil {
 		o.Server = cluster.Server
@@ -394,7 +398,7 @@ func contextList(merged *clientcmdapi.Config, order []string) []ContextEntry {
 			continue
 		}
 		seen[name] = true
-		e := ContextEntry{Name: name, Cluster: kctx.Cluster}
+		e := ContextEntry{Name: name, Cluster: kctx.Cluster, Namespace: kctx.Namespace}
 		if c := merged.Clusters[kctx.Cluster]; c != nil {
 			e.Server = c.Server
 		}

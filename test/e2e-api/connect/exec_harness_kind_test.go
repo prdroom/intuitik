@@ -25,12 +25,13 @@ import (
 
 // readNamespace is the namespace of every graph call of these tests, readPath its route
 // and callK the number of requests of one call on the empty fake cluster: /apis, the
-// seven LISTs and the four LISTs of the bridge kinds (D.3, FA2-T6 E.3). It is the expected
-// value of this harness, not a measurement.
+// seven LISTs, the four LISTs of the bridge kinds (D.3, FA2-T6 E.3), the ConfigMaps and
+// Secrets and the Namespace object (FA2-T7a 6.3). It is the expected value of this harness,
+// not a measurement.
 const (
 	readNamespace = "default"
 	readPath      = "/api/graph/containment?namespace=" + readNamespace
-	callK         = 12
+	callK         = 15
 )
 
 // callPaths is the request sequence of one graph call on the fake server (D.3).
@@ -42,7 +43,8 @@ func callPaths() []string {
 		"/apis/apps/v1/namespaces/" + ns + "/daemonsets", "/apis/batch/v1/namespaces/" + ns + "/jobs",
 		"/apis/batch/v1/namespaces/" + ns + "/cronjobs",
 		"/api/v1/namespaces/" + ns + "/services", "/api/v1/namespaces/" + ns + "/persistentvolumeclaims",
-		"/apis/networking.k8s.io/v1/namespaces/" + ns + "/ingresses", "/apis/autoscaling/v2/namespaces/" + ns + "/horizontalpodautoscalers"}
+		"/apis/networking.k8s.io/v1/namespaces/" + ns + "/ingresses", "/apis/autoscaling/v2/namespaces/" + ns + "/horizontalpodautoscalers",
+		"/api/v1/namespaces/" + ns + "/configmaps", "/api/v1/namespaces/" + ns + "/secrets", "/api/v1/namespaces/" + ns}
 }
 
 // repeat is n copies of s.
@@ -258,6 +260,16 @@ func listKind(path string) string {
 	return listKinds[prefix+"/"+resource]
 }
 
+// configList is the list kind of the ConfigMaps or Secrets of a namespace path, or "".
+func configList(path string) string {
+	rest, ok := strings.CutPrefix(path, "/api/v1/namespaces/")
+	if !ok {
+		return ""
+	}
+	_, resource, _ := strings.Cut(rest, "/")
+	return map[string]string{"configmaps": "ConfigMapList", "secrets": "SecretList"}[resource]
+}
+
 func newCredServer(t *testing.T) *credServer {
 	t.Helper()
 	s := &credServer{rejected: map[string]bool{}}
@@ -277,6 +289,14 @@ func newCredServer(t *testing.T) *credServer {
 			w.Write([]byte(`{"kind":"APIVersions","versions":["v1"]}`))
 		case r.URL.Path == "/apis":
 			w.Write([]byte(`{"kind":"APIGroupList","apiVersion":"v1","groups":[]}`))
+		case configList(r.URL.Path) != "" && strings.Contains(r.Header.Get("Accept"), "as=PartialObjectMetadataList"):
+			// The metadata-only form of the ConfigMaps and Secrets (FA2-T7a 6.2).
+			w.Write([]byte(`{"kind":"PartialObjectMetadataList","apiVersion":"meta.k8s.io/v1","metadata":{"resourceVersion":"1"},"items":[]}`))
+		case configList(r.URL.Path) != "":
+			fmt.Fprintf(w, `{"kind":%q,"apiVersion":"v1","metadata":{"resourceVersion":"1"},"items":[]}`, configList(r.URL.Path))
+		case strings.HasPrefix(r.URL.Path, "/api/v1/namespaces/") && !strings.Contains(strings.TrimPrefix(r.URL.Path, "/api/v1/namespaces/"), "/"):
+			name := strings.TrimPrefix(r.URL.Path, "/api/v1/namespaces/")
+			fmt.Fprintf(w, `{"kind":"Namespace","apiVersion":"v1","metadata":{"name":%q,"uid":"ns-%s"}}`, name, name)
 		case listKind(r.URL.Path) != "":
 			fmt.Fprintf(w, `{"kind":%q,"apiVersion":"v1","metadata":{"resourceVersion":"1"},"items":[]}`, listKind(r.URL.Path))
 		default:
