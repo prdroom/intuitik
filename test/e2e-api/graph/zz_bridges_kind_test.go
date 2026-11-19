@@ -406,6 +406,55 @@ func TestG_Bridges(t *testing.T) {
 		return pvc.Status.Phase == "Bound" && pvc.Spec.VolumeName != "" && pvc.Status.Capacity["storage"] != "" && owned
 	})
 	t.Logf("FA2-T6 read-back claim data-db-0 phase %s volume %s capacity %s ownerReferences %v", pvc.Status.Phase, pvc.Spec.VolumeName, pvc.Status.Capacity["storage"], pvc.Metadata.OwnerReferences)
+	// C3 input: the Pod of the claim runs, its init container restore has completed.
+	var dbPod struct {
+		Status struct {
+			Phase                 string `json:"phase"`
+			InitContainerStatuses []struct {
+				Name  string `json:"name"`
+				State struct {
+					Terminated *struct {
+						ExitCode int    `json:"exitCode"`
+						Reason   string `json:"reason"`
+					} `json:"terminated"`
+				} `json:"state"`
+			} `json:"initContainerStatuses"`
+			ContainerStatuses []struct {
+				Name  string `json:"name"`
+				Ready bool   `json:"ready"`
+				State struct {
+					Running *struct {
+						StartedAt string `json:"startedAt"`
+					} `json:"running"`
+				} `json:"state"`
+			} `json:"containerStatuses"`
+		} `json:"status"`
+	}
+	waitFor(t, 180*time.Second, "Pod db-0 Running with its init container completed", func() bool {
+		out, err := kubectlErr(nil, "get", "--raw", "/api/v1/namespaces/"+nsBridges+"/pods/db-0")
+		if err != nil || json.Unmarshal(out, &dbPod) != nil {
+			return false
+		}
+		running := false
+		for _, c := range dbPod.Status.ContainerStatuses {
+			running = running || (c.Name == "db" && c.State.Running != nil)
+		}
+		return dbPod.Status.Phase == "Running" && running
+	})
+	var inits, mains []string
+	for _, c := range dbPod.Status.InitContainerStatuses {
+		state := "not terminated"
+		if c.State.Terminated != nil {
+			state = fmt.Sprintf("terminated exitCode=%d reason=%s", c.State.Terminated.ExitCode, c.State.Terminated.Reason)
+		}
+		inits = append(inits, c.Name+" "+state)
+	}
+	for _, c := range dbPod.Status.ContainerStatuses {
+		mains = append(mains, fmt.Sprintf("%s running=%v ready=%v", c.Name, c.State.Running != nil, c.Ready))
+	}
+	out, _ := kubectlErr(nil, "get", "--raw", "/api/v1/namespaces/"+nsBridges+"/persistentvolumeclaims/data-db-0")
+	json.Unmarshal(out, &pvc)
+	t.Logf("FA2-T6 C3 input=statefulset-db-claim read-back pod db-0 phase %s init %v containers %v; claim data-db-0 phase %s volume %s", dbPod.Status.Phase, inits, mains, pvc.Status.Phase, pvc.Spec.VolumeName)
 	settled(t, nsBridges)
 
 	phase(t, "a", "")

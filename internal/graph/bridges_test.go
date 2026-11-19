@@ -700,3 +700,79 @@ func nodeShort(a Answer, uid string) string {
 	_, n, _ := strings.Cut(nodeName(a, uid), "/")
 	return n
 }
+
+// TestBridges_OptionalFlag (C4, E.4, review 5969050058 F1): each settings entry of a Pod ->
+// ConfigMap or Pod -> Secret bridge keeps the optional flag of the reference it comes from
+// (env, envFrom, volume, projected source; unset is false), outside the settings text; a
+// bridge of another kind has no flags.
+func TestBridges_OptionalFlag(t *testing.T) {
+	f := newFake().add(objJSON("v1", "Pod", "opt", "p-opt", `{"spec":{
+		"containers":[{"name":"c","image":"pause",
+			"env":[{"name":"A","valueFrom":{"configMapKeyRef":{"name":"cfg","key":"a","optional":true}}},
+				{"name":"B","valueFrom":{"configMapKeyRef":{"name":"cfg","key":"b"}}}],
+			"envFrom":[{"secretRef":{"name":"sec","optional":false}}],
+			"volumeMounts":[{"name":"v1","mountPath":"/v1"},{"name":"v2","mountPath":"/v2"},{"name":"data","mountPath":"/data"}]}],
+		"volumes":[{"name":"v1","configMap":{"name":"cfg","optional":true}},
+			{"name":"v2","projected":{"sources":[{"secret":{"name":"sec","optional":true}}]}},
+			{"name":"data","persistentVolumeClaim":{"claimName":"data-opt"}}]}}`))
+	a := mustBuild(t, f)
+	checkBridges(t, "C4", "pod-opt-optional", a,
+		wantBridge{BridgePodConfigMap, "Pod/opt", "", testNS, "ConfigMap", "cfg", "",
+			[]string{"env c:A " + arrowLeft + " a", "env c:B " + arrowLeft + " b", "volume c:/v1 (all keys)"}, ""},
+		wantBridge{BridgePodSecret, "Pod/opt", "", testNS, "Secret", "sec", "", []string{"envFrom c", "volume c:/v2 (all keys)"}, ""})
+	for _, c := range []struct {
+		kind, toKind, toName string
+		want                 []bool
+	}{
+		{BridgePodConfigMap, "ConfigMap", "cfg", []bool{true, false, true}},
+		{BridgePodSecret, "Secret", "sec", []bool{false, true}},
+		{BridgePodPVC, "PersistentVolumeClaim", "data-opt", nil},
+	} {
+		var got []bool
+		bs := bridgesOf(a, c.kind, "Pod/opt", testNS, c.toKind, c.toName)
+		if len(bs) == 1 {
+			got = bs[0].Optional
+		}
+		pass := len(bs) == 1 && reflect.DeepEqual(got, c.want)
+		t.Logf("FA2-T6 C4 input=pod-opt-optional kind=%s from=Pod/opt to=%s/%s/%s expected-optional=%v actual-optional=%v bridges=%d result=%s",
+			c.kind, testNS, c.toKind, c.toName, c.want, got, len(bs), passFail(pass))
+		if !pass {
+			t.Errorf("E.4 optional %s -> %s/%s: %d bridges, flags %v, want %v", c.kind, c.toKind, c.toName, len(bs), got, c.want)
+		}
+	}
+	body, _ := json.Marshal(a)
+	t.Logf("FA2-T6 C4 input=pod-opt-optional the word optional in a settings entry: %v (want false)", strings.Contains(fmt.Sprint(a.Bridges), "optional"))
+	if strings.Count(string(body), `"optional":`) != 2 {
+		t.Errorf("E.4 optional: %d optional fields in the answer, want 2 (the two config bridges only)", strings.Count(string(body), `"optional":`))
+	}
+	for _, b := range a.Bridges {
+		for _, s := range b.Settings {
+			if strings.Contains(s, "optional") {
+				t.Errorf("E.4 optional: settings entry %q carries the flag as text", s)
+			}
+		}
+	}
+}
+
+// TestBridges_RouteTargetOwnerFetched (C11, BT-4, B3, review 5969050058 F2): with the
+// Services LIST refused, a route target stays not checkable even when an owner lookup of
+// the call read that Service: to.uid null and the BT-4 text, never its uid.
+func TestBridges_RouteTargetOwnerFetched(t *testing.T) {
+	f := newFake()
+	gateway(f, "v1")
+	f.add(
+		objJSON("v1", "Service", "checkout", "svc-checkout", `{"spec":{"ports":[{"port":8080}]}}`),
+		obj("v1", "Pod", "held", "p-held", ctl("v1", "Service", "checkout", "svc-checkout")),
+		route("v1", "open", "rt-open", `{"spec":{"rules":[{"backendRefs":[{"name":"checkout","port":8080}]}]}}`),
+	)
+	f.lists["/services"] = fail{status: 403}
+	a := mustBuild(t, f)
+	gets := f.count("GET /v1/services " + testNS + "/checkout")
+	parent, _, _, _ := place(a, "Pod", "held")
+	t.Logf("FA2-T6 C11 input=services-list-403-owner-fetched owner GETs of Service checkout %d (want 1), Pod held parent %s (want Service/checkout)", gets, parent)
+	if gets != 1 || parent != "Service/checkout" {
+		t.Errorf("C11 owner-fetched: %d owner GETs, parent %s; the fixture must read Service checkout as an owner", gets, parent)
+	}
+	checkBridges(t, "C11", "services-list-403-owner-fetched", a,
+		wantBridge{BridgeHTTPRouteService, "HTTPRoute/open", "", testNS, "Service", "checkout", "", []string{"/  * " + arrowRight + " checkout:8080"}, "no permission to read Services"})
+}

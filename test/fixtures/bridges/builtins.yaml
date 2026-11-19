@@ -3,7 +3,8 @@
 # with a two-key selector and two ports, an ExternalName Service and a Service without
 # selector, two Pods with both labels (Deployment api) and one with one label. C3: the
 # StatefulSet db with a claim template, mounted read-write in a container and read-only in
-# an init container; its Pod runs so the claim is bound. C5: HPAs api and w. The Pods of
+# an init container that exits at once (pause -v prints its version and exits 0), so the
+# Pod runs and the claim is bound. C5: HPAs api and w. The Pods of
 # Deployment api and Pod api-other stay Pending (no node matches their node selector).
 apiVersion: v1
 kind: Service
@@ -95,6 +96,7 @@ spec:
       initContainers:
         - name: restore
           image: registry.k8s.io/pause:3.10
+          args: ["-v"]
           volumeMounts:
             - {name: data, mountPath: /backup, readOnly: true}
       containers:

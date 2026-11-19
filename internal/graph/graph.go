@@ -71,12 +71,15 @@ const (
 
 // Bridge is one declared reference from a node of the answer to the object it names,
 // with the settings that made it (FA2-T6 E.1, section 3.1). Text is set only for the
-// F-18 cases of an HTTPRoute bridge (section 3.2).
+// F-18 cases of an HTTPRoute bridge (section 3.2). Optional is set only on Pod ->
+// ConfigMap and Pod -> Secret bridges: one flag per settings entry, the `optional` of the
+// reference that entry comes from (E.4, kept for T7a; never part of the text).
 type Bridge struct {
 	Kind     string   `json:"kind"`
 	From     From     `json:"from"`
 	To       Target   `json:"to"`
 	Settings []string `json:"settings"`
+	Optional []bool   `json:"optional,omitempty"`
 	Text     string   `json:"text,omitempty"`
 }
 

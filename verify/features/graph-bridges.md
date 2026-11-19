@@ -30,15 +30,16 @@ prints its audit window (`FA2-T5 G7`).
   Pod with env, envFrom, volume items and projected Secret; HPA. Output: settings as
   section 3.1, no value (C3, C4, C5, C14). `TestG_Bridges/C3`, `TestG_Bridges/C4`,
   `TestG_Bridges/C5`, `TestG_Bridges/C14`; `TestBridges_Storage`, `TestBridges_Config`,
-  `TestBridges_ConfigOrder`, `TestBridges_EphemeralClaim`, `TestBridges_HPA`,
-  `TestBridges_NoValueNoRead` (job `unit`).
+  `TestBridges_ConfigOrder`, `TestBridges_OptionalFlag`, `TestBridges_EphemeralClaim`,
+  `TestBridges_HPA`, `TestBridges_NoValueNoRead` (job `unit`).
 - HTTPRoute failures. Input: no Gateway API; list refused; Service missing; Services not
   readable; other namespace; only v1alpha2. Output: BT-1 to BT-6 (C8 to C13).
   `TestG_Bridges/C8`, `TestG_Bridges/C9`, `TestG_Bridges/C10`, `TestG_Bridges/C11`,
   `TestG_Bridges/C12`, `TestG_Bridges/C12-hpa-group`, `TestG_Bridges/C13`;
   `TestBridges_NoGatewayAPI`, `TestBridges_RouteListRefused`,
   `TestBridges_RouteTargetMissing`, `TestBridges_RouteTargetNotReadable`,
-  `TestBridges_GroupExact`, `TestBridges_UnsupportedVersion` (job `unit`).
+  `TestBridges_RouteTargetOwnerFetched`, `TestBridges_GroupExact`,
+  `TestBridges_UnsupportedVersion` (job `unit`).
 - Layout facts. Input: Service and PVC owned by a StatefulSet; LIST order shuffled.
   Output: outside boxes; same bytes (C7, C15). `TestG_Bridges/C7`;
   `TestBridges_OutsideBoxes`, `TestBridges_Stable` (job `unit`).
