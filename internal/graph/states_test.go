@@ -525,6 +525,90 @@ func TestStates_RefusalNeverMissing(t *testing.T) {
 	}
 }
 
+// ownerFetchedCase is one LIST of C15 refused while an owner lookup of the call reads the
+// target of a bridge of that kind: get is the owner GET that must have read it.
+type ownerFetchedCase struct {
+	name, key, get string
+	objects        []*unstructured.Unstructured
+	want           []wantState
+}
+
+func ownerFetchedCases() []ownerFetchedCase {
+	web := objJSON("v1", "Pod", "web-1", "p-web-1", `{"spec":{"containers":[{"name":"c"}]}}`)
+	web.SetLabels(map[string]string{"app": "web"})
+	return []ownerFetchedCase{
+		{"deployment", "apps/deployments", "GET apps/v1/deployments " + testNS + "/api", []*unstructured.Unstructured{
+			objJSON("autoscaling/v2", "HorizontalPodAutoscaler", "h", "hpa-h", `{"spec":{"scaleTargetRef":{"apiVersion":"apps/v1","kind":"Deployment","name":"api"},"maxReplicas":2}}`),
+			obj("apps/v1", "Deployment", "api", "d-api"),
+			obj("v1", "Pod", "held", "p-held", ctl("apps/v1", "Deployment", "api", "d-api"))},
+			[]wantState{{BridgeHPATarget, "HorizontalPodAutoscaler/h", testNS, "Deployment", "api", BridgeUnknown, "no permission to read Deployments", ""}}},
+		{"persistentvolumeclaim", "/persistentvolumeclaims", "GET /v1/persistentvolumeclaims " + testNS + "/data", []*unstructured.Unstructured{
+			objJSON("v1", "Pod", "p", "p-p", `{"spec":{"volumes":[{"name":"d","persistentVolumeClaim":{"claimName":"data"}}]}}`),
+			objJSON("v1", "PersistentVolumeClaim", "data", "pvc-d", `{"spec":{"volumeName":"pv-d","storageClassName":"fast"},"status":{"phase":"Bound"}}`),
+			obj("v1", "Pod", "held", "p-held", ctl("v1", "PersistentVolumeClaim", "data", "pvc-d"))},
+			[]wantState{{BridgePodPVC, "Pod/p", testNS, "PersistentVolumeClaim", "data", BridgeUnknown, "no permission to read PersistentVolumeClaims", ""},
+				{BridgePVCPV, "PersistentVolumeClaim/data", "", "PersistentVolume", "pv-d", BridgeUnknown, "no permission to read PersistentVolumeClaims", ""},
+				{BridgePVCStorageClass, "PersistentVolumeClaim/data", "", "StorageClass", "fast", BridgeUnknown, "no permission to read PersistentVolumeClaims", ""}}},
+		{"configmap", "/configmaps", "GET /v1/configmaps " + testNS + "/app", []*unstructured.Unstructured{
+			objJSON("v1", "Pod", "p", "p-p", `{"spec":{"containers":[{"name":"c","envFrom":[{"configMapRef":{"name":"app"}}]}]}}`),
+			obj("v1", "ConfigMap", "app", "cm-app"),
+			obj("v1", "Pod", "held", "p-held", ctl("v1", "ConfigMap", "app", "cm-app"))},
+			[]wantState{{BridgePodConfigMap, "Pod/p", testNS, "ConfigMap", "app", BridgeUnknown, "no permission to read ConfigMaps", ""}}},
+		{"secret", "/secrets", "GET /v1/secrets " + testNS + "/db", []*unstructured.Unstructured{
+			objJSON("v1", "Pod", "p", "p-p", `{"spec":{"containers":[{"name":"c","envFrom":[{"secretRef":{"name":"db"}}]}]}}`),
+			obj("v1", "Secret", "db", "sec-db"),
+			obj("v1", "Pod", "held", "p-held", ctl("v1", "Secret", "db", "sec-db"))},
+			[]wantState{{BridgePodSecret, "Pod/p", testNS, "Secret", "db", BridgeUnknown, "no permission to read Secrets", ""}}},
+		{"pod", "/pods", "GET /v1/pods " + testNS + "/web-1", []*unstructured.Unstructured{
+			objJSON("v1", "Service", "web", "svc-web", `{"spec":{"selector":{"app":"web"},"ports":[{"port":80,"targetPort":"http"}]}}`),
+			web,
+			obj("apps/v1", "ReplicaSet", "r", "rs-r", ctl("v1", "Pod", "web-1", "p-web-1"))},
+			[]wantState{{BridgeServicePod, "Service/web", testNS, "Pod", "", BridgeUnknown, "no permission to read Pods", ""}}},
+		{"service", "/services", "GET /v1/services " + testNS + "/api", []*unstructured.Unstructured{
+			objJSON("networking.k8s.io/v1", "Ingress", "i", "ing-i", `{"spec":{"defaultBackend":{"service":{"name":"api","port":{"number":80}}}}}`),
+			objJSON("v1", "Service", "api", "svc-api", `{"spec":{"ports":[{"port":80}]}}`),
+			obj("v1", "Pod", "held", "p-held", ctl("v1", "Service", "api", "svc-api"))},
+			[]wantState{{BridgeIngressService, "Ingress/i", testNS, "Service", "api", BridgeUnknown, "no permission to read Services", ""}}},
+	}
+}
+
+// TestStates_RefusalOwnerFetched (C15, B3, 3.1, I-6, 6.3 (7), review 5973327825 F1 to
+// F3): with a LIST refused, a target of that kind that an owner lookup of the call read
+// stays not checkable: unknown with the permission text and to.uid null, never connected,
+// broken or warning; a Service selects no Pod of a refused Pods LIST. With the claims LIST
+// refused, the PersistentVolumes and StorageClasses are not listed, whatever claim an owner
+// lookup read, and the bridges of that claim are not checkable.
+func TestStates_RefusalOwnerFetched(t *testing.T) {
+	for _, c := range ownerFetchedCases() {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFake().add(c.objects...)
+			f.lists[c.key] = fail{status: 403}
+			a := mustBuild(t, f)
+			gets := f.count(c.get)
+			t.Logf("FA2-T7a C15 input=%s-list-403-owner-fetched owner GETs %q %d (want 1) result=%s", c.name, c.get, gets, passFail(gets == 1))
+			if gets != 1 {
+				t.Errorf("C15 %s: %d owner GETs %q; the fixture must read the target as an owner", c.name, gets, c.get)
+			}
+			checkStates(t, "C15", c.name+"-list-403-owner-fetched", a, c.want...)
+			if c.name == "pod" {
+				n := len(exactBridges(a, BridgeServicePod, "Service/web", testNS, "Pod", "web-1"))
+				t.Logf("FA2-T7a C15 input=pod-list-403-owner-fetched bridges Service/web -> Pod/web-1 %d (want 0) result=%s", n, passFail(n == 0))
+				if n != 0 {
+					t.Errorf("C15 pod: %d bridges to the owner-fetched Pod web-1, want 0", n)
+				}
+			}
+			if c.name == "persistentvolumeclaim" {
+				pv, sc := f.count("LIST /v1/persistentvolumes "), f.count("LIST storage.k8s.io/v1/storageclasses ")
+				t.Logf("FA2-T7a C15 input=persistentvolumeclaim-list-403-owner-fetched cluster LISTs persistentvolumes=%d storageclasses=%d (want 0 0) result=%s", pv, sc, passFail(pv == 0 && sc == 0))
+				if pv != 0 || sc != 0 {
+					t.Errorf("6.3 (7): %d PersistentVolumes LISTs and %d StorageClasses LISTs with the claims LIST refused, want 0 and 0", pv, sc)
+				}
+			}
+			counts(t, "C15", c.name+"-list-403-owner-fetched", a)
+		})
+	}
+}
+
 // TestStates_FA2T6Fixtures (C17): every FA2-T6 unit fixture bridge has the state and text
 // that 3.2 gives it.
 func TestStates_FA2T6Fixtures(t *testing.T) {
@@ -544,10 +628,13 @@ func TestStates_FA2T6Fixtures(t *testing.T) {
 		wantState{BridgeServicePod, "Service/api", testNS, "Pod", "api-2", BridgeWarning, warn, "p-api-2"},
 		wantState{BridgePodPVC, "Pod/db-0", testNS, "PersistentVolumeClaim", "data-db-0", BridgeConnected, "", "pvc-data"},
 		wantState{BridgePVCPV, "PersistentVolumeClaim/data-db-0", "", "PersistentVolume", "pv-1", BridgeBroken, "PersistentVolume pv-1 not found", ""},
+		wantState{BridgePVCPV, "PersistentVolumeClaim/c-default", "", "PersistentVolume", "pv-2", BridgeBroken, "PersistentVolume pv-2 not found", ""},
+		wantState{BridgePVCPV, "PersistentVolumeClaim/c-none", "", "PersistentVolume", "pv-3", BridgeBroken, "PersistentVolume pv-3 not found", ""},
 		wantState{BridgePodSecret, "Pod/api", testNS, "Secret", "db", BridgeConnected, "", "sec-db"},
 		wantState{BridgePodConfigMap, "Pod/api", testNS, "ConfigMap", "app", BridgeConnected, "", "cm-app"},
 		wantState{BridgePodSecret, "Pod/api", testNS, "Secret", "tls", BridgeConnected, "", "sec-tls"},
 		wantState{BridgeHPATarget, "HorizontalPodAutoscaler/api", testNS, "Deployment", "api", BridgeConnected, "", "d-api"},
+		wantState{BridgeHPATarget, "HorizontalPodAutoscaler/w", testNS, "StatefulSet", "w", BridgeConnected, "", "s-w"},
 		wantState{BridgeHTTPRouteService, "HTTPRoute/shop", testNS, "Service", "checkout", BridgeConnected, "", "svc-checkout"},
 		wantState{BridgeHTTPRouteService, "HTTPRoute/open", testNS, "Service", "checkout", BridgeConnected, "", "svc-checkout"})
 	f = newFake()
