@@ -1,0 +1,399 @@
+package hk2judge
+
+import (
+	"bytes"
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"github.com/prdroom/intuitik/internal/graph"
+)
+
+// The recorded answers of these tests are Go values written here as the graph API returns
+// them for the 3.2 scenarios (C8 for the faults, C9 for the baseline); each test changes
+// one value and checks the HK2 lines and the exit value.
+
+func call(v any) Call {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return Call{Status: 200, Body: raw}
+}
+
+func uid(s string) *string { return &s }
+
+func node(apiVersion, kind, name, id string) graph.Node {
+	return graph.Node{UID: id, APIVersion: apiVersion, Kind: kind, Name: name, Owner: graph.Owner{State: graph.StateNone}}
+}
+
+func podNode(name, id, state, text string) graph.Node {
+	n := node("v1", "Pod", name, id)
+	n.NodeState = &graph.NodeState{State: state, Text: text}
+	return n
+}
+
+func bridge(kind, from, toGroup, toKind, toName string, toUID *string, state, text string) graph.Bridge {
+	return graph.Bridge{Kind: kind, From: graph.From{UID: from}, To: graph.Target{Group: toGroup, Kind: toKind, Name: toName, UID: toUID}, State: state, Settings: []string{}, Text: text}
+}
+
+func answer(ns string, nodes []graph.Node, bridges ...graph.Bridge) graph.Answer {
+	if bridges == nil {
+		bridges = []graph.Bridge{}
+	}
+	return graph.Answer{Namespace: ns, NamespaceState: graph.NamespaceState{State: graph.NamespaceOK, ExistenceChecked: true},
+		Nodes: nodes, Refused: []graph.Refusal{}, Bridges: bridges, Unsupported: []graph.Unsupported{}}
+}
+
+// faultAnswers are the C8 answers of A-1 to A-6, one per scenario.
+func faultAnswers() map[string]graph.Answer {
+	return map[string]graph.Answer{
+		"A-1": answer("hk2-a1", []graph.Node{node("apps/v1", "Deployment", "crash", "d1"),
+			podNode("crash-1", "p1", graph.NodeFailing, "CrashLoopBackOff"+dot+"3 restarts")}),
+		"A-2": answer("hk2-a2", []graph.Node{podNode("pull-1", "p2", graph.NodeFailing, "ImagePullBackOff"+dot+missingImage)}),
+		"A-3": answer("hk2-a3", []graph.Node{node("v1", "Service", "web", "s3"), podNode("web-1", "p3", graph.NodeHealthy, "")},
+			bridge(graph.BridgeServicePod, "s3", "", "Pod", "", nil, graph.BridgeBroken, graph.SelectorNoPodsText("app=web"))),
+		"A-4": answer("hk2-a4", []graph.Node{node("v1", "Service", "web", "s4"), podNode("web-1", "p4", graph.NodeHealthy, "")},
+			bridge(graph.BridgeServicePod, "s4", "", "Pod", "web-1", uid("p4"), graph.BridgeBroken, graph.NamedPortText("http"))),
+		"A-5": answer("hk2-a5", []graph.Node{podNode("app-1", "p5", graph.NodeFailing, "CreateContainerConfigError")},
+			bridge(graph.BridgePodConfigMap, "p5", "", "ConfigMap", "app-config", nil, graph.BridgeBroken, graph.NotFoundText("ConfigMap", "app-config"))),
+		"A-6": answer("hk2-a6", []graph.Node{node("v1", "PersistentVolumeClaim", "data", "c6"), podNode("db-1", "p6", graph.NodeProgressing, "Pending"+dot+"scheduling")},
+			bridge(graph.BridgePVCPV, "c6", "", "PersistentVolume", "", nil, graph.BridgeBroken, graph.ClassUnboundText("missing-class")),
+			bridge(graph.BridgePVCStorageClass, "c6", "storage.k8s.io", "StorageClass", "missing-class", nil, graph.BridgeBroken, graph.ClassUnboundText("missing-class")),
+			bridge(graph.BridgePodPVC, "p6", "", "PersistentVolumeClaim", "data", uid("c6"), graph.BridgeConnected, "")),
+	}
+}
+
+var expectedPods = map[string]Pod{"A-1": {"p1", "crash-1"}, "A-2": {"p2", "pull-1"}, "A-3": {"p3", "web-1"}, "A-4": {"p4", "web-1"}, "A-5": {"p5", "app-1"}, "A-6": {"p6", "db-1"}}
+
+func stage(answers map[string]graph.Answer) []Scenario {
+	var out []Scenario
+	for _, id := range IDs {
+		s := Scenario{ID: id, Namespace: ScenarioNamespaces[id], Call: call(answers[id]), Pods: []Pod{expectedPods[id]}}
+		if id == "A-1" {
+			s.RestartsBefore, s.RestartsAfter = 3, 4
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// negativeAnswers are the C8 answers with A-3 in its healthy version (C10).
+func negativeAnswers() map[string]graph.Answer {
+	m := faultAnswers()
+	m["A-3"] = answer("hk2-a3", []graph.Node{node("v1", "Service", "web", "s3"), podNode("web-1", "p3", graph.NodeHealthy, "")},
+		bridge(graph.BridgeServicePod, "s3", "", "Pod", "web-1", uid("p3"), graph.BridgeConnected, ""))
+	return m
+}
+
+// baselineAnswers are the C9 answers: every namespace the cluster answer lists.
+func baselineAnswers() (graph.ClusterAnswer, map[string]graph.Answer) {
+	ns := map[string]graph.Answer{
+		"hk2-a0": answer("hk2-a0", []graph.Node{node("v1", "PersistentVolumeClaim", "idle", "c0")},
+			bridge(graph.BridgePVCPV, "c0", "", "PersistentVolume", "", nil, graph.BridgeWaiting, graph.ConsumerWaitText("idle")),
+			bridge(graph.BridgePVCStorageClass, "c0", "storage.k8s.io", "StorageClass", "standard", nil, graph.BridgeConnected, "")),
+		"kube-system": answer("kube-system", []graph.Node{node("v1", "Service", "kube-dns", "ks"), podNode("coredns-1", "kp", graph.NodeHealthy, "")},
+			bridge(graph.BridgeServicePod, "ks", "", "Pod", "coredns-1", uid("kp"), graph.BridgeConnected, "")),
+	}
+	for _, id := range IDs {
+		n := ScenarioNamespaces[id]
+		ns[n] = answer(n, []graph.Node{podNode("ok-1", "h"+n, graph.NodeHealthy, "")})
+	}
+	var items []string
+	for n := range ns {
+		items = append(items, n)
+	}
+	cluster := graph.ClusterAnswer{Namespaces: graph.NamespaceList{Listed: true, Items: items, From: "list"}, Refused: []graph.Refusal{}}
+	return cluster, ns
+}
+
+func baseline(cluster graph.ClusterAnswer, ns map[string]graph.Answer) Baseline {
+	b := Baseline{Cluster: call(cluster), Namespaces: map[string]Call{}}
+	for n, a := range ns {
+		b.Namespaces[n] = call(a)
+	}
+	return b
+}
+
+func recorded() Input {
+	cluster, ns := baselineAnswers()
+	return Input{Faults: stage(faultAnswers()), Negative: stage(negativeAnswers()), Baseline: baseline(cluster, ns)}
+}
+
+// run judges in and returns the output lines and the exit value.
+func run(t *testing.T, in Input) ([]string, int) {
+	t.Helper()
+	var out bytes.Buffer
+	code := Judge(in, &out)
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	for _, l := range lines {
+		t.Log(l)
+	}
+	return lines, code
+}
+
+func has(lines []string, want string) bool {
+	for _, l := range lines {
+		if l == want {
+			return true
+		}
+	}
+	return false
+}
+
+func hasPrefix(lines []string, prefix string) bool {
+	for _, l := range lines {
+		if strings.HasPrefix(l, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// expect checks that every wanted line is printed exactly, every unwanted prefix is absent
+// and the exit value, and prints one FA2-T7b line for the criterion.
+func expect(t *testing.T, criterion, input string, lines []string, code, wantCode int, want []string, absent ...string) {
+	t.Helper()
+	ok := code == wantCode
+	var missing []string
+	for _, w := range want {
+		if !has(lines, w) {
+			ok = false
+			missing = append(missing, w)
+		}
+	}
+	for _, a := range absent {
+		if hasPrefix(lines, a) {
+			ok = false
+			missing = append(missing, "unexpected "+a)
+		}
+	}
+	t.Logf("FA2-T7b %s input=%s expected=exit %d with %d lines actual=exit %d missing=%q result=%s", criterion, input, wantCode, len(want), code, missing, passFail(ok))
+	if !ok {
+		t.Errorf("%s %s: exit %d (want %d), missing %q", criterion, input, code, wantCode, missing)
+	}
+}
+
+// TestJudge_Recorded (C8, C9, C10 on recorded answers): the unchanged answers give 6/6,
+// the negative stage 5/6 with A-3 FAIL only, A-0 PASS and verdict PASS.
+func TestJudge_Recorded(t *testing.T) {
+	lines, code := run(t, recorded())
+	expect(t, "recorded", "c8-c9-c10-answers", lines, code, 0, []string{
+		"HK2 stage=faults A-1 check=node-text pod=crash-1 expected=CrashLoopBackOff \\u00b7 <n> restart(s) with 1 <= 3 <= n <= 4 actual=CrashLoopBackOff \\u00b7 3 restarts result=PASS",
+		"HK2 stage=faults A-3 check=service-pod from=Service/web expected=Pod/ broken selector app=web matches 0 Pods actual=Pod/ broken selector app=web matches 0 Pods result=PASS",
+		"HK2 stage=faults total=6/6",
+		"HK2 stage=negative A-3 result=FAIL",
+		"HK2 stage=negative total=5/6 expected=5/6 result=PASS",
+		"HK2 stage=baseline A-0 check=idle-waiting expected=PersistentVolume/ waiting idle waits for a consumer Pod actual=PersistentVolume/ waiting idle waits for a consumer Pod result=PASS",
+		"HK2 stage=baseline A-0 broken=0 warning=0 failing=0 waiting=1 optional=0 unknown=0 result=PASS",
+		"HK2 total=6/6 negative=PASS a0=PASS verdict=PASS",
+	})
+	if last := lines[len(lines)-1]; last != "HK2 total=6/6 negative=PASS a0=PASS verdict=PASS" {
+		t.Errorf("last line %q", last)
+	}
+}
+
+// TestJudge_NodeValueDecides (C11): with the bridges unchanged, a wrong Pod node value
+// fails its scenario; total 5/6, exit 1.
+func TestJudge_NodeValueDecides(t *testing.T) {
+	cases := []struct {
+		input, id string
+		change    func(m map[string]graph.Answer)
+		line      string
+	}{
+		{"a1-running-healthy", "A-1", func(m map[string]graph.Answer) {
+			m["A-1"].Nodes[1].NodeState = &graph.NodeState{State: graph.NodeHealthy, Text: "Running"}
+		}, "HK2 stage=faults A-1 check=node-state pod=crash-1 expected=failing actual=healthy result=FAIL"},
+		{"a2-image-one-character", "A-2", func(m map[string]graph.Answer) {
+			m["A-2"].Nodes[0].NodeState.Text = "ImagePullBackOff" + dot + "registry.k8s.io/pause:intuitik-a2-missinG"
+		}, "HK2 stage=faults A-2 check=node-text pod=pull-1 expected=ImagePullBackOff \\u00b7 registry.k8s.io/pause:intuitik-a2-missing | ErrImagePull \\u00b7 registry.k8s.io/pause:intuitik-a2-missing actual=ImagePullBackOff \\u00b7 registry.k8s.io/pause:intuitik-a2-missinG result=FAIL"},
+		{"a5-bridge-right-node-healthy", "A-5", func(m map[string]graph.Answer) {
+			m["A-5"].Nodes[0].NodeState = &graph.NodeState{State: graph.NodeHealthy}
+		}, "HK2 stage=faults A-5 check=node-state pod=app-1 expected=failing actual=healthy result=FAIL"},
+	}
+	for _, c := range cases {
+		t.Run(c.input, func(t *testing.T) {
+			m := faultAnswers()
+			c.change(m)
+			in := recorded()
+			in.Faults = stage(m)
+			lines, code := run(t, in)
+			expect(t, "C11", c.input, lines, code, 1, []string{
+				c.line,
+				"HK2 stage=faults " + c.id + " result=FAIL",
+				"HK2 stage=faults total=5/6",
+				"HK2 total=5/6 negative=PASS a0=PASS verdict=FAIL",
+			})
+		})
+	}
+	// A-1's restart count outside the kubectl reads, and the singular form for n > 1.
+	for _, text := range []string{"CrashLoopBackOff" + dot + "5 restarts", "CrashLoopBackOff" + dot + "3 restart", "CrashLoopBackOff" + dot + "03 restarts"} {
+		m := faultAnswers()
+		m["A-1"].Nodes[1].NodeState.Text = text
+		in := recorded()
+		in.Faults = stage(m)
+		lines, code := run(t, in)
+		expect(t, "C11", "a1-text "+printable(text), lines, code, 1, []string{"HK2 stage=faults A-1 result=FAIL", "HK2 stage=faults total=5/6"})
+	}
+}
+
+// TestJudge_RefusalAndError (C12): (a) a refused Pods LIST fails A-4 with the refusal
+// text; (b) a refused entry fails A-0 with broken 0; (c) a 401 gives ERROR, no total, exit 2.
+func TestJudge_RefusalAndError(t *testing.T) {
+	refusal := graph.Refusal{Kind: "Pod", Status: 403, Reason: "Forbidden", Text: graph.KindText("Pod", 403)}
+
+	m := faultAnswers()
+	a4 := answer("hk2-a4", []graph.Node{node("v1", "Service", "web", "s4")},
+		bridge(graph.BridgeServicePod, "s4", "", "Pod", "", nil, graph.BridgeUnknown, graph.NoPermissionText("Pod")))
+	a4.Refused = []graph.Refusal{refusal}
+	m["A-4"] = a4
+	in := recorded()
+	in.Faults = stage(m)
+	lines, code := run(t, in)
+	expect(t, "C12", "a-a4-pods-refused", lines, code, 1, []string{
+		"HK2 stage=faults A-4 check=refused expected=none actual=refused " + refusal.Text + " result=FAIL",
+		"HK2 stage=faults A-4 result=FAIL",
+		"HK2 stage=faults total=5/6",
+		"HK2 total=5/6 negative=PASS a0=PASS verdict=FAIL",
+	})
+
+	cluster, ns := baselineAnswers()
+	ks := ns["kube-system"]
+	ks.Refused = []graph.Refusal{refusal}
+	ns["kube-system"] = ks
+	in = recorded()
+	in.Baseline = baseline(cluster, ns)
+	lines, code = run(t, in)
+	expect(t, "C12", "b-a0-refused-broken-0", lines, code, 1, []string{
+		"HK2 stage=baseline A-0 check=refused namespace=kube-system expected=none actual=refused " + refusal.Text + " result=FAIL",
+		"HK2 stage=baseline A-0 broken=0 warning=0 failing=0 waiting=1 optional=0 unknown=0 result=FAIL",
+		"HK2 total=6/6 negative=PASS a0=FAIL verdict=FAIL",
+	})
+
+	cluster, ns = baselineAnswers()
+	cluster.Refused = []graph.Refusal{{Kind: "Namespace", Status: 403, Reason: "Forbidden", Text: graph.KindText("Namespace", 403)}}
+	in = recorded()
+	in.Baseline = baseline(cluster, ns)
+	lines, code = run(t, in)
+	expect(t, "C12", "b-cluster-refused", lines, code, 1, []string{"HK2 total=6/6 negative=PASS a0=FAIL verdict=FAIL"})
+
+	for _, c := range []struct {
+		input  string
+		change func(in *Input)
+	}{
+		{"c-401-scenario", func(in *Input) { in.Negative[2].Call = Call{Status: 401, Body: []byte(`{"error":"session"}`)} }},
+		{"c-401-cluster", func(in *Input) { in.Baseline.Cluster = Call{Status: 401} }},
+		{"c-body-not-json", func(in *Input) { in.Faults[0].Call.Body = []byte("<html>") }},
+		{"c-stage-missing-scenario", func(in *Input) { in.Faults = in.Faults[:5] }},
+	} {
+		in := recorded()
+		c.change(&in)
+		lines, code := run(t, in)
+		expect(t, "C12", c.input, lines, code, 2, nil, "HK2 stage=", "HK2 total=")
+		if len(lines) != 1 || !strings.HasPrefix(lines[0], "HK2 verdict=ERROR ") {
+			t.Errorf("C12 %s: output %q, want one ERROR line", c.input, lines)
+		}
+	}
+}
+
+// TestJudge_A0Counts (C13): one broken bridge in kube-system gives broken=1, A-0 FAIL and
+// verdict FAIL; a warning outside the scenario namespaces is printed and not counted; a
+// failing Pod or a warning in a scenario namespace fails A-0; a missing idle PVC fails A-0.
+func TestJudge_A0Counts(t *testing.T) {
+	cluster, ns := baselineAnswers()
+	ns["kube-system"].Bridges[0].State = graph.BridgeBroken
+	ns["kube-system"].Bridges[0].Text = graph.NamedPortText("dns")
+	in := recorded()
+	in.Baseline = baseline(cluster, ns)
+	lines, code := run(t, in)
+	expect(t, "C13", "kube-system-one-broken", lines, code, 1, []string{
+		"HK2 stage=baseline A-0 item=broken namespace=kube-system bridge=service-pod from=Service/kube-dns to=Pod/coredns-1 text=" + graph.NamedPortText("dns"),
+		"HK2 stage=baseline A-0 broken=1 warning=0 failing=0 waiting=1 optional=0 unknown=0 result=FAIL",
+		"HK2 total=6/6 negative=PASS a0=FAIL verdict=FAIL",
+	})
+
+	cluster, ns = baselineAnswers()
+	ns["kube-system"].Bridges[0].State = graph.BridgeWarning
+	ns["kube-system"].Bridges[0].Text = graph.NumericPortText(53)
+	in = recorded()
+	in.Baseline = baseline(cluster, ns)
+	lines, code = run(t, in)
+	expect(t, "C13", "kube-system-warning-not-counted", lines, code, 0, []string{
+		"HK2 stage=baseline A-0 item=warning namespace=kube-system bridge=service-pod from=Service/kube-dns to=Pod/coredns-1 text=" + graph.NumericPortText(53),
+		"HK2 stage=baseline A-0 broken=0 warning=0 failing=0 waiting=1 optional=0 unknown=0 result=PASS",
+	})
+
+	cluster, ns = baselineAnswers()
+	ns["hk2-a1"].Nodes[0].NodeState = &graph.NodeState{State: graph.NodeFailing, Text: "CrashLoopBackOff" + dot + "1 restart"}
+	in = recorded()
+	in.Baseline = baseline(cluster, ns)
+	lines, code = run(t, in)
+	expect(t, "C13", "scenario-pod-failing", lines, code, 1, []string{
+		"HK2 stage=baseline A-0 broken=0 warning=0 failing=1 waiting=1 optional=0 unknown=0 result=FAIL",
+	})
+
+	cluster, ns = baselineAnswers()
+	a3 := ns["hk2-a3"]
+	a3.Bridges = []graph.Bridge{bridge(graph.BridgeServicePod, "x", "", "Pod", "ok-1", uid("hhk2-a3"), graph.BridgeWarning, graph.NumericPortText(80))}
+	ns["hk2-a3"] = a3
+	in = recorded()
+	in.Baseline = baseline(cluster, ns)
+	lines, code = run(t, in)
+	expect(t, "C13", "scenario-warning", lines, code, 1, []string{
+		"HK2 stage=baseline A-0 broken=0 warning=1 failing=0 waiting=1 optional=0 unknown=0 result=FAIL",
+	})
+
+	cluster, ns = baselineAnswers()
+	ns["hk2-a0"] = answer("hk2-a0", []graph.Node{})
+	in = recorded()
+	in.Baseline = baseline(cluster, ns)
+	lines, code = run(t, in)
+	expect(t, "C13", "idle-absent", lines, code, 1, []string{
+		"HK2 stage=baseline A-0 check=idle-waiting expected=PersistentVolume/ waiting idle waits for a consumer Pod actual=no PersistentVolumeClaim idle result=FAIL",
+		"HK2 stage=baseline A-0 broken=0 warning=0 failing=0 waiting=0 optional=0 unknown=0 result=FAIL",
+	})
+
+	cluster, ns = baselineAnswers()
+	in = recorded()
+	in.Baseline = baseline(cluster, ns)
+	delete(in.Baseline.Namespaces, "kube-system")
+	lines, code = run(t, in)
+	expect(t, "C13", "namespace-answer-missing", lines, code, 1, []string{
+		"HK2 stage=baseline A-0 check=answer namespace=kube-system expected=answer actual=missing result=FAIL",
+	})
+}
+
+// TestJudge_StalePodAndNegative (3.2 stale-pod rule, C10 failure side): a Pod node the
+// stage does not expect fails its scenario; a negative stage other than 5/6 with A-3 FAIL
+// fails the verdict.
+func TestJudge_StalePodAndNegative(t *testing.T) {
+	m := faultAnswers()
+	a4 := m["A-4"]
+	a4.Nodes = append(a4.Nodes, podNode("web-0", "old", graph.NodeHealthy, ""))
+	m["A-4"] = a4
+	in := recorded()
+	in.Faults = stage(m)
+	lines, code := run(t, in)
+	expect(t, "C10", "stale-pod", lines, code, 1, []string{
+		"HK2 stage=faults A-4 check=pods expected=web-1 actual=stale pod web-0 result=FAIL",
+		"HK2 stage=faults A-4 result=FAIL",
+	})
+
+	in = recorded()
+	in.Negative = stage(faultAnswers())
+	lines, code = run(t, in)
+	expect(t, "C10", "negative-6-of-6", lines, code, 1, []string{
+		"HK2 stage=negative total=6/6 expected=5/6 result=FAIL",
+		"HK2 total=6/6 negative=FAIL a0=PASS verdict=FAIL",
+	})
+
+	m = negativeAnswers()
+	m["A-6"].Bridges[2].State = graph.BridgeBroken
+	in = recorded()
+	in.Negative = stage(m)
+	lines, code = run(t, in)
+	expect(t, "C10", "negative-a6-also-fails", lines, code, 1, []string{
+		"HK2 stage=negative A-6 result=FAIL",
+		"HK2 stage=negative total=4/6 expected=5/6 result=FAIL",
+	})
+}

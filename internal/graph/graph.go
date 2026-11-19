@@ -149,7 +149,25 @@ type Node struct {
 	Name       string  `json:"name"`
 	Parent     *string `json:"parent"`
 	Owner      Owner   `json:"owner"`
+	// NodeState is set on every core v1 Pod node and nil on every other node, so the
+	// JSON of a node of another kind has no nodeState key (FA2-T7b 6.2).
+	NodeState *NodeState `json:"nodeState,omitempty"`
 }
+
+// NodeState is the state of a Pod node and its one fixed text (FA2-T7b 3.1); Text is
+// empty for healthy.
+type NodeState struct {
+	State string `json:"state"`
+	Text  string `json:"text,omitempty"`
+}
+
+// The states of a Pod node (FA2-T7b 3.1, UI.md 4.3).
+const (
+	NodeHealthy     = "healthy"
+	NodeProgressing = "progressing"
+	NodeFailing     = "failing"
+	NodeUnknown     = "unknown"
+)
 
 // Owner is the owner state of a node. Reference is the chosen ownerReference as
 // <kind>/<name> and Text its fixed text; both are empty for none and contained.
