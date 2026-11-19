@@ -20,9 +20,7 @@ func isAddrInUse(code syscall.Errno) bool {
 }
 
 func isAccessDenied(code syscall.Errno) bool {
-	// Red stub (FA2-S16 packet section 5): WSAEACCES of the bind step is not retried.
-	_ = wsaeAccess
-	return false
+	return code == wsaeAccess
 }
 
 // listenControl sets SO_EXCLUSIVEADDRUSE on the listener before bind (S16). Only the
