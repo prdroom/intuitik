@@ -162,7 +162,8 @@ func Build(ctx context.Context, open Open, namespace string) (Answer, error) {
 				c.listedAs(k, false)
 				continue
 			}
-			return Answer{}, c.listFail(ctx, err, k.kind)
+			// Red stub (t5): the LIST failure keeps the owners text.
+			return Answer{}, c.fail(err)
 		}
 		c.listedAs(k, true)
 		for i := range list.Items {

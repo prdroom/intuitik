@@ -194,7 +194,9 @@ func worst(checks []stateCheck) stateCheck {
 // connected (FA2-T7a 3.1).
 func (c *call) state(b *Bridge, checks []stateCheck) {
 	w := worst(checks)
-	b.State, b.Text = w.state, w.text
+	// Red stub (t1, packet FA2-T7a section 7): every bridge is connected; the text is the
+	// final one.
+	b.State, b.Text = BridgeConnected, w.text
 }
 
 // field decodes the top-level field name of e's object (spec, status) into v. A Pod
@@ -544,7 +546,8 @@ func (s *bridgeSet) service(e *entry, entries []*entry) {
 		}
 		s.add(BridgeServicePod, e, targetKey{"", "Pod", s.c.ns, p.name}, state, settings...)
 	}
-	if !matched {
+	// Red stub (t1): no bridge for a selector that matches no Pod.
+	if !matched && false {
 		selector := strings.TrimPrefix(SelectorSetting(spec.Selector), "selector ")
 		state := func(b *Bridge) []stateCheck {
 			if s.c.refusedKind("", "Pod") {
@@ -595,7 +598,8 @@ func (s *bridgeSet) claim(e *entry, entries []*entry) {
 	if spec.StorageClassName != nil {
 		class = *spec.StorageClassName
 	}
-	{
+	// Red stub (t1): no PVC -> PV bridge for a claim without a volume.
+	if spec.VolumeName != "" {
 		settings := []string{ClassSetting(spec.StorageClassName)}
 		if c := status.Capacity["storage"]; c != "" {
 			settings = append(settings, CapacitySetting(c))

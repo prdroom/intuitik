@@ -109,7 +109,7 @@ func clusterFixture() *fakeAPI {
 		clusterObject("v1", "Namespace", "a-ns", "ns-a", `{}`),
 		clusterObject("v1", "Node", "n1", "node-1", `{"status":{"conditions":[{"type":"Ready","status":"True"}]}}`),
 		clusterObject("v1", "Node", "n2", "node-2", `{"status":{"conditions":[{"type":"Ready","status":"False"}]}}`),
-		clusterObject("storage.k8s.io/v1", "StorageClass", "standard", "sc-standard", `{"metadata":{}}`),
+		clusterObject("storage.k8s.io/v1", "StorageClass", "standard", "sc-standard", `{}`),
 		clusterObject("storage.k8s.io/v1", "StorageClass", "fast", "sc-fast", `{}`),
 		clusterObject("v1", "PersistentVolume", "pv-1", "pv-1", `{}`),
 	)
