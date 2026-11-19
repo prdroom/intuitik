@@ -147,13 +147,17 @@ func field(e *entry, name string, v any) {
 	}
 }
 
+// The references of a Pod spec to a ConfigMap or Secret. Optional is the reference's
+// optional field, unset is false (E.4: a flag kept for T7a, never text).
 type nameRef struct {
-	Name string `json:"name"`
+	Name     string `json:"name"`
+	Optional bool   `json:"optional"`
 }
 
 type keyRef struct {
-	Name string `json:"name"`
-	Key  string `json:"key"`
+	Name     string `json:"name"`
+	Key      string `json:"key"`
+	Optional bool   `json:"optional"`
 }
 
 type keyItem struct {
@@ -161,8 +165,9 @@ type keyItem struct {
 }
 
 type keySource struct {
-	Name  string    `json:"name"`
-	Items []keyItem `json:"items"`
+	Name     string    `json:"name"`
+	Items    []keyItem `json:"items"`
+	Optional bool      `json:"optional"`
 }
 
 type podContainer struct {
@@ -196,6 +201,7 @@ type podVolume struct {
 	Secret    *struct {
 		SecretName string    `json:"secretName"`
 		Items      []keyItem `json:"items"`
+		Optional   bool      `json:"optional"`
 	} `json:"secret"`
 	Projected *struct {
 		Sources []struct {
@@ -219,12 +225,13 @@ type mount struct {
 
 // pod makes the Pod -> PVC, Pod -> ConfigMap and Pod -> Secret bridges of one Pod
 // (section 3.1): references in containers then initContainers, in spec order; env and
-// envFrom before volumes. No ConfigMap or Secret is read (B1).
+// envFrom before volumes. Each settings entry of a Pod -> ConfigMap or Pod -> Secret
+// bridge carries the optional flag of its reference. No ConfigMap or Secret is read (B1).
 func (s *bridgeSet) pod(e *entry) {
 	var spec podSpec
 	field(e, "spec", &spec)
 	containers := append(append([]podContainer{}, spec.Containers...), spec.InitContainers...)
-	ref := func(kind, name string, setting string) {
+	ref := func(kind, name string, optional bool, setting string) {
 		if name == "" {
 			return
 		}
@@ -232,7 +239,8 @@ func (s *bridgeSet) pod(e *entry) {
 		if kind == "Secret" {
 			bk = BridgePodSecret
 		}
-		s.add(bk, e, targetKey{"", kind, s.c.ns, name}, setting)
+		b := s.add(bk, e, targetKey{"", kind, s.c.ns, name}, setting)
+		b.Optional = append(b.Optional, optional)
 	}
 	for _, ct := range containers {
 		for _, ev := range ct.Env {
@@ -240,18 +248,18 @@ func (s *bridgeSet) pod(e *entry) {
 				continue
 			}
 			if r := ev.ValueFrom.ConfigMapKeyRef; r != nil {
-				ref("ConfigMap", r.Name, EnvSetting(ct.Name, ev.Name, r.Key))
+				ref("ConfigMap", r.Name, r.Optional, EnvSetting(ct.Name, ev.Name, r.Key))
 			}
 			if r := ev.ValueFrom.SecretKeyRef; r != nil {
-				ref("Secret", r.Name, EnvSetting(ct.Name, ev.Name, r.Key))
+				ref("Secret", r.Name, r.Optional, EnvSetting(ct.Name, ev.Name, r.Key))
 			}
 		}
 		for _, ef := range ct.EnvFrom {
-			if ef.ConfigMapRef != nil {
-				ref("ConfigMap", ef.ConfigMapRef.Name, EnvFromSetting(ct.Name, ef.Prefix))
+			if r := ef.ConfigMapRef; r != nil {
+				ref("ConfigMap", r.Name, r.Optional, EnvFromSetting(ct.Name, ef.Prefix))
 			}
-			if ef.SecretRef != nil {
-				ref("Secret", ef.SecretRef.Name, EnvFromSetting(ct.Name, ef.Prefix))
+			if r := ef.SecretRef; r != nil {
+				ref("Secret", r.Name, r.Optional, EnvFromSetting(ct.Name, ef.Prefix))
 			}
 		}
 	}
@@ -266,7 +274,7 @@ func (s *bridgeSet) pod(e *entry) {
 		}
 		return out
 	}
-	keyed := func(kind, name, volume string, items []keyItem) {
+	keyed := func(kind, name string, optional bool, volume string, items []keyItem) {
 		if name == "" {
 			return
 		}
@@ -276,10 +284,10 @@ func (s *bridgeSet) pod(e *entry) {
 		}
 		ms := mounts(volume)
 		if len(ms) == 0 {
-			ref(kind, name, UnmountedSetting(volume))
+			ref(kind, name, optional, UnmountedSetting(volume))
 		}
 		for _, m := range ms {
-			ref(kind, name, VolumeSetting(m.container, m.path, keys))
+			ref(kind, name, optional, VolumeSetting(m.container, m.path, keys))
 		}
 	}
 	var claims []string
@@ -299,19 +307,19 @@ func (s *bridgeSet) pod(e *entry) {
 			}
 			claimMounts[claim] = append(claimMounts[claim], mounts(v.Name)...)
 		}
-		if v.ConfigMap != nil {
-			keyed("ConfigMap", v.ConfigMap.Name, v.Name, v.ConfigMap.Items)
+		if c := v.ConfigMap; c != nil {
+			keyed("ConfigMap", c.Name, c.Optional, v.Name, c.Items)
 		}
-		if v.Secret != nil {
-			keyed("Secret", v.Secret.SecretName, v.Name, v.Secret.Items)
+		if c := v.Secret; c != nil {
+			keyed("Secret", c.SecretName, c.Optional, v.Name, c.Items)
 		}
 		if v.Projected != nil {
 			for _, src := range v.Projected.Sources {
-				if src.ConfigMap != nil {
-					keyed("ConfigMap", src.ConfigMap.Name, v.Name, src.ConfigMap.Items)
+				if c := src.ConfigMap; c != nil {
+					keyed("ConfigMap", c.Name, c.Optional, v.Name, c.Items)
 				}
-				if src.Secret != nil {
-					keyed("Secret", src.Secret.Name, v.Name, src.Secret.Items)
+				if c := src.Secret; c != nil {
+					keyed("Secret", c.Name, c.Optional, v.Name, c.Items)
 				}
 			}
 		}
@@ -476,8 +484,9 @@ func (s *bridgeSet) hpa(e *entry) {
 // each rule, each match (none: PathPrefix /) and each backendRef of the core group and
 // kind Service, in that order. A backendRef of another group or kind gives no bridge, and
 // one of another namespace is never joined to an object of this one (B5, BT-5). In this
-// namespace, a target that is not a node is "not found" only when the Services LIST
-// succeeded (BT-3, BT-4, B3).
+// namespace, a refused Services LIST makes every target not checkable, with to.uid null
+// even when an owner lookup of the call read that Service (BT-4, B3); otherwise a target
+// that is not a node is "not found" (BT-3).
 func (s *bridgeSet) route(e *entry) {
 	var spec struct {
 		Hostnames []string `json:"hostnames"`
@@ -529,9 +538,10 @@ func (s *bridgeSet) route(e *entry) {
 				switch {
 				case ns != s.c.ns:
 					br.Text = OtherNamespaceText(ns, b.Name)
-				case found:
 				case s.c.servicesRefused:
+					br.To.UID = nil
 					br.Text = ServicesForbiddenText
+				case found:
 				default:
 					br.Text = ServiceNotFoundText(b.Name)
 				}
