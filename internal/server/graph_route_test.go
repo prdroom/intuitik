@@ -54,6 +54,12 @@ var listKinds = map[string]string{
 	"/apis/apps/v1/namespaces/%s/daemonsets":   "DaemonSetList",
 	"/apis/batch/v1/namespaces/%s/jobs":        "JobList",
 	"/apis/batch/v1/namespaces/%s/cronjobs":    "CronJobList",
+
+	// The four LISTs of the bridge kinds (FA2-T6 E.3).
+	"/api/v1/namespaces/%s/services":                              "ServiceList",
+	"/api/v1/namespaces/%s/persistentvolumeclaims":                "PersistentVolumeClaimList",
+	"/apis/networking.k8s.io/v1/namespaces/%s/ingresses":          "IngressList",
+	"/apis/autoscaling/v2/namespaces/%s/horizontalpodautoscalers": "HorizontalPodAutoscalerList",
 }
 
 func newGraphAPI(t *testing.T) *graphAPI {
@@ -265,7 +271,9 @@ func callPaths(ns string) []string {
 		"/api/v1/namespaces/" + ns + "/pods", "/apis/apps/v1/namespaces/" + ns + "/replicasets",
 		"/apis/apps/v1/namespaces/" + ns + "/deployments", "/apis/apps/v1/namespaces/" + ns + "/statefulsets",
 		"/apis/apps/v1/namespaces/" + ns + "/daemonsets", "/apis/batch/v1/namespaces/" + ns + "/jobs",
-		"/apis/batch/v1/namespaces/" + ns + "/cronjobs"}
+		"/apis/batch/v1/namespaces/" + ns + "/cronjobs",
+		"/api/v1/namespaces/" + ns + "/services", "/api/v1/namespaces/" + ns + "/persistentvolumeclaims",
+		"/apis/networking.k8s.io/v1/namespaces/" + ns + "/ingresses", "/apis/autoscaling/v2/namespaces/" + ns + "/horizontalpodautoscalers"}
 }
 
 // TestGraphRoute_LookupError (C11, G4 at the route): the owner GET answers 500; the route
@@ -306,7 +314,7 @@ func TestGraphRoute_Namespace(t *testing.T) {
 
 // TestGraphCall_RefreshAfter401 (C15/G8, D.4 "401 after connected", CLIENT-PER-REQ-T5):
 // after a 401 the call repeats that request once with the new credential, and every
-// request of the call after it carries only the new credential: [A B B B B B B B B].
+// request of the call after it carries only the new credential: A then B x 12.
 func TestGraphCall_RefreshAfter401(t *testing.T) {
 	api := newGraphAPI(t)
 	runner := &fakeRunner{plans: []runPlan{{token: "tok-a"}, {token: "tok-b"}}}
@@ -326,8 +334,8 @@ func TestGraphCall_RefreshAfter401(t *testing.T) {
 		pathsOK = got[i].path == paths[i]
 	}
 	t.Logf("FA2-T5 C15 input=401-after-connected answer %d, program starts %d, call record %s", code, runner.starts(), tokens(got, names))
-	if code != 200 || runner.starts() != 2 || fmt.Sprint(seq) != "[A B B B B B B B B]" || !pathsOK {
-		t.Errorf("401 after connected: answer %d, starts %d, tokens %v, paths in order %v; want 200, 2, [A B B B B B B B B] and the D.3 order with the one repeat", code, runner.starts(), seq, pathsOK)
+	if code != 200 || runner.starts() != 2 || fmt.Sprint(seq) != "[A B B B B B B B B B B B B]" || !pathsOK {
+		t.Errorf("401 after connected: answer %d, starts %d, tokens %v, paths in order %v; want 200, 2, [A B B B B B B B B B B B B] and the D.3 order with the one repeat", code, runner.starts(), seq, pathsOK)
 	}
 }
 
@@ -377,9 +385,9 @@ func TestGraphCall_RefreshInProgress(t *testing.T) {
 	t.Logf("FA2-T5 C15 input=refresh-in-progress answers %v, program starts %d; /apis tokens %v; call one LISTs %v; call two LISTs %v; record %s",
 		codes, runner.starts(), apis, perCall["one"], perCall["two"], tokens(got, names))
 	ok := codes[0] == 200 && codes[1] == 200 && runner.starts() == 2 && fmt.Sprint(apis) == "[A A B B]" &&
-		fmt.Sprint(perCall["one"]) == "[B B B B B B B]" && fmt.Sprint(perCall["two"]) == "[B B B B B B B]"
+		fmt.Sprint(perCall["one"]) == "[B B B B B B B B B B B]" && fmt.Sprint(perCall["two"]) == "[B B B B B B B B B B B]"
 	if !ok {
-		t.Errorf("refresh in progress: answers %v, starts %d, /apis %v, LISTs %v %v; want 200 200, 2 starts, [A A B B] and seven B LISTs per call",
+		t.Errorf("refresh in progress: answers %v, starts %d, /apis %v, LISTs %v %v; want 200 200, 2 starts, [A A B B] and eleven B LISTs per call",
 			codes, runner.starts(), apis, perCall["one"], perCall["two"])
 	}
 }

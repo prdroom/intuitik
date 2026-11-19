@@ -24,12 +24,13 @@ import (
 // FA2-T5 D.4, G8).
 
 // readNamespace is the namespace of every graph call of these tests, readPath its route
-// and callK the number of requests of one call on the empty fake cluster: /apis and the
-// seven LISTs (D.3). It is the expected value of this harness, not a measurement.
+// and callK the number of requests of one call on the empty fake cluster: /apis, the
+// seven LISTs and the four LISTs of the bridge kinds (D.3, FA2-T6 E.3). It is the expected
+// value of this harness, not a measurement.
 const (
 	readNamespace = "default"
 	readPath      = "/api/graph/containment?namespace=" + readNamespace
-	callK         = 8
+	callK         = 12
 )
 
 // callPaths is the request sequence of one graph call on the fake server (D.3).
@@ -39,7 +40,9 @@ func callPaths() []string {
 		"/api/v1/namespaces/" + ns + "/pods", "/apis/apps/v1/namespaces/" + ns + "/replicasets",
 		"/apis/apps/v1/namespaces/" + ns + "/deployments", "/apis/apps/v1/namespaces/" + ns + "/statefulsets",
 		"/apis/apps/v1/namespaces/" + ns + "/daemonsets", "/apis/batch/v1/namespaces/" + ns + "/jobs",
-		"/apis/batch/v1/namespaces/" + ns + "/cronjobs"}
+		"/apis/batch/v1/namespaces/" + ns + "/cronjobs",
+		"/api/v1/namespaces/" + ns + "/services", "/api/v1/namespaces/" + ns + "/persistentvolumeclaims",
+		"/apis/networking.k8s.io/v1/namespaces/" + ns + "/ingresses", "/apis/autoscaling/v2/namespaces/" + ns + "/horizontalpodautoscalers"}
 }
 
 // repeat is n copies of s.
@@ -224,7 +227,7 @@ type credRecord struct{ method, path, token string }
 // credServer is a TLS fake API server that records the method, path and bearer token of
 // every request. It answers 401 to a rejected token; otherwise it answers by path: the
 // APIVersions document for /api, an APIGroupList with no group outside the built-in list
-// for /apis, an empty list of the right kind for the LIST of each of the seven kinds in
+// for /apis, an empty list of the right kind for the LIST of each of the eleven kinds in
 // any namespace, and 404 for anything else.
 type credServer struct {
 	srv      *httptest.Server
@@ -233,14 +236,16 @@ type credServer struct {
 	rejected map[string]bool
 }
 
-// listKinds are the list kinds of the seven LISTs, by API prefix and resource.
+// listKinds are the list kinds of the eleven LISTs, by API prefix and resource.
 var listKinds = map[string]string{
 	"/api/v1/pods": "PodList", "/apis/apps/v1/replicasets": "ReplicaSetList", "/apis/apps/v1/deployments": "DeploymentList",
 	"/apis/apps/v1/statefulsets": "StatefulSetList", "/apis/apps/v1/daemonsets": "DaemonSetList",
 	"/apis/batch/v1/jobs": "JobList", "/apis/batch/v1/cronjobs": "CronJobList",
+	"/api/v1/services": "ServiceList", "/api/v1/persistentvolumeclaims": "PersistentVolumeClaimList",
+	"/apis/networking.k8s.io/v1/ingresses": "IngressList", "/apis/autoscaling/v2/horizontalpodautoscalers": "HorizontalPodAutoscalerList",
 }
 
-// listKind is the list kind of a namespaced LIST path of the seven kinds, or "".
+// listKind is the list kind of a namespaced LIST path of the eleven kinds, or "".
 func listKind(path string) string {
 	prefix, rest, ok := strings.Cut(path, "/namespaces/")
 	if !ok {

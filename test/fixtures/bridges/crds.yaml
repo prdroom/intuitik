@@ -1,0 +1,36 @@
+# Custom kinds named like built-in kinds in the group example.com (packet FA2-T6 C12 (b) and
+# (c), B5): kind Service (plural services) and kind Deployment (plural deployments), served
+# at v1. A bridge target is joined in its own group only.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: services.example.com
+spec:
+  group: example.com
+  scope: Namespaced
+  names: {kind: Service, listKind: ServiceList, plural: services, singular: service}
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: deployments.example.com
+spec:
+  group: example.com
+  scope: Namespaced
+  names: {kind: Deployment, listKind: DeploymentList, plural: deployments, singular: deployment}
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true

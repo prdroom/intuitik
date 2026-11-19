@@ -48,11 +48,61 @@ const (
 	StateLoop          State = "owner-loop"
 )
 
-// Answer is the response of GET /api/graph/containment (packet D.1).
+// Answer is the response of GET /api/graph/containment (packet FA2-T5 D.1, FA2-T6 E.1).
 type Answer struct {
-	Namespace string    `json:"namespace"`
-	Nodes     []Node    `json:"nodes"`
-	Refused   []Refusal `json:"refused"`
+	Namespace   string        `json:"namespace"`
+	Nodes       []Node        `json:"nodes"`
+	Refused     []Refusal     `json:"refused"`
+	Bridges     []Bridge      `json:"bridges"`
+	Unsupported []Unsupported `json:"unsupported"`
+}
+
+// The bridge kinds (FA2-T6 E.1).
+const (
+	BridgeIngressService   = "ingress-service"
+	BridgeServicePod       = "service-pod"
+	BridgePodPVC           = "pod-pvc"
+	BridgePVCPV            = "pvc-pv"
+	BridgePodConfigMap     = "pod-configmap"
+	BridgePodSecret        = "pod-secret"
+	BridgeHPATarget        = "hpa-target"
+	BridgeHTTPRouteService = "httproute-service"
+)
+
+// Bridge is one declared reference from a node of the answer to the object it names,
+// with the settings that made it (FA2-T6 E.1, section 3.1). Text is set only for the
+// F-18 cases of an HTTPRoute bridge (section 3.2).
+type Bridge struct {
+	Kind     string   `json:"kind"`
+	From     From     `json:"from"`
+	To       Target   `json:"to"`
+	Settings []string `json:"settings"`
+	Text     string   `json:"text,omitempty"`
+}
+
+// From is the node a bridge leaves.
+type From struct {
+	UID string `json:"uid"`
+}
+
+// Target is the object a bridge names. Group is "" for the core group and Namespace is
+// "" for a cluster-scoped target. UID is the uid of the node of the answer with the same
+// group, kind, namespace and name, or null (B5).
+type Target struct {
+	Group     string  `json:"group"`
+	Namespace string  `json:"namespace"`
+	Kind      string  `json:"kind"`
+	Name      string  `json:"name"`
+	UID       *string `json:"uid"`
+}
+
+// Unsupported is a resource whose objects are nodes but whose version the bridges are
+// not read from (B4, BT-6).
+type Unsupported struct {
+	Group   string `json:"group"`
+	Kind    string `json:"kind"`
+	Version string `json:"version"`
+	Text    string `json:"text"`
 }
 
 // Node is one object of the answer. Parent is the uid of the object it sits inside, or

@@ -97,6 +97,7 @@ type entry struct {
 	parent                      string
 	ref, text                   string
 	placed                      bool
+	obj                         *unstructured.Unstructured // the object as read
 }
 
 // call is one graph call: its caches live only as long as the call (G5).
@@ -106,6 +107,11 @@ type call struct {
 	docs    map[string]*document // "<group>/<version>", "/v1" for the core group
 	owners  map[string]*fetched  // "<group>/<version>/<resource>/<namespace>/<name>"
 	entries map[string]*entry    // by uid
+
+	gateway      bool        // discovery serves the Gateway API group
+	route        *listedKind // the HTTPRoute resource as listed, nil when not served
+	routeRefused bool        // the HTTPRoutes LIST was refused (403)
+	arrival      []*entry    // red stub (s7): the nodes in the order their LISTs answered
 }
 
 // Build reads the containment of namespace through open (packet D.1 to D.3). The cluster
@@ -129,11 +135,19 @@ func Build(ctx context.Context, open Open, namespace string) (Answer, error) {
 	// (3) The LISTs: the seven built-in kinds, then the other kinds by group and kind.
 	refused := []Refusal{}
 	kinds := append(append([]listedKind{}, builtInKinds...), c.otherKinds(groups)...)
+	for i, k := range kinds {
+		if k.res.Group == gatewayGroup && k.kind == "HTTPRoute" {
+			c.route = &kinds[i]
+		}
+	}
 	for _, k := range kinds {
 		list, err := c.list(ctx, k.res)
 		if err != nil {
 			if code, ok := statusCode(err); ok && code == http.StatusForbidden {
 				refused = append(refused, Refusal{Kind: k.kind, Status: code, Reason: strconv.Itoa(code), Text: KindText(k.kind, code)})
+				if c.route != nil && k == *c.route {
+					c.routeRefused = true
+				}
 				continue
 			}
 			return Answer{}, c.fail(err)
@@ -148,7 +162,11 @@ func Build(ctx context.Context, open Open, namespace string) (Answer, error) {
 			return Answer{}, err
 		}
 	}
-	a := Answer{Namespace: namespace, Nodes: []Node{}, Refused: refused}
+	// (5) The LISTs of the bridge kinds (FA2-T6 E.3).
+	if err := c.listBridgeKinds(ctx, &refused); err != nil {
+		return Answer{}, err
+	}
+	a := Answer{Namespace: namespace, Nodes: []Node{}, Refused: refused, Bridges: []Bridge{}, Unsupported: []Unsupported{}}
 	for _, e := range c.sorted() {
 		n := Node{UID: e.uid, APIVersion: e.apiVersion, Kind: e.kind, Name: e.name, Owner: Owner{State: e.state, Reference: e.ref, Text: e.text}}
 		if e.parent != "" {
@@ -170,6 +188,10 @@ func Build(ctx context.Context, open Open, namespace string) (Answer, error) {
 		d := c.docs[k]
 		group, version, _ := strings.Cut(k, "/")
 		a.Refused = append(a.Refused, Refusal{Group: group, Version: version, Status: d.status, Reason: d.reason, Text: GroupText(group, version, d.reason)})
+	}
+	// (6) The bridges, from the objects already read (FA2-T6 E.4).
+	if err := c.bridges(ctx, &a); err != nil {
+		return Answer{}, err
 	}
 	return a, nil
 }
@@ -217,6 +239,9 @@ func (c *call) groups(ctx context.Context) ([]group, error) {
 	}
 	var out []group
 	for _, g := range list.Groups {
+		if g.Name == gatewayGroup {
+			c.gateway = true
+		}
 		if builtInGroups[g.Name] {
 			continue
 		}
@@ -323,7 +348,7 @@ func (c *call) add(u *unstructured.Unstructured, k listedKind) *entry {
 	if e, ok := c.entries[uid]; ok {
 		return e
 	}
-	e := &entry{uid: uid, apiVersion: u.GetAPIVersion(), kind: u.GetKind(), name: u.GetName(), refs: u.GetOwnerReferences()}
+	e := &entry{uid: uid, apiVersion: u.GetAPIVersion(), kind: u.GetKind(), name: u.GetName(), refs: u.GetOwnerReferences(), obj: u}
 	if e.apiVersion == "" {
 		e.apiVersion = apiVersion(k.res.Group, k.res.Version)
 	}
@@ -331,6 +356,7 @@ func (c *call) add(u *unstructured.Unstructured, k listedKind) *entry {
 		e.kind = k.kind
 	}
 	c.entries[uid] = e
+	c.arrival = append(c.arrival, e)
 	return e
 }
 
