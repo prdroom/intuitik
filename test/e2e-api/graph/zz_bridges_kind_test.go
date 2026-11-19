@@ -21,7 +21,7 @@ import (
 
 // Kind tests of packet FA2-T6 (job e2e-graph): the bridges of GET /api/graph/containment
 // and their settings, and the HTTPRoute cases of F-18. TestG_Bridges is one top-level test
-// without t.Parallel in the file that sorts after every FA2-T5 test file of this package,
+// that never runs in parallel, in the file that sorts after every FA2-T5 test file of this package,
 // and it runs the phases of E.6 in order: (a) the built-in kinds with no Gateway API group
 // in discovery, (b) the test CRD that serves HTTPRoute only at v1alpha2, deleted at the end
 // of the phase, (c) the Gateway API v1.7.0 bundle, checked by its sha256 and created. Each
