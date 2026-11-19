@@ -117,16 +117,11 @@ func (c *call) readStates(ctx context.Context, refused *[]Refusal) error {
 // listConfig reads the ConfigMaps or Secrets of the namespace as metadata only: no value
 // reaches the call (6.2).
 func (c *call) listConfig(ctx context.Context, k listedKind) ([]readonly.ObjectMeta, error) {
-	// Red stub (t6): the plain LIST, whole objects, name and uid taken from them.
-	list, err := c.listAt(ctx, k.res, c.ns)
+	r, err := c.reader(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := []readonly.ObjectMeta{}
-	for _, it := range list.Items {
-		out = append(out, readonly.ObjectMeta{Name: it.GetName(), Namespace: it.GetNamespace(), UID: string(it.GetUID())})
-	}
-	return out, nil
+	return r.ListMetadata(ctx, k.res, c.ns)
 }
 
 // hasClaims reports a PersistentVolumeClaim among the nodes.
@@ -179,10 +174,13 @@ func (c *call) clusterNodes() {
 // Namespace object is not found; every namespaced LIST was refused; every LIST succeeded
 // and the only node, if any, is the ConfigMap kube-root-ca.crt; otherwise ok.
 func (c *call) namespaceState(a *Answer) NamespaceState {
-	// Red stub (t4): empty when the nodes other than kube-root-ca.crt are empty, else ok;
-	// existence always checked.
-	st := NamespaceState{State: NamespaceOK, ExistenceChecked: true}
-	if onlyRootCA(a.Nodes) {
+	st := NamespaceState{State: NamespaceOK, ExistenceChecked: c.nsStatus == http.StatusOK || c.nsStatus == http.StatusNotFound}
+	switch {
+	case c.nsStatus == http.StatusNotFound:
+		st.State = NamespaceNotFound
+	case c.nsLists > 0 && c.nsRefused == c.nsLists:
+		st.State = NamespaceNoPermission
+	case len(a.Refused) == 0 && onlyRootCA(a.Nodes):
 		st.State = NamespaceEmpty
 	}
 	return st

@@ -74,16 +74,11 @@ func BuildCluster(ctx context.Context, open Open, contextNamespace string) (Clus
 		if err != nil {
 			if code, ok := statusCode(err); ok && code == http.StatusForbidden {
 				a.Refused = append(a.Refused, Refusal{Kind: k.kind, Status: code, Reason: strconv.Itoa(code), Text: KindText(k.kind, code)})
-				// Red stub (t3): a refused LIST is an empty listed part with zero counts.
-				switch k.kind {
-				case "Namespace":
-					a.Namespaces = NamespaceList{Listed: true, Items: []string{}, From: ""}
-				case "Node":
-					a.Band.Nodes = &NodeCount{}
-				case "StorageClass":
-					a.Band.StorageClasses = &[]StorageClass{}
-				case "PersistentVolume":
-					a.Band.PersistentVolumes = &PVCount{}
+				if k.kind == "Namespace" {
+					a.Namespaces = NamespaceList{Listed: false, Items: []string{contextNamespace}, From: "kubeconfig"}
+					if contextNamespace == "" {
+						a.Namespaces = NamespaceList{Listed: false, Items: []string{"default"}, From: "default"}
+					}
 				}
 				continue
 			}
@@ -98,7 +93,7 @@ func BuildCluster(ctx context.Context, open Open, contextNamespace string) (Clus
 			for _, it := range list.Items {
 				names = append(names, it.GetName())
 			}
-			// Red stub (t3): the Namespaces in the order the LIST answered.
+			sort.Strings(names)
 			a.Namespaces = NamespaceList{Listed: true, Items: names, From: ""}
 		case "Node":
 			n := &NodeCount{Total: len(list.Items)}
@@ -120,8 +115,10 @@ func BuildCluster(ctx context.Context, open Open, contextNamespace string) (Clus
 		case "StorageClass":
 			classes := []StorageClass{}
 			for _, it := range list.Items {
-				// Red stub (t3): the default marker is always false.
 				def := false
+				for _, an := range defaultClassAnnotations {
+					def = def || it.GetAnnotations()[an] == "true"
+				}
 				classes = append(classes, StorageClass{Name: it.GetName(), Default: def})
 			}
 			sort.Slice(classes, func(i, j int) bool { return classes[i].Name < classes[j].Name })
