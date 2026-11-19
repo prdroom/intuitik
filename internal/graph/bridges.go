@@ -339,16 +339,7 @@ func (s *bridgeSet) pod(e *entry) {
 				b.Settings = append(b.Settings, AccessSetting(cs.AccessModes))
 			}
 		}
-		// Red stub R3 (packet FA2-T6 section 5 s2, review 5969268537 F4): the settings of a
-		// Pod -> PVC bridge are the JSON of the spec fragment it came from. H4 removes it.
-		b.Settings = []string{redFragment(spec.Volumes)}
 	}
-}
-
-// redFragment is the JSON of a spec fragment (red stub R3 only).
-func redFragment(v any) string {
-	raw, _ := json.Marshal(v)
-	return string(raw)
 }
 
 // service makes one Service -> Pod bridge per Pod of the answer whose labels hold every
@@ -416,8 +407,6 @@ func (s *bridgeSet) claim(e *entry) {
 	if c := status.Capacity["storage"]; c != "" {
 		settings = append(settings, CapacitySetting(c))
 	}
-	// Red stub R3 (section 5 s2, review 5969268537 F4): the JSON of the PVC spec.
-	settings = []string{redFragment(e.obj.Object["spec"])}
 	s.add(BridgePVCPV, e, targetKey{"", "PersistentVolume", "", spec.VolumeName}, settings...)
 }
 
