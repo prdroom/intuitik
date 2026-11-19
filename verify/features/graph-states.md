@@ -35,9 +35,11 @@ and every case a count line `FA2-T7a <criterion> input=<fixture> counts connecte
   `TestStates_NumericTargetPort`, `TestStates_SelectorNoPods`, `TestStates_NamedTargetPort`,
   `TestStates_ConfigMissing`, `TestStates_StorageClassMissing`, `TestStates_TrafficTargets`
   (job `unit`).
-- Unknown. Input: view ServiceAccount; refused LISTs. Output: unknown, never not found (C9,
-  C15). `TestG_States/C9`, `TestG_States/C15`; `TestStates_ViewRole`,
-  `TestStates_RefusalNeverMissing` (job `unit`).
+- Unknown. Input: view ServiceAccount; refused LISTs, also with the target read by an owner
+  lookup. Output: unknown, never not found, to.uid null, no cluster LIST for a claim that
+  only an owner lookup read (C9, C15). `TestG_States/C9`, `TestG_States/C15`;
+  `TestStates_ViewRole`, `TestStates_RefusalNeverMissing`, `TestStates_RefusalOwnerFetched`
+  (job `unit`).
 
 ## How to get to it (user POV)
 
