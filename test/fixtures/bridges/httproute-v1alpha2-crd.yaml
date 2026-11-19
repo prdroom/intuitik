@@ -1,0 +1,21 @@
+# Test CRD of packet FA2-T6 phase (b) (E.6, C13, B4): HTTPRoute of the Gateway API group
+# served only at v1alpha2. It is not part of the Gateway API bundle; it is created before
+# the bundle is installed and deleted before phase (c).
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: httproutes.gateway.networking.k8s.io
+  annotations:
+    api-approved.kubernetes.io: "unapproved, test CRD of intuitik FA2-T6 serving only v1alpha2"
+spec:
+  group: gateway.networking.k8s.io
+  scope: Namespaced
+  names: {kind: HTTPRoute, listKind: HTTPRouteList, plural: httproutes, singular: httproute}
+  versions:
+    - name: v1alpha2
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true

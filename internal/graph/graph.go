@@ -48,11 +48,64 @@ const (
 	StateLoop          State = "owner-loop"
 )
 
-// Answer is the response of GET /api/graph/containment (packet D.1).
+// Answer is the response of GET /api/graph/containment (packet FA2-T5 D.1, FA2-T6 E.1).
 type Answer struct {
-	Namespace string    `json:"namespace"`
-	Nodes     []Node    `json:"nodes"`
-	Refused   []Refusal `json:"refused"`
+	Namespace   string        `json:"namespace"`
+	Nodes       []Node        `json:"nodes"`
+	Refused     []Refusal     `json:"refused"`
+	Bridges     []Bridge      `json:"bridges"`
+	Unsupported []Unsupported `json:"unsupported"`
+}
+
+// The bridge kinds (FA2-T6 E.1).
+const (
+	BridgeIngressService   = "ingress-service"
+	BridgeServicePod       = "service-pod"
+	BridgePodPVC           = "pod-pvc"
+	BridgePVCPV            = "pvc-pv"
+	BridgePodConfigMap     = "pod-configmap"
+	BridgePodSecret        = "pod-secret"
+	BridgeHPATarget        = "hpa-target"
+	BridgeHTTPRouteService = "httproute-service"
+)
+
+// Bridge is one declared reference from a node of the answer to the object it names,
+// with the settings that made it (FA2-T6 E.1, section 3.1). Text is set only for the
+// F-18 cases of an HTTPRoute bridge (section 3.2). Optional is set only on Pod ->
+// ConfigMap and Pod -> Secret bridges: one flag per settings entry, the `optional` of the
+// reference that entry comes from (E.4, kept for T7a; never part of the text).
+type Bridge struct {
+	Kind     string   `json:"kind"`
+	From     From     `json:"from"`
+	To       Target   `json:"to"`
+	Settings []string `json:"settings"`
+	Optional []bool   `json:"optional,omitempty"`
+	Text     string   `json:"text,omitempty"`
+}
+
+// From is the node a bridge leaves.
+type From struct {
+	UID string `json:"uid"`
+}
+
+// Target is the object a bridge names. Group is "" for the core group and Namespace is
+// "" for a cluster-scoped target. UID is the uid of the node of the answer with the same
+// group, kind, namespace and name, or null (B5).
+type Target struct {
+	Group     string  `json:"group"`
+	Namespace string  `json:"namespace"`
+	Kind      string  `json:"kind"`
+	Name      string  `json:"name"`
+	UID       *string `json:"uid"`
+}
+
+// Unsupported is a resource whose objects are nodes but whose version the bridges are
+// not read from (B4, BT-6).
+type Unsupported struct {
+	Group   string `json:"group"`
+	Kind    string `json:"kind"`
+	Version string `json:"version"`
+	Text    string `json:"text"`
 }
 
 // Node is one object of the answer. Parent is the uid of the object it sits inside, or
@@ -89,13 +142,20 @@ type Refusal struct {
 
 // LoadError is a call that failed as a whole (G4, GA-3): an owner lookup or a discovery
 // document that an owner decision needs ended with neither 403 nor 404, or a LIST or
-// /apis failed. Reason is the HTTP status number or "no answer".
+// /apis failed. Reason is the HTTP status number or "no answer". Kind is set only by the
+// LISTs of the bridge kinds (FA2-T6 B3), so the text names what failed.
 type LoadError struct {
 	Namespace string
 	Reason    string
+	Kind      string
 }
 
-func (e *LoadError) Error() string { return LoadText(e.Namespace, e.Reason) }
+func (e *LoadError) Error() string {
+	if e.Kind != "" {
+		return KindLoadText(e.Kind, e.Namespace, e.Reason)
+	}
+	return LoadText(e.Namespace, e.Reason)
+}
 
 // NoAnswer is the reason of a request that got no HTTP answer (P-T5-3).
 const NoAnswer = "no answer"
@@ -130,6 +190,26 @@ func GroupText(group, version, reason string) string {
 func LoadText(namespace, reason string) string {
 	return fmt.Sprintf("Couldn't load owners in %s (%s)", namespace, reason)
 }
+
+// KindLoadText is the text of a call that failed as a whole on the LIST of a bridge kind
+// (FA2-T6 C11).
+func KindLoadText(kind, namespace, reason string) string {
+	return fmt.Sprintf("Couldn't load %s in %s (%s)", Plural(kind), namespace, reason)
+}
+
+// The texts of an HTTPRoute bridge and of an unsupported version (FA2-T6 section 3.2).
+const ServicesForbiddenText = "no permission to read Services"
+
+// ServiceNotFoundText is BT-3: the Services LIST succeeded and the target is not there.
+func ServiceNotFoundText(name string) string { return fmt.Sprintf("Service %s not found", name) }
+
+// OtherNamespaceText is BT-5: the target is in another namespace and is not read.
+func OtherNamespaceText(namespace, name string) string {
+	return fmt.Sprintf("Service %s/%s is in another namespace (not checked)", namespace, name)
+}
+
+// UnsupportedText is BT-6.
+func UnsupportedText(version string) string { return "Unsupported version " + version }
 
 // Plural is the plural of a kind name for the texts: ReplicaSet -> ReplicaSets,
 // Policy -> Policies, Ingress -> Ingresses.

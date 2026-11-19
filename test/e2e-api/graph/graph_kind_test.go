@@ -141,7 +141,7 @@ func TestG_OwnerMissing(t *testing.T) {
 		t.Fatalf("preparation: the dangling references are not in place")
 	}
 	t.Logf("FA2-T5 read-back ConfigMap holder uid %s, the reference of child-recreated names uid %s", holder.Metadata.UID, child.Metadata.OwnerReferences[0].UID)
-	_, ans, _ := p.graph(t, "admin "+nsMissing, nsMissing)
+	_, ans, _ := p.graphOwners(t, "admin "+nsMissing, nsMissing, []string{"holder"})
 	pods := objects(t, nsMissing, "pods")
 	t.Run("gone", func(t *testing.T) {
 		ws := []want{{"ReplicaSet", "orphan", "-", "owner-missing", fmt.Sprintf(textMissing, "Deployment", "gone")}}

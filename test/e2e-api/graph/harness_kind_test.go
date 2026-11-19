@@ -45,9 +45,10 @@ const (
 	textKinds         = "Couldn't load %s (%d)"
 
 	w1 = 10 * time.Second
-	// callK is the least number of requests of one graph call on this cluster: /apis and
-	// the seven LISTs (D.3). G7 fails a window with fewer matched requests.
-	callK = 8
+	// callK is the least number of requests of one graph call on this cluster: /apis, the
+	// seven LISTs and the four LISTs of the bridge kinds (D.3, FA2-T6 E.3). G7 fails a
+	// window with fewer matched requests.
+	callK = 12
 	// productAgent marks every request that intuitik's read-only client sends (M1-T4 R5).
 	productAgent = "intuitik-readonly"
 )
@@ -534,10 +535,12 @@ func (a audit) events(t *testing.T, start, end time.Time) []auditEvent {
 }
 
 // g7 checks the window of one graph call (G7): the product identity's requests, at least
-// callK of them, verbs get and list only, no list of core secrets, and a get of a core
-// Secret only for a name in secrets (an owner reference that names it). It prints the
-// matched user and the count per verb and resource.
-func g7(t *testing.T, label string, p *panel, a audit, start, end time.Time, secrets ...string) {
+// callK of them, verbs get and list only, no list of core secrets or configmaps, a get of
+// a core Secret only for a name in secrets and a get of a core ConfigMap only for a name in
+// configMaps (an owner reference that names it; FA2-T6 11b-E1 item 4, T6-E1-CM). A name in
+// one set never allows a get of the other kind. It prints the matched user and the count
+// per verb and resource.
+func g7(t *testing.T, label string, p *panel, a audit, start, end time.Time, configMaps []string, secrets ...string) {
 	t.Helper()
 	var evs []auditEvent
 	for i := 0; i < 15; i++ {
@@ -558,6 +561,11 @@ func g7(t *testing.T, label string, p *panel, a audit, start, end time.Time, sec
 		allowed[s] = true
 	}
 	var secretGets []string
+	allowedCM := map[string]bool{}
+	for _, s := range configMaps {
+		allowedCM[s] = true
+	}
+	var configMapGets []string
 	for _, e := range evs {
 		users[e.User.Username]++
 		verbs[e.Verb]++
@@ -588,6 +596,17 @@ func g7(t *testing.T, label string, p *panel, a audit, start, end time.Time, sec
 				}
 			}
 		}
+		if e.ObjectRef != nil && e.ObjectRef.APIGroup == "" && e.ObjectRef.Resource == "configmaps" {
+			switch {
+			case e.Verb == "list":
+				problems = append(problems, "list of configmaps")
+			case e.Verb == "get":
+				configMapGets = append(configMapGets, e.ObjectRef.Name)
+				if !allowedCM[e.ObjectRef.Name] {
+					problems = append(problems, "get of configmap "+e.ObjectRef.Name)
+				}
+			}
+		}
 	}
 	if len(evs) < callK {
 		problems = append(problems, fmt.Sprintf("%d matched requests, fewer than K = %d", len(evs), callK))
@@ -601,8 +620,8 @@ func g7(t *testing.T, label string, p *panel, a audit, start, end time.Time, sec
 	if len(problems) > 0 {
 		result = "FAIL"
 	}
-	t.Logf("FA2-T5 G7 input=%s user-filter=%s window=%s..%s matched=%d (K=%d) users=%v verbs=%v per-verb-resource=%v secret-gets=%v result=%s",
-		label, productAgent, start.Format(time.RFC3339Nano), end.Format(time.RFC3339Nano), len(evs), callK, users, verbs, per, secretGets, result)
+	t.Logf("FA2-T5 G7 input=%s user-filter=%s window=%s..%s matched=%d (K=%d) users=%v verbs=%v per-verb-resource=%v secret-gets=%v configmap-gets=%v result=%s",
+		label, productAgent, start.Format(time.RFC3339Nano), end.Format(time.RFC3339Nano), len(evs), callK, users, verbs, per, secretGets, configMapGets, result)
 	if len(problems) > 0 {
 		t.Errorf("G7 %s: %s", label, strings.Join(problems, "; "))
 	}
@@ -616,7 +635,22 @@ func (p *panel) graph(t *testing.T, label, ns string, secrets ...string) (int, a
 	start := time.Now()
 	status, raw := p.request("GET", "/api/graph/containment?namespace="+ns, nil, true)
 	end := time.Now()
-	g7(t, label, p, a, start, end, secrets...)
+	g7(t, label, p, a, start, end, nil, secrets...)
+	var ans answer
+	json.Unmarshal(raw, &ans)
+	t.Logf("FA2-T5 call input=%s namespace=%s status=%d nodes=%d refused=%d", label, ns, status, len(ans.Nodes), len(ans.Refused))
+	return status, ans, raw
+}
+
+// graphOwners does what graph does, with the names of the ConfigMaps that an owner
+// reference of the namespace names (T6-E1-CM): G7 allows a get of those ConfigMaps only.
+func (p *panel) graphOwners(t *testing.T, label, ns string, configMaps []string, secrets ...string) (int, answer, []byte) {
+	t.Helper()
+	a := auditStart(t)
+	start := time.Now()
+	status, raw := p.request("GET", "/api/graph/containment?namespace="+ns, nil, true)
+	end := time.Now()
+	g7(t, label, p, a, start, end, configMaps, secrets...)
 	var ans answer
 	json.Unmarshal(raw, &ans)
 	t.Logf("FA2-T5 call input=%s namespace=%s status=%d nodes=%d refused=%d", label, ns, status, len(ans.Nodes), len(ans.Refused))
