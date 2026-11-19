@@ -114,6 +114,7 @@ type call struct {
 	routeRefused bool        // the HTTPRoutes LIST was refused (403)
 
 	servicesRefused bool // the Services LIST was refused (403): a route target is not checkable
+	claimsListed    bool // the PersistentVolumeClaims LIST of step (5) returned a claim (6.3 (7))
 
 	served             map[string]bool                       // every group of /apis
 	lists              map[string]bool                       // "<group>/<kind>" -> listed (true) or refused (false)

@@ -49,6 +49,9 @@ func (c *call) listBridgeKinds(ctx context.Context, refused *[]Refusal) error {
 			return c.listFail(ctx, err, k.kind)
 		}
 		c.listedAs(k, true)
+		if k.kind == "PersistentVolumeClaim" && len(list.Items) > 0 {
+			c.claimsListed = true
+		}
 		for i := range list.Items {
 			e := c.add(&list.Items[i], k)
 			e.state, e.parent, e.ref, e.text, e.placed = StateNone, "", "", "", true
@@ -126,6 +129,11 @@ func (c *call) bridges(ctx context.Context, a *Answer) error {
 		ns := c.ns
 		if e.cluster {
 			ns = ""
+		}
+		// A node of a kind whose LIST was refused is never a bridge target, even when an
+		// owner lookup of the call read it: the refusal stands (C15, B3, 3.1).
+		if !e.cluster && c.refusedKind(g, e.kind) {
+			continue
 		}
 		s.nodes[targetKey{g, e.kind, ns, e.name}] = e.uid
 	}
@@ -518,7 +526,8 @@ func (s *bridgeSet) service(e *entry, entries []*entry) {
 	}
 	matched := false
 	for _, p := range entries {
-		if g, _ := splitAPIVersion(p.apiVersion); g != "" || p.kind != "Pod" || p.obj == nil {
+		// With the Pods LIST refused, no Pod read by an owner lookup is matched (S-5).
+		if g, _ := splitAPIVersion(p.apiVersion); g != "" || p.kind != "Pod" || p.obj == nil || s.c.refusedKind("", "Pod") {
 			continue
 		}
 		labels := p.obj.GetLabels()
@@ -595,6 +604,10 @@ func (s *bridgeSet) claim(e *entry, entries []*entry) {
 	if spec.StorageClassName != nil {
 		class = *spec.StorageClassName
 	}
+	// A claim read only by an owner lookup while the claims LIST was refused: the call
+	// listed no PersistentVolume or StorageClass (6.3 (7)), so neither bridge is checkable.
+	refused := stateCheck{BridgeUnknown, NoPermissionText("PersistentVolumeClaim")}
+	claimsRefused := s.c.refusedKind("", "PersistentVolumeClaim")
 	{
 		settings := []string{ClassSetting(spec.StorageClassName)}
 		if c := status.Capacity["storage"]; c != "" {
@@ -602,6 +615,9 @@ func (s *bridgeSet) claim(e *entry, entries []*entry) {
 		}
 		pvc, volume := e.name, spec.VolumeName
 		state := func(b *Bridge) []stateCheck {
+			if claimsRefused {
+				return []stateCheck{refused}
+			}
 			if volume != "" {
 				switch {
 				case s.node(targetKey{"", "PersistentVolume", "", volume}) != nil:
@@ -645,7 +661,11 @@ func (s *bridgeSet) claim(e *entry, entries []*entry) {
 	}
 	if class != "" {
 		bound := status.Phase == "Bound"
-		s.add(BridgePVCStorageClass, e, targetKey{"storage.k8s.io", "StorageClass", "", class}, s.classState(class, bound), ClassSetting(&class))
+		state := s.classState(class, bound)
+		if claimsRefused {
+			state = func(b *Bridge) []stateCheck { return []stateCheck{refused} }
+		}
+		s.add(BridgePVCStorageClass, e, targetKey{"storage.k8s.io", "StorageClass", "", class}, state, ClassSetting(&class))
 	}
 }
 
@@ -738,6 +758,7 @@ func (s *bridgeSet) ingress(e *entry) {
 				svc := s.node(t)
 				switch {
 				case s.c.servicesRefused:
+					br.To.UID = nil
 					out = append(out, stateCheck{BridgeUnknown, ServicesForbiddenText})
 				case svc == nil:
 					out = append(out, stateCheck{BridgeBroken, ServiceNotFoundText(t.name)})

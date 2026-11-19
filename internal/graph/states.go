@@ -17,8 +17,8 @@ var configKinds = []listedKind{
 	{readonly.Resource{Version: "v1", Resource: "secrets"}, "Secret"},
 }
 
-// volumeKinds are the cluster-wide kinds a call lists when the namespace has a claim
-// (6.3 (7)).
+// volumeKinds are the cluster-wide kinds a call lists when the claims LIST returned a
+// claim (6.3 (7)).
 var volumeKinds = []listedKind{
 	{readonly.Resource{Version: "v1", Resource: "persistentvolumes"}, "PersistentVolume"},
 	{readonly.Resource{Group: "storage.k8s.io", Version: "v1", Resource: "storageclasses"}, "StorageClass"},
@@ -47,8 +47,9 @@ func (c *call) refusedKind(group, kind string) bool {
 }
 
 // readStates sends the requests of 6.3 (6) to (8): the ConfigMaps and Secrets of the
-// namespace as metadata only, the PersistentVolumes and StorageClasses when the namespace
-// has a claim, and the Namespace object. A 403 on a LIST adds the GA-4 entry and the call
+// namespace as metadata only, the PersistentVolumes and StorageClasses when the claims
+// LIST of step (5) returned a claim (never for a claim only an owner lookup read), and the
+// Namespace object. A 403 on a LIST adds the GA-4 entry and the call
 // goes on; any other LIST failure fails the call with the kind named. The Namespace GET
 // gives the namespace state: any HTTP status is kept, any other end fails the call.
 func (c *call) readStates(ctx context.Context, refused *[]Refusal) error {
@@ -74,7 +75,7 @@ func (c *call) readStates(ctx context.Context, refused *[]Refusal) error {
 			e.state, e.parent, e.ref, e.text, e.placed = StateNone, "", "", "", true
 		}
 	}
-	if c.hasClaims() {
+	if c.claimsListed {
 		for _, k := range volumeKinds {
 			list, err := c.listAt(ctx, k.res, "")
 			if err != nil {
@@ -122,16 +123,6 @@ func (c *call) listConfig(ctx context.Context, k listedKind) ([]readonly.ObjectM
 		return nil, err
 	}
 	return r.ListMetadata(ctx, k.res, c.ns)
-}
-
-// hasClaims reports a PersistentVolumeClaim among the nodes.
-func (c *call) hasClaims() bool {
-	for _, e := range c.entries {
-		if e.kind == "PersistentVolumeClaim" && e.apiVersion == "v1" {
-			return true
-		}
-	}
-	return false
 }
 
 // clusterNodes adds the PersistentVolumes that a claim of the answer names and the
