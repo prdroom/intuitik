@@ -417,14 +417,81 @@ func exitCode(err error) int {
 }
 
 // v2RealOS is V2 row (c): a port whose direct bind returns 10013 in this run is the
-// panel's first candidate; the panel starts on the next one. No positive control,
-// no permission to add an exclusion, or a failed cleanup fails the test (STOP-4).
+// panel's first candidate; the panel starts on the next one. The 10013 comes from a
+// holder of 0.0.0.0:p with SO_EXCLUSIVEADDRUSE that this test opens on every run
+// (FA2-S16 C1 to C3), and also from a listed exclusion range of the runner when one gives
+// it (C4). No port exclusion is added. No positive control, or a released port that does
+// not bind, fails the test (STOP-4).
 func v2RealOS(t *testing.T) {
 	listing, ranges, err := excludedRanges()
 	t.Logf("S9 V2 (c) netsh int ipv4 show excludedportrange protocol=tcp (exit %d):\n%s", exitCode(err), listing)
 	if err != nil {
 		t.Fatalf("STOP-4: the excluded port ranges cannot be listed: %v", err)
 	}
+	t.Run("holder", func(t *testing.T) { v2Holder(t, ranges) })
+	t.Run("existing_range", func(t *testing.T) { v2ExistingRange(t, ranges) })
+}
+
+// holdWildcard holds 0.0.0.0:port with SO_EXCLUSIVEADDRUSE 1; while it is held, a direct
+// bind of 127.0.0.1:port with SO_EXCLUSIVEADDRUSE returns 10013 (FA2-S16 C1).
+func holdWildcard(port int) (net.Listener, error) {
+	lc := net.ListenConfig{Control: func(_, _ string, c syscall.RawConn) error {
+		var serr error
+		if err := c.Control(func(fd uintptr) {
+			serr = syscall.SetsockoptInt(syscall.Handle(fd), syscall.SOL_SOCKET, ^4, 1) // SO_EXCLUSIVEADDRUSE
+		}); err != nil {
+			return err
+		}
+		return serr
+	}}
+	return lc.Listen(context.Background(), "tcp4", net.JoinHostPort("0.0.0.0", strconv.Itoa(port)))
+}
+
+// v2Holder is the holder branch, run on every run: a port p outside the listed ranges whose
+// direct bind returns 0 is held on 0.0.0.0 (C1: the direct bind then returns 10013), the
+// panel starts with p first (C3), and once the holder is closed the direct bind of p
+// returns 0 again (C2). The holder is closed and C2 recorded on every path.
+func v2Holder(t *testing.T, ranges []excludedRange) {
+	var holder net.Listener
+	port := 0
+	for p := 49152 + int(time.Now().UnixNano()%16000); holder == nil && p <= 65535; p++ {
+		if inRanges(ranges, p) {
+			continue
+		}
+		if code, _ := exclusiveBind(p); code != 0 {
+			continue
+		}
+		ln, herr := holdWildcard(p)
+		if herr != nil {
+			t.Logf("S9 V2 (c) holder 0.0.0.0:%d: %v; next port", p, herr)
+			continue
+		}
+		holder, port = ln, p
+	}
+	if holder == nil {
+		t.Fatal("STOP-4: no port inside 49152-65535 could be held on 0.0.0.0")
+	}
+	t.Cleanup(func() {
+		cerr := holder.Close()
+		code, perr := exclusiveBind(port)
+		t.Logf("S9 V2 (c) C2 holder closed (%v): direct bind of 127.0.0.1:%d with SO_EXCLUSIVEADDRUSE 1: code %d (%v) (want 0)", cerr, port, code, perr)
+		if code != 0 {
+			t.Errorf("STOP-4: the released port %d gives code %d, not 0", port, code)
+		}
+	})
+	code, perr := exclusiveBind(port)
+	branch := fmt.Sprintf("holder 0.0.0.0:%d SO_EXCLUSIVEADDRUSE", port)
+	t.Logf("S9 V2 (c) branch: %s; C1 direct bind of 127.0.0.1:%d with SO_EXCLUSIVEADDRUSE 1: code %d (%v) (want 10013)", branch, port, code, perr)
+	if code != 10013 {
+		t.Fatalf("STOP-4: the holder of 0.0.0.0:%d gives code %d, not 10013: no positive control", port, code)
+	}
+	v2Panel(t, branch, port, code)
+}
+
+// v2ExistingRange is the existing-range branch: the first ports of each listed range
+// inside 49152-65535 are probed; when one gives 10013, the panel starts with it first
+// (C3). When none does, that is printed and is not a failure.
+func v2ExistingRange(t *testing.T, ranges []excludedRange) {
 	port, branch, control := 0, "", 0
 	probes := 0
 	for _, r := range ranges {
@@ -443,40 +510,15 @@ func v2RealOS(t *testing.T) {
 		}
 	}
 	if port == 0 {
-		for p := 49152 + int(time.Now().UnixNano()%16000); port == 0 && p <= 65535; p++ {
-			if inRanges(ranges, p) {
-				continue
-			}
-			if code, _ := exclusiveBind(p); code != 0 {
-				continue
-			}
-			P := strconv.Itoa(p)
-			out, aerr := exec.Command("netsh", "int", "ipv4", "add", "excludedportrange", "protocol=tcp", "startport="+P, "numberofports=1", "store=active").CombinedOutput()
-			t.Logf("S9 V2 (c) netsh int ipv4 add excludedportrange protocol=tcp startport=%s numberofports=1 store=active: exit %d %q", P, exitCode(aerr), strings.TrimSpace(string(out)))
-			if aerr != nil {
-				t.Fatalf("STOP-4: no permission to add a one-port exclusion (exit %d)", exitCode(aerr))
-			}
-			t.Cleanup(func() {
-				out, derr := exec.Command("netsh", "int", "ipv4", "delete", "excludedportrange", "protocol=tcp", "startport="+P, "numberofports=1", "store=active").CombinedOutput()
-				_, after, lerr := excludedRanges()
-				present := inRanges(after, p)
-				t.Logf("S9 V2 (c) cleanup: netsh int ipv4 delete excludedportrange protocol=tcp startport=%s numberofports=1 store=active: exit %d %q; port %d listed afterwards: %v (list exit %d)", P, exitCode(derr), strings.TrimSpace(string(out)), p, present, exitCode(lerr))
-				if derr != nil || lerr != nil || present {
-					t.Errorf("STOP-4: cleanup of the added exclusion of port %d failed", p)
-				}
-			})
-			code, perr := exclusiveBind(p)
-			t.Logf("S9 V2 (c) added range %d-%d: direct bind of 127.0.0.1:%d with SO_EXCLUSIVEADDRUSE 1: code %d (%v)", p, p, p, code, perr)
-			if code != 10013 {
-				t.Fatalf("STOP-4: the added exclusion of port %d gives code %d, not 10013: no positive control", p, code)
-			}
-			port, branch, control = p, fmt.Sprintf("added range %d-%d", p, p), code
-		}
+		t.Logf("S9 V2 (c) existing range: no port of a listed range inside 49152-65535 gives 10013 in this run (%d probed); not checked", probes)
+		return
 	}
-	if port == 0 {
-		t.Fatal("STOP-4: no port inside 49152-65535 gives 10013 and no port could be added")
-	}
+	v2Panel(t, branch, port, control)
+}
 
+// v2Panel is C3: the panel started with candidates [port, next] tries port with the
+// bind result 10013, then starts on next.
+func v2Panel(t *testing.T, branch string, port, control int) {
 	log := filepath.Join(t.TempDir(), "tries.txt")
 	next := freePort(t)
 	pn := startPanel(t, panelOpts{test: true, ports: []int{port, next}, env: []string{"INTUITIK_TEST_TRY_LOG=" + log}})
