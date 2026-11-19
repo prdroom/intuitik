@@ -25,6 +25,7 @@ type Reader interface {
 	Get(ctx context.Context, path string) (*http.Response, error)
 	List(ctx context.Context, r readonly.Resource, namespace string) (*unstructured.UnstructuredList, error)
 	Object(ctx context.Context, r readonly.Resource, namespace, name string) (*unstructured.Unstructured, error)
+	ListMetadata(ctx context.Context, r readonly.Resource, namespace string) ([]readonly.ObjectMeta, error)
 }
 
 // Open gives one cluster operation its own client. It returns ErrStopped when the call
@@ -48,13 +49,15 @@ const (
 	StateLoop          State = "owner-loop"
 )
 
-// Answer is the response of GET /api/graph/containment (packet FA2-T5 D.1, FA2-T6 E.1).
+// Answer is the response of GET /api/graph/containment (packet FA2-T5 D.1, FA2-T6 E.1,
+// FA2-T7a appendix F).
 type Answer struct {
-	Namespace   string        `json:"namespace"`
-	Nodes       []Node        `json:"nodes"`
-	Refused     []Refusal     `json:"refused"`
-	Bridges     []Bridge      `json:"bridges"`
-	Unsupported []Unsupported `json:"unsupported"`
+	Namespace      string         `json:"namespace"`
+	NamespaceState NamespaceState `json:"namespaceState"`
+	Nodes          []Node         `json:"nodes"`
+	Refused        []Refusal      `json:"refused"`
+	Bridges        []Bridge       `json:"bridges"`
+	Unsupported    []Unsupported  `json:"unsupported"`
 }
 
 // The bridge kinds (FA2-T6 E.1).
@@ -67,17 +70,46 @@ const (
 	BridgePodSecret        = "pod-secret"
 	BridgeHPATarget        = "hpa-target"
 	BridgeHTTPRouteService = "httproute-service"
+	BridgePVCStorageClass  = "pvc-storageclass"
+	BridgePVStorageClass   = "pv-storageclass"
 )
 
+// The states of a bridge (FA2-T7a 3.1), from the most severe to the least.
+const (
+	BridgeBroken    = "broken"
+	BridgeWarning   = "warning"
+	BridgeUnknown   = "unknown"
+	BridgeWaiting   = "waiting"
+	BridgeOptional  = "optional"
+	BridgeConnected = "connected"
+)
+
+// The states of a namespace answer (FA2-T7a 3.4).
+const (
+	NamespaceOK           = "ok"
+	NamespaceEmpty        = "empty"
+	NamespaceNotFound     = "not-found"
+	NamespaceNoPermission = "no-permission"
+)
+
+// NamespaceState says whether the namespace of the answer holds resources, does not
+// exist or cannot be read (FA2-T7a 3.4). ExistenceChecked is true only when the GET of the
+// Namespace object answered 200 or 404.
+type NamespaceState struct {
+	State            string `json:"state"`
+	ExistenceChecked bool   `json:"existenceChecked"`
+}
+
 // Bridge is one declared reference from a node of the answer to the object it names,
-// with the settings that made it (FA2-T6 E.1, section 3.1). Text is set only for the
-// F-18 cases of an HTTPRoute bridge (section 3.2). Optional is set only on Pod ->
-// ConfigMap and Pod -> Secret bridges: one flag per settings entry, the `optional` of the
-// reference that entry comes from (E.4, kept for T7a; never part of the text).
+// with the settings that made it (FA2-T6 E.1, section 3.1). State is one of the six bridge
+// states and Text, the cause of a state other than connected (FA2-T7a 3.1, 3.2). Optional
+// is set only on Pod -> ConfigMap and Pod -> Secret bridges: one flag per settings entry,
+// the `optional` of the reference that entry comes from (E.4; never part of the text).
 type Bridge struct {
 	Kind     string   `json:"kind"`
 	From     From     `json:"from"`
 	To       Target   `json:"to"`
+	State    string   `json:"state"`
 	Settings []string `json:"settings"`
 	Optional []bool   `json:"optional,omitempty"`
 	Text     string   `json:"text,omitempty"`
@@ -150,8 +182,13 @@ type LoadError struct {
 	Kind      string
 }
 
+// Error is the text of the failed call: the kind whose LIST failed when it is known (in
+// the namespace, or of the cluster answer when Namespace is empty), else the owners text.
 func (e *LoadError) Error() string {
-	if e.Kind != "" {
+	switch {
+	case e.Kind != "" && e.Namespace == "":
+		return ClusterLoadText(e.Kind, e.Reason)
+	case e.Kind != "":
 		return KindLoadText(e.Kind, e.Namespace, e.Reason)
 	}
 	return LoadText(e.Namespace, e.Reason)
@@ -210,6 +247,80 @@ func OtherNamespaceText(namespace, name string) string {
 
 // UnsupportedText is BT-6.
 func UnsupportedText(version string) string { return "Unsupported version " + version }
+
+// ClusterLoadText is the text of a cluster answer that failed on the LIST of kind
+// (FA2-T7a 6.5).
+func ClusterLoadText(kind, reason string) string {
+	return fmt.Sprintf("Couldn't load %s (%s)", Plural(kind), reason)
+}
+
+// The texts of the bridge states (FA2-T7a 3.2): the cause part of UI.md 4.4, without the
+// state word.
+
+// NotFoundText is I-2, C-2, C-3, P-2, V-2 and H-2: the target's LIST succeeded and it is
+// not there.
+func NotFoundText(kind, name string) string { return fmt.Sprintf("%s %s not found", kind, name) }
+
+// NoPermissionText is S-5, C-4, P-4, V-8, K-4 and H-3: the target's LIST was refused.
+func NoPermissionText(kind string) string { return "no permission to read " + Plural(kind) }
+
+// SelectorNoPodsText is S-2; selector is the pairs as the selector setting prints them.
+func SelectorNoPodsText(selector string) string {
+	return fmt.Sprintf("selector %s matches 0 Pods", selector)
+}
+
+// NamedPortText is S-3.
+func NamedPortText(name string) string {
+	return fmt.Sprintf("targetPort %q: no container port with this name", name)
+}
+
+// NumericPortText is S-4.
+func NumericPortText(port int) string {
+	return fmt.Sprintf("targetPort %d is not declared by the container (traffic not verifiable)", port)
+}
+
+// ServicePortText is I-3 and ServicePortNameText I-4.
+func ServicePortText(service string, port int) string {
+	return fmt.Sprintf("Service %s has no port %d", service, port)
+}
+
+func ServicePortNameText(service, port string) string {
+	return fmt.Sprintf("Service %s has no port named %q", service, port)
+}
+
+// EphemeralWaitText is P-3.
+func EphemeralWaitText(claim, pod string) string {
+	return fmt.Sprintf("%s waits to be created for Pod %s", claim, pod)
+}
+
+// The waiting texts of a claim without a volume: V-3, V-4, V-5 and V-6.
+func ConsumerPodWaitText(claim, pod string) string {
+	return fmt.Sprintf("%s waits for consumer Pod %s", claim, pod)
+}
+
+func ConsumerWaitText(claim string) string { return claim + " waits for a consumer Pod" }
+
+func ProvisionWaitText(claim string) string { return claim + " waits for a volume to be provisioned" }
+
+func VolumeWaitText(claim string) string { return claim + " waits for a matching PersistentVolume" }
+
+// ClassUnboundText is K-2 and V-7, ClassBoundText K-3.
+func ClassUnboundText(class string) string {
+	return fmt.Sprintf("StorageClass %q not found (claim cannot bind)", class)
+}
+
+func ClassBoundText(class string) string {
+	return fmt.Sprintf("StorageClass %q not found (volume already bound)", class)
+}
+
+// NotServedText is H-3 for a group the cluster does not serve; NotReadText is H-4.
+func NotServedText(group, kind string) string {
+	return fmt.Sprintf("%s %s is not served by this cluster", group, kind)
+}
+
+func NotReadText(kind, name string) string {
+	return fmt.Sprintf("%s %s is not read by intuitik", kind, name)
+}
 
 // Plural is the plural of a kind name for the texts: ReplicaSet -> ReplicaSets,
 // Policy -> Policies, Ingress -> Ingresses.

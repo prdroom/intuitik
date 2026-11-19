@@ -195,7 +195,7 @@ func (s *setup) build() {
 	s.k(nil, "create", "serviceaccount", saNoCRDList, "-n", nsCustom)
 	s.role(nsCustom, saNoCRDList, nsCustom, saNoCRDList, []string{"", "apps", "batch", "example.com", "vault.example.com", "networking.k8s.io", "autoscaling"},
 		[]string{"pods", "replicasets", "deployments", "statefulsets", "daemonsets", "jobs", "cronjobs", "wdgts", "gadgets", "vaultsecrets",
-			"services", "persistentvolumeclaims", "ingresses", "horizontalpodautoscalers"})
+			"services", "persistentvolumeclaims", "ingresses", "horizontalpodautoscalers", "configmaps", "secrets"})
 	s.steps = append(s.steps, "custom resources of "+nsCustom+" made")
 
 	// C6, C7, C8: a ReplicaSet whose Deployment does not exist (with its pod), a pod whose

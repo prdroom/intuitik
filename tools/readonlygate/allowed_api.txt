@@ -12,13 +12,18 @@ const StateNoKubeconfig State
 const StateUnreachable State
 field ContextEntry.Cluster string
 field ContextEntry.Name string
+field ContextEntry.Namespace string
 field ContextEntry.Server string
+field ObjectMeta.Name string
+field ObjectMeta.Namespace string
+field ObjectMeta.UID string
 field Outcome.Canceled bool
 field Outcome.Cluster string
 field Outcome.Context string
 field Outcome.Contexts []ContextEntry
 field Outcome.Current string
 field Outcome.Message string
+field Outcome.Namespace string
 field Outcome.Paths []string
 field Outcome.Server string
 field Outcome.State State
@@ -39,6 +44,7 @@ func NewGeneration func(ctx context.Context, run Runner, changed func(Outcome)) 
 func UnknownContext func(name string) string
 method Client.Get func(ctx context.Context, path string) (*net/http.Response, error)
 method Client.List func(ctx context.Context, r Resource, namespace string) (*k8s.io/apimachinery/pkg/apis/meta/v1/unstructured.UnstructuredList, error)
+method Client.ListMetadata func(ctx context.Context, r Resource, namespace string) ([]ObjectMeta, error)
 method Client.Object func(ctx context.Context, r Resource, namespace string, name string) (*k8s.io/apimachinery/pkg/apis/meta/v1/unstructured.Unstructured, error)
 method Client.PodLog func(ctx context.Context, namespace string, pod string, container string) (io.ReadCloser, error)
 method Client.Resources func() ([]*k8s.io/apimachinery/pkg/apis/meta/v1.APIResourceList, error)
@@ -49,6 +55,7 @@ method Outcome.Stdout func() bool
 type Client struct
 type ContextEntry struct
 type Generation struct
+type ObjectMeta struct
 type Outcome struct
 type Program struct
 type Resource struct

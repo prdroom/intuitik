@@ -105,6 +105,26 @@ func (a *graphAPI) serve(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"kind":"APIGroupList","apiVersion":"v1","groups":[]}`))
 		return
 	}
+	// The ConfigMaps and Secrets of a namespace as metadata when asked for that form, else
+	// as a plain empty list, and the Namespace object (FA2-T7a 6.3 (6), (8)).
+	for _, ns := range []string{graphNS, "one", "two"} {
+		switch r.URL.Path {
+		case "/api/v1/namespaces/" + ns + "/configmaps", "/api/v1/namespaces/" + ns + "/secrets":
+			if strings.Contains(r.Header.Get("Accept"), "as=PartialObjectMetadataList") {
+				w.Write([]byte(`{"kind":"PartialObjectMetadataList","apiVersion":"meta.k8s.io/v1","metadata":{"resourceVersion":"1"},"items":[]}`))
+				return
+			}
+			kind := "ConfigMapList"
+			if strings.HasSuffix(r.URL.Path, "/secrets") {
+				kind = "SecretList"
+			}
+			fmt.Fprintf(w, `{"kind":%q,"apiVersion":"v1","metadata":{"resourceVersion":"1"},"items":[]}`, kind)
+			return
+		case "/api/v1/namespaces/" + ns:
+			fmt.Fprintf(w, `{"kind":"Namespace","apiVersion":"v1","metadata":{"name":%q,"uid":"ns-%s"}}`, ns, ns)
+			return
+		}
+	}
 	for pattern, kind := range listKinds {
 		for _, ns := range []string{graphNS, "one", "two"} {
 			if r.URL.Path == fmt.Sprintf(pattern, ns) {
@@ -265,7 +285,8 @@ func tokens(records []apiRecord, names map[string]string) string {
 }
 
 // callPaths is the fixed request sequence of one call in namespace ns on the fake server
-// (D.3: /apis and the seven LISTs).
+// (D.3: /apis and the seven LISTs; FA2-T6 E.3: the four LISTs of the bridge kinds; FA2-T7a
+// 6.3: the ConfigMaps and Secrets, then the Namespace object).
 func callPaths(ns string) []string {
 	return []string{"/apis",
 		"/api/v1/namespaces/" + ns + "/pods", "/apis/apps/v1/namespaces/" + ns + "/replicasets",
@@ -273,7 +294,8 @@ func callPaths(ns string) []string {
 		"/apis/apps/v1/namespaces/" + ns + "/daemonsets", "/apis/batch/v1/namespaces/" + ns + "/jobs",
 		"/apis/batch/v1/namespaces/" + ns + "/cronjobs",
 		"/api/v1/namespaces/" + ns + "/services", "/api/v1/namespaces/" + ns + "/persistentvolumeclaims",
-		"/apis/networking.k8s.io/v1/namespaces/" + ns + "/ingresses", "/apis/autoscaling/v2/namespaces/" + ns + "/horizontalpodautoscalers"}
+		"/apis/networking.k8s.io/v1/namespaces/" + ns + "/ingresses", "/apis/autoscaling/v2/namespaces/" + ns + "/horizontalpodautoscalers",
+		"/api/v1/namespaces/" + ns + "/configmaps", "/api/v1/namespaces/" + ns + "/secrets", "/api/v1/namespaces/" + ns}
 }
 
 // TestGraphRoute_LookupError (C11, G4 at the route): the owner GET answers 500; the route
@@ -314,7 +336,7 @@ func TestGraphRoute_Namespace(t *testing.T) {
 
 // TestGraphCall_RefreshAfter401 (C15/G8, D.4 "401 after connected", CLIENT-PER-REQ-T5):
 // after a 401 the call repeats that request once with the new credential, and every
-// request of the call after it carries only the new credential: A then B x 12.
+// request of the call after it carries only the new credential: A then B x 15.
 func TestGraphCall_RefreshAfter401(t *testing.T) {
 	api := newGraphAPI(t)
 	runner := &fakeRunner{plans: []runPlan{{token: "tok-a"}, {token: "tok-b"}}}
@@ -334,8 +356,8 @@ func TestGraphCall_RefreshAfter401(t *testing.T) {
 		pathsOK = got[i].path == paths[i]
 	}
 	t.Logf("FA2-T5 C15 input=401-after-connected answer %d, program starts %d, call record %s", code, runner.starts(), tokens(got, names))
-	if code != 200 || runner.starts() != 2 || fmt.Sprint(seq) != "[A B B B B B B B B B B B B]" || !pathsOK {
-		t.Errorf("401 after connected: answer %d, starts %d, tokens %v, paths in order %v; want 200, 2, [A B B B B B B B B B B B B] and the D.3 order with the one repeat", code, runner.starts(), seq, pathsOK)
+	if code != 200 || runner.starts() != 2 || fmt.Sprint(seq) != "[A B B B B B B B B B B B B B B B]" || !pathsOK {
+		t.Errorf("401 after connected: answer %d, starts %d, tokens %v, paths in order %v; want 200, 2, [A B B B B B B B B B B B B B B B] and the D.3 order with the one repeat", code, runner.starts(), seq, pathsOK)
 	}
 }
 
@@ -377,7 +399,7 @@ func TestGraphCall_RefreshInProgress(t *testing.T) {
 			continue
 		}
 		for _, ns := range []string{"one", "two"} {
-			if strings.Contains(r.path, "/namespaces/"+ns+"/") {
+			if strings.Contains(r.path, "/namespaces/"+ns+"/") || r.path == "/api/v1/namespaces/"+ns {
 				perCall[ns] = append(perCall[ns], names[r.token])
 			}
 		}
@@ -385,9 +407,9 @@ func TestGraphCall_RefreshInProgress(t *testing.T) {
 	t.Logf("FA2-T5 C15 input=refresh-in-progress answers %v, program starts %d; /apis tokens %v; call one LISTs %v; call two LISTs %v; record %s",
 		codes, runner.starts(), apis, perCall["one"], perCall["two"], tokens(got, names))
 	ok := codes[0] == 200 && codes[1] == 200 && runner.starts() == 2 && fmt.Sprint(apis) == "[A A B B]" &&
-		fmt.Sprint(perCall["one"]) == "[B B B B B B B B B B B]" && fmt.Sprint(perCall["two"]) == "[B B B B B B B B B B B]"
+		fmt.Sprint(perCall["one"]) == "[B B B B B B B B B B B B B B]" && fmt.Sprint(perCall["two"]) == "[B B B B B B B B B B B B B B]"
 	if !ok {
-		t.Errorf("refresh in progress: answers %v, starts %d, /apis %v, LISTs %v %v; want 200 200, 2 starts, [A A B B] and eleven B LISTs per call",
+		t.Errorf("refresh in progress: answers %v, starts %d, /apis %v, LISTs %v %v; want 200 200, 2 starts, [A A B B] and fourteen B requests per call",
 			codes, runner.starts(), apis, perCall["one"], perCall["two"])
 	}
 }

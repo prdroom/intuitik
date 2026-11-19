@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -137,7 +138,7 @@ func bridgeCall(t *testing.T, p *panel, label, ns string) call {
 	start := time.Now()
 	status, raw := p.request("GET", "/api/graph/containment?namespace="+ns, nil, true)
 	end := time.Now()
-	g7(t, label, p, a, start, end, nil)
+	g7(t, label, p, a, start, end, ns, nil)
 	c := call{status: status, raw: raw, events: a.events(t, start, end)}
 	if err := json.Unmarshal(raw, &c.ans); err != nil {
 		t.Errorf("FA2-T6 %s: the answer is not JSON (%v)", label, err)
@@ -335,6 +336,9 @@ func roleAllBut(t *testing.T, ns, sa, except string) {
 		res, group, _ := strings.Cut(name, ".")
 		rules = append(rules, map[string]any{"apiGroups": []any{group}, "resources": []any{res}, "verbs": []any{"get", "list"}})
 	}
+	// FA2-T7a 8 edit 6: the list (not get) of core ConfigMaps and Secrets, which every call
+	// sends, so the refusals the tests assert stay what they were.
+	rules = append(rules, map[string]any{"apiGroups": []any{""}, "resources": []any{"configmaps", "secrets"}, "verbs": []any{"list"}})
 	role, _ := json.Marshal(map[string]any{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "Role", "metadata": map[string]any{"name": sa, "namespace": ns}, "rules": rules})
 	kubectl(t, role, "create", "-f", "-")
 	kubectl(t, nil, "create", "rolebinding", sa, "-n", ns, "--role="+sa, "--serviceaccount="+ns+":"+sa)
@@ -474,7 +478,7 @@ func TestG_Bridges(t *testing.T) {
 			if o.Metadata.Name == "api-other" || !strings.HasPrefix(o.Metadata.Name, "api-") {
 				continue
 			}
-			ws = append(ws, wantB{"service-pod", "Service/api", "", nsBridges, "Pod", o.Metadata.Name, o.Metadata.UID, settings, ""})
+			ws = append(ws, wantB{"service-pod", "Service/api", "", nsBridges, "Pod", o.Metadata.Name, o.Metadata.UID, settings, "targetPort 8080 is not declared by the container (traffic not verifiable)"})
 		}
 		if len(ws) != 2 {
 			t.Fatalf("preparation: %d Pods of Deployment api, want 2", len(ws))
@@ -488,15 +492,15 @@ func TestG_Bridges(t *testing.T) {
 		checkB(t, "C3", "statefulset-db-claim", a.ans,
 			wantB{"pod-pvc", "Pod/db-0", "", nsBridges, "PersistentVolumeClaim", "data-db-0", rawUID(t, "/api/v1/namespaces/"+nsBridges+"/persistentvolumeclaims/data-db-0"),
 				[]string{"volume data-db-0", "mount db:/var/lib/data", "mount restore:/backup (read-only)", "access ReadWriteOnce"}, ""},
-			wantB{"pvc-pv", "PersistentVolumeClaim/data-db-0", "", "", "PersistentVolume", pvc.Spec.VolumeName, "",
+			wantB{"pvc-pv", "PersistentVolumeClaim/data-db-0", "", "", "PersistentVolume", pvc.Spec.VolumeName, rawUID(t, "/api/v1/persistentvolumes/"+pvc.Spec.VolumeName),
 				[]string{"class standard", "capacity " + pvc.Status.Capacity["storage"]}, ""})
 	})
 	t.Run("C4", func(t *testing.T) {
 		checkB(t, "C4", "pod-api-config", a.ans,
-			wantB{"pod-secret", "Pod/api", "", nsBridges, "Secret", "db", "", []string{"env api:DB_USER " + toLeft + " username"}, ""},
-			wantB{"pod-configmap", "Pod/api", "", nsBridges, "ConfigMap", "app", "",
+			wantB{"pod-secret", "Pod/api", "", nsBridges, "Secret", "db", rawUID(t, "/api/v1/namespaces/"+nsBridges+"/secrets/db"), []string{"env api:DB_USER " + toLeft + " username"}, ""},
+			wantB{"pod-configmap", "Pod/api", "", nsBridges, "ConfigMap", "app", rawUID(t, "/api/v1/namespaces/"+nsBridges+"/configmaps/app"),
 				[]string{"env api:LOG_LEVEL " + toLeft + " level", "envFrom api prefix APP_", "volume api:/etc/app: app.yaml, log.yaml"}, ""},
-			wantB{"pod-secret", "Pod/api", "", nsBridges, "Secret", "tls", "", []string{"volume api:/tls (all keys)"}, ""})
+			wantB{"pod-secret", "Pod/api", "", nsBridges, "Secret", "tls", rawUID(t, "/api/v1/namespaces/"+nsBridges+"/secrets/tls"), []string{"volume api:/tls (all keys)"}, ""})
 	})
 	t.Run("C5", func(t *testing.T) {
 		checkB(t, "C5", "hpa-api-w", a.ans,
@@ -545,9 +549,12 @@ func TestG_Bridges(t *testing.T) {
 				reads = append(reads, e.Verb+" "+e.ObjectRef.Resource+" "+e.ObjectRef.Name)
 			}
 		}
-		t.Logf("FA2-T6 C14 input=pod-api-config audit window reads of secrets or configmaps expected=[] actual=%q result=%s", reads, result(len(reads) == 0))
-		if len(reads) != 0 {
-			t.Errorf("C14: the call read %q; no ConfigMap or Secret may be read for a bridge (B1)", reads)
+		// FA2-T7a 8 edit 2: exactly the list of each collection of the namespace, and no get.
+		sort.Strings(reads)
+		wantReads := []string{"list configmaps ", "list secrets "}
+		t.Logf("FA2-T6 C14 input=pod-api-config audit window reads of secrets or configmaps expected=%q actual=%q result=%s", wantReads, reads, result(reflect.DeepEqual(reads, wantReads)))
+		if !reflect.DeepEqual(reads, wantReads) {
+			t.Errorf("C14: the call read %q; want exactly %q (no get of a ConfigMap or Secret, B1)", reads, wantReads)
 		}
 		output := append(admin.stdout.bytes(), admin.stderr.bytes()...)
 		for _, c := range []struct{ name, value, resource, object string }{

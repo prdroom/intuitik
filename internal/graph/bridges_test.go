@@ -254,27 +254,27 @@ func routeFixture(f *fakeAPI, version string) {
 var (
 	wantIngress = []wantBridge{
 		{BridgeIngressService, "Ingress/shop", "", testNS, "Service", "api", "svc-api",
-			[]string{"/api  shop.local " + arrowRight + " api:80", "/healthz (Exact)  shop.local " + arrowRight + " api:http"}, ""},
+			[]string{"/api  shop.local " + arrowRight + " api:80", "/healthz (Exact)  shop.local " + arrowRight + " api:http"}, `Service api has no port named "http"`},
 		{BridgeIngressService, "Ingress/plain", "", testNS, "Service", "api", "svc-api",
 			[]string{"(default)  * " + arrowRight + " api:80"}, ""},
 	}
 	serviceSettings = []string{"selector app=api,tier=web", ":80" + arrowRight + "8080", ":53" + arrowRight + "53/UDP"}
 	wantService     = []wantBridge{
-		{BridgeServicePod, "Service/api", "", testNS, "Pod", "api-1", "p-api-1", serviceSettings, ""},
-		{BridgeServicePod, "Service/api", "", testNS, "Pod", "api-2", "p-api-2", serviceSettings, ""},
+		{BridgeServicePod, "Service/api", "", testNS, "Pod", "api-1", "p-api-1", serviceSettings, "targetPort 8080 is not declared by the container (traffic not verifiable)"},
+		{BridgeServicePod, "Service/api", "", testNS, "Pod", "api-2", "p-api-2", serviceSettings, "targetPort 8080 is not declared by the container (traffic not verifiable)"},
 	}
 	wantStorage = []wantBridge{
 		{BridgePodPVC, "Pod/db-0", "", testNS, "PersistentVolumeClaim", "data-db-0", "pvc-data",
 			[]string{"volume data-db-0", "mount db:/var/lib/data", "mount restore:/backup (read-only)", "access ReadWriteOnce"}, ""},
-		{BridgePVCPV, "PersistentVolumeClaim/data-db-0", "", "", "PersistentVolume", "pv-1", "", []string{"class standard", "capacity 1Gi"}, ""},
-		{BridgePVCPV, "PersistentVolumeClaim/c-default", "", "", "PersistentVolume", "pv-2", "", []string{"class (default)"}, ""},
-		{BridgePVCPV, "PersistentVolumeClaim/c-none", "", "", "PersistentVolume", "pv-3", "", []string{"class (none)"}, ""},
+		{BridgePVCPV, "PersistentVolumeClaim/data-db-0", "", "", "PersistentVolume", "pv-1", "", []string{"class standard", "capacity 1Gi"}, "PersistentVolume pv-1 not found"},
+		{BridgePVCPV, "PersistentVolumeClaim/c-default", "", "", "PersistentVolume", "pv-2", "", []string{"class (default)"}, "PersistentVolume pv-2 not found"},
+		{BridgePVCPV, "PersistentVolumeClaim/c-none", "", "", "PersistentVolume", "pv-3", "", []string{"class (none)"}, "PersistentVolume pv-3 not found"},
 	}
 	wantConfig = []wantBridge{
-		{BridgePodSecret, "Pod/api", "", testNS, "Secret", "db", "", []string{"env api:DB_USER " + arrowLeft + " username"}, ""},
-		{BridgePodConfigMap, "Pod/api", "", testNS, "ConfigMap", "app", "",
+		{BridgePodSecret, "Pod/api", "", testNS, "Secret", "db", "sec-db", []string{"env api:DB_USER " + arrowLeft + " username"}, ""},
+		{BridgePodConfigMap, "Pod/api", "", testNS, "ConfigMap", "app", "cm-app",
 			[]string{"env api:LOG_LEVEL " + arrowLeft + " level", "envFrom api prefix APP_", "volume api:/etc/app: app.yaml, log.yaml"}, ""},
-		{BridgePodSecret, "Pod/api", "", testNS, "Secret", "tls", "", []string{"volume api:/tls (all keys)"}, ""},
+		{BridgePodSecret, "Pod/api", "", testNS, "Secret", "tls", "sec-tls", []string{"volume api:/tls (all keys)"}, ""},
 	}
 	wantHPA = []wantBridge{
 		{BridgeHPATarget, "HorizontalPodAutoscaler/api", "apps", testNS, "Deployment", "api", "d-api", []string{"min 2", "max 5"}, ""},
@@ -337,8 +337,8 @@ func TestBridges_ConfigOrder(t *testing.T) {
 	checkBridges(t, "C4", "pod-worker-order", mustBuild(t, f),
 		wantBridge{BridgePodSecret, "Pod/worker", "", testNS, "Secret", "creds", "", []string{
 			"env main:TOKEN " + arrowLeft + " token", "envFrom init",
-			"volume main:/certs: ca.crt, tls.crt", "volume init:/init-certs: ca.crt, tls.crt"}, ""},
-		wantBridge{BridgePodConfigMap, "Pod/worker", "", testNS, "ConfigMap", "extra", "", []string{"volume spare (not mounted)"}, ""})
+			"volume main:/certs: ca.crt, tls.crt", "volume init:/init-certs: ca.crt, tls.crt"}, "Secret creds not found"},
+		wantBridge{BridgePodConfigMap, "Pod/worker", "", testNS, "ConfigMap", "extra", "", []string{"volume spare (not mounted)"}, "ConfigMap extra not found"})
 }
 
 // TestBridges_EphemeralClaim (E.4): a generic ephemeral volume names the claim
@@ -348,7 +348,7 @@ func TestBridges_EphemeralClaim(t *testing.T) {
 		"volumeMounts":[{"name":"scratch","mountPath":"/scratch"}]}],
 		"volumes":[{"name":"scratch","ephemeral":{"volumeClaimTemplate":{"spec":{"accessModes":["ReadWriteOnce"]}}}}]}}`))
 	checkBridges(t, "C3", "pod-ephemeral-volume", mustBuild(t, f),
-		wantBridge{BridgePodPVC, "Pod/eph", "", testNS, "PersistentVolumeClaim", "eph-scratch", "", []string{"volume eph-scratch", "mount c:/scratch"}, ""})
+		wantBridge{BridgePodPVC, "Pod/eph", "", testNS, "PersistentVolumeClaim", "eph-scratch", "", []string{"volume eph-scratch", "mount c:/scratch"}, "eph-scratch waits to be created for Pod eph"})
 }
 
 // TestBridges_HPA (C5): HPA -> its target workload, group-exact, with min (1 when unset)
@@ -718,8 +718,8 @@ func TestBridges_OptionalFlag(t *testing.T) {
 	a := mustBuild(t, f)
 	checkBridges(t, "C4", "pod-opt-optional", a,
 		wantBridge{BridgePodConfigMap, "Pod/opt", "", testNS, "ConfigMap", "cfg", "",
-			[]string{"env c:A " + arrowLeft + " a", "env c:B " + arrowLeft + " b", "volume c:/v1 (all keys)"}, ""},
-		wantBridge{BridgePodSecret, "Pod/opt", "", testNS, "Secret", "sec", "", []string{"envFrom c", "volume c:/v2 (all keys)"}, ""})
+			[]string{"env c:A " + arrowLeft + " a", "env c:B " + arrowLeft + " b", "volume c:/v1 (all keys)"}, "ConfigMap cfg not found"},
+		wantBridge{BridgePodSecret, "Pod/opt", "", testNS, "Secret", "sec", "", []string{"envFrom c", "volume c:/v2 (all keys)"}, "Secret sec not found"})
 	for _, c := range []struct {
 		kind, toKind, toName string
 		want                 []bool

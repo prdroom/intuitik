@@ -8,3 +8,4 @@ TestG_CustomWithoutCRDList
 TestG_VersionPerResource
 TestG_RouteGate
 TestG_Bridges
+TestG_States

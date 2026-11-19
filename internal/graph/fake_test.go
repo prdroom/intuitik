@@ -79,6 +79,9 @@ func newFake() *fakeAPI {
 		{"", "v1", "persistentvolumeclaims", "PersistentVolumeClaim", true, all},
 		{"networking.k8s.io", "v1", "ingresses", "Ingress", true, all},
 		{"autoscaling", "v2", "horizontalpodautoscalers", "HorizontalPodAutoscaler", true, all},
+		{"", "v1", "persistentvolumes", "PersistentVolume", false, all},
+		{"storage.k8s.io", "v1", "storageclasses", "StorageClass", false, all},
+		{"", "v1", "namespaces", "Namespace", false, all},
 		{"apps", "v1", "deployments", "Deployment", true, all},
 		{"apps", "v1", "replicasets", "ReplicaSet", true, all},
 		{"apps", "v1", "statefulsets", "StatefulSet", true, all},
@@ -94,6 +97,9 @@ func newFake() *fakeAPI {
 		f.groups = append(f.groups, metav1.APIGroup{Name: g, Versions: []metav1.GroupVersionForDiscovery{{GroupVersion: g + "/v1", Version: "v1"}},
 			PreferredVersion: metav1.GroupVersionForDiscovery{GroupVersion: g + "/v1", Version: "v1"}})
 	}
+	// The Namespace object of the request namespace (FA2-T7a 6.3 (8)).
+	f.objects = append(f.objects, &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1", "kind": "Namespace", "metadata": map[string]any{"name": testNS, "uid": "ns-" + testNS}}})
 	return f
 }
 
@@ -310,6 +316,29 @@ func (r *fakeReader) Object(ctx context.Context, res readonly.Resource, namespac
 		}
 	}
 	return nil, fail{status: 404}.err()
+}
+
+// ListMetadata lists a resource as metadata only (FA2-T7a 6.2), recorded as
+// "LISTMETA <group>/<version>/<resource> <namespace>".
+func (r *fakeReader) ListMetadata(ctx context.Context, res readonly.Resource, namespace string) ([]readonly.ObjectMeta, error) {
+	f := r.f
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r.record(fmt.Sprintf("LISTMETA %s/%s/%s %s", res.Group, res.Version, res.Resource, namespace))
+	if a, ok := f.lists[res.Group+"/"+res.Resource]; ok {
+		return nil, a.err()
+	}
+	kind := f.kindOf(res)
+	if kind == "" {
+		return nil, fail{status: 404}.err()
+	}
+	out := []readonly.ObjectMeta{}
+	for _, u := range f.objects {
+		if f.match(res, kind, u) && u.GetNamespace() == namespace {
+			out = append(out, readonly.ObjectMeta{Name: u.GetName(), Namespace: u.GetNamespace(), UID: string(u.GetUID())})
+		}
+	}
+	return out, nil
 }
 
 // count is the number of recorded requests that start with prefix.

@@ -626,9 +626,10 @@ func TestContainment_Stable(t *testing.T) {
 	}
 }
 
-// TestContainment_RequestOrder (D.3, FA2-T6 E.3): the requests of one call form a fixed
-// sequence; with no group outside list B it is /apis, the seven LISTs and the four LISTs of
-// the bridge kinds (K = 12).
+// TestContainment_RequestOrder (D.3, FA2-T6 E.3, FA2-T7a 6.3): the requests of one call
+// form a fixed sequence; with no group outside list B and no claim it is /apis, the seven
+// LISTs, the four LISTs of the bridge kinds, the ConfigMaps and Secrets as metadata and the
+// Namespace object (K = 15).
 func TestContainment_RequestOrder(t *testing.T) {
 	f := newFake()
 	mustBuild(t, f)
@@ -636,7 +637,8 @@ func TestContainment_RequestOrder(t *testing.T) {
 		"LIST /v1/pods " + testNS, "LIST apps/v1/replicasets " + testNS, "LIST apps/v1/deployments " + testNS,
 		"LIST apps/v1/statefulsets " + testNS, "LIST apps/v1/daemonsets " + testNS, "LIST batch/v1/jobs " + testNS, "LIST batch/v1/cronjobs " + testNS,
 		"LIST /v1/services " + testNS, "LIST /v1/persistentvolumeclaims " + testNS, "LIST networking.k8s.io/v1/ingresses " + testNS,
-		"LIST autoscaling/v2/horizontalpodautoscalers " + testNS}
+		"LIST autoscaling/v2/horizontalpodautoscalers " + testNS,
+		"LISTMETA /v1/configmaps " + testNS, "LISTMETA /v1/secrets " + testNS, "GET /v1/namespaces /" + testNS}
 	t.Logf("FA2-T5 D.3 input=empty requests %d %q", len(f.requests), f.requests)
 	if fmt.Sprint(f.requests) != fmt.Sprint(want) {
 		t.Errorf("D.3: requests %q, want %q", f.requests, want)
