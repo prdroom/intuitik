@@ -136,8 +136,6 @@ func createCluster(t *testing.T, work string) *cluster {
 	}
 	c.admin = &http.Client{Timeout: 120 * time.Second, Transport: &http.Transport{
 		TLSClientConfig: &tls.Config{RootCAs: pool, Certificates: []tls.Certificate{cert}}, MaxIdleConnsPerHost: 64}}
-	lines := strings.TrimSpace(string(run(t, "docker", "exec", nodeName, "sh", "-c", "test -s "+auditLog+" && wc -l < "+auditLog)))
-	say("PERF-CLUSTER audit log %s in %s: %s lines after create", auditLog, nodeName, lines)
 	return c
 }
 

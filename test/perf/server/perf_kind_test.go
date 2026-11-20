@@ -3,6 +3,8 @@
 package server
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -79,7 +81,8 @@ func TestPerfServer(t *testing.T) {
 		say("%s", l)
 	}
 	k := &control{c: c, client: c.tokenClient(controlToken)}
-	served := discover(t, c, k)
+	served, discoveryIDs := discover(t, c, k)
+	auditReady(t, discoveryIDs)
 
 	in := perfjudge.Input{Scale: scale, Fixture: plan.Counts(), Readback: readback, Served: served,
 		PanelUser: panelUser, ControlUser: controlUser, Measured: plan.Measured, MeasuredPods: plan.Pods(plan.Measured)}
@@ -236,15 +239,18 @@ func counts(t *testing.T, c *cluster) ([]perfjudge.Count, []string) {
 }
 
 // discover reads the served resources with the control identity (packet 6.3 C5) and
-// prints each with group, version, resource and scope.
-func discover(t *testing.T, c *cluster, k *control) []perfjudge.Resource {
+// prints each with group, version, resource and scope. It also returns the Audit-Id of
+// each discovery request.
+func discover(t *testing.T, c *cluster, k *control) ([]perfjudge.Resource, []string) {
 	t.Helper()
+	var ids []string
 	get := func(path string, v any) {
 		status, b, id, err := c.do(t.Context(), k.client, "GET", path, nil, "application/json")
 		if err != nil || status != 200 || json.Unmarshal(b, v) != nil {
 			t.Fatalf("PERF verdict=ERROR discovery %s: status %d %v", path, status, err)
 		}
 		k.record(perfjudge.Record{AuditID: id, Verb: "get", Path: path})
+		ids = append(ids, id)
 	}
 	type resourceList struct {
 		Resources []struct {
@@ -288,7 +294,68 @@ func discover(t *testing.T, c *cluster, k *control) []perfjudge.Resource {
 		}
 		say("PERF discovery group=%q version=%s resource=%s scope=%s verbs=%s", r.Group, r.Version, r.Resource, scope, strings.Join(r.Verbs, ","))
 	}
-	return out
+	return out, ids
+}
+
+// auditReady is the audit readiness check (DECISION delegation T AUDIT-READY-T12): within
+// 10 s of the end of the discovery reads, on one deadline, the audit log must hold a
+// well-formed JSON line of the control user whose auditID is the Audit-Id of one of those
+// requests, at stage ResponseComplete with a 2xx code. Every read of the log gets the
+// remaining time as its limit. A timeout or any read failure is the packet 8 named stop
+// "audit stage lines missing", never a pass. It reads the log with its own JSON decoding,
+// not with the judge; the judge's audit checks stay as they are.
+func auditReady(t *testing.T, ids []string) {
+	t.Helper()
+	t0 := time.Now()
+	deadline := t0.Add(10 * time.Second)
+	want := map[string]bool{}
+	for _, id := range ids {
+		if id != "" {
+			want[id] = true
+		}
+	}
+	state := fmt.Sprintf("%d discovery Audit-Ids", len(want))
+	for len(want) > 0 {
+		left := time.Until(deadline)
+		if left <= 0 {
+			break
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), left)
+		out, err := exec.CommandContext(ctx, "docker", "exec", nodeName, "cat", auditLog).Output()
+		cancel()
+		if err != nil {
+			state = fmt.Sprintf("audit log read failed: %v", err)
+			break
+		}
+		n := 0
+		for _, raw := range bytes.Split(out, []byte("\n")) {
+			var l struct {
+				AuditID string `json:"auditID"`
+				Stage   string `json:"stage"`
+				User    struct {
+					Username string `json:"username"`
+				} `json:"user"`
+				ResponseStatus *struct {
+					Code int `json:"code"`
+				} `json:"responseStatus"`
+			}
+			if len(bytes.TrimSpace(raw)) == 0 || json.Unmarshal(raw, &l) != nil {
+				continue
+			}
+			n++
+			if l.User.Username != controlUser || !want[l.AuditID] || l.Stage != "ResponseComplete" {
+				continue
+			}
+			if l.ResponseStatus == nil || l.ResponseStatus.Code < 200 || l.ResponseStatus.Code > 299 {
+				continue
+			}
+			say("PERF-AUDIT ready user=%s auditID=%s stage=%s elapsed_ms=%d", l.User.Username, l.AuditID, l.Stage, time.Since(t0).Milliseconds())
+			return
+		}
+		state = fmt.Sprintf("%d well-formed lines, none of the control user bound to a discovery Audit-Id at ResponseComplete with a 2xx code", n)
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("PERF verdict=ERROR STOP-4 named stop (packet 8): audit stage lines missing: after %d ms, last state: %s", time.Since(t0).Milliseconds(), state)
 }
 
 // measure is one run (packet 3.2, 6.3): start the binary, connect, call the cluster graph
