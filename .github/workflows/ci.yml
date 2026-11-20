@@ -2,6 +2,7 @@ name: ci
 
 on:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -9,6 +10,7 @@ permissions:
 jobs:
   # Prints the commit identities of this run. It runs no PR code.
   factory-context:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -27,6 +29,7 @@ jobs:
           echo "FACTORY_CI_CONTEXT event=${EVENT_NAME} github_sha=${RUN_SHA} checkout_sha=${checkout_sha} base_sha=${BASE_SHA} head_sha=${HEAD_SHA}"
 
   verify:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -108,6 +111,7 @@ jobs:
 
   # The CI token must not be able to write to the source repository.
   ci-token:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -152,6 +156,7 @@ jobs:
   # Builds the frontend and the six release targets, checks the toolchain versions,
   # lints the verification map and runs it end to end on the linux/amd64 artifact.
   build:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -233,6 +238,7 @@ jobs:
 
   # Checks the standard DCO sign-off of every commit in the PR range; the judging is in the tool.
   dco:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -257,6 +263,7 @@ jobs:
 
   # Go tests and frontend tests. The frontend is built first because the Go server embeds it.
   unit:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -298,6 +305,7 @@ jobs:
   # Server security tests (packet M1-T2 section 6) on linux, against the product binary and the
   # e2etest build. The list check fails unless every test of REQUIRED_TESTS_LINUX ran and passed.
   e2e-api:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -393,6 +401,7 @@ jobs:
   # against the real server and the real web/src/auth module. The list check fails unless every
   # case of web/e2e/REQUIRED_TESTS passed in each of the three projects.
   browser-handshake:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -505,6 +514,7 @@ jobs:
   # S16 on Windows: the exclusive bind of the panel listener. Runs on every pull_request run.
   # The frontend is built first because the Go program embeds it (go:embed all:dist).
   e2e-api-windows:
+    if: github.event_name == 'pull_request'
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -599,6 +609,7 @@ jobs:
   # kubeconfig is written under RUNNER_TEMP, never into ~/.kube/config of the runner. The list
   # check fails unless every test of REQUIRED_TESTS_KIND ran and passed.
   e2e-kind:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -751,6 +762,7 @@ jobs:
   # test build. The gate tool appends one pass or fail event per check to the gate report. The list
   # check fails unless every name of tools/readonlygate/REQUIRED_TESTS ran and passed.
   readonly-gate:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -877,6 +889,7 @@ jobs:
   # frontend is built first because the Go program embeds it (go:embed all:dist). The list check
   # fails unless every test of internal/kube/credexec/REQUIRED_TESTS_WINDOWS ran and passed.
   credexec-windows:
+    if: github.event_name == 'pull_request'
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -973,6 +986,7 @@ jobs:
   # API server audit log at Metadata level for the read-only check G7. The list check fails unless
   # every test of test/e2e-api/graph/REQUIRED_TESTS_KIND ran and passed.
   e2e-graph:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -1149,6 +1163,7 @@ jobs:
   # manifests of scenarios/appendix-a themselves; this job applies nothing. The list check fails
   # unless every test of test/e2e-api/appendix-a/REQUIRED_TESTS_KIND ran and passed.
   appendix-a:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -1290,5 +1305,259 @@ jobs:
           kubeconfig="${RUNNER_TEMP}/kind-appendix/kubeconfig"
           if command -v kind > /dev/null; then
             kind delete cluster --name intuitik-appendix --kubeconfig "$kubeconfig"
+          fi
+          echo "kind clusters after delete: [$(kind get clusters 2>/dev/null | tr '\n' ' ')]"
+
+  # Performance harness of the server (packet FA2-T12 sections 6 and 7) on the release binary.
+  # TestPerfServer builds its own kind cluster from test/perf/server (config and audit policy),
+  # runs kwok out of cluster for the fake nodes, measures the binary and calls tools/perfjudge.
+  # pull_request: scale S once. workflow_dispatch: scale L (5 runs), the L graph file upload,
+  # then scale XL. The job prints HEAD, the binary sha256, the blob of this workflow file,
+  # free -m and the elapsed seconds of each phase. The list check fails unless every test of
+  # test/perf/server/REQUIRED_TESTS_KIND ran and passed, at each scale.
+  perf-server:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 120 || 30 }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Print perf context
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_SHA: ${{ github.sha }}
+          RUN_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          echo "PERF-CONTEXT event=${EVENT_NAME} ref=${RUN_REF} github_sha=${RUN_SHA} head=$(git rev-parse HEAD) workflow_blob=$(git hash-object .github/workflows/ci.yml)"
+          nproc
+          free -m
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          package-manager-cache: false
+
+      - name: Frontend build
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Build product binary
+        env:
+          VERSION: 0.0.0-dev
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          out="${RUNNER_TEMP}/e2e-bin"
+          mkdir -p "$out"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+            -ldflags "-X main.version=${VERSION} -X main.commit=${commit}" \
+            -o "${out}/intuitik-linux-amd64" ./cmd/intuitik
+          echo "PERF-BINARY head=${commit} sha256=$(sha256sum "${out}/intuitik-linux-amd64" | cut -d' ' -f1)"
+          echo "PERF-PHASE build elapsed_s=${SECONDS}"
+          free -m
+
+      # kind, kubectl, kwok and the kwok stage file are checked against the sha256 values below
+      # before use; a mismatch fails the job. kind, kwok and stage-fast.yaml: the GitHub release
+      # asset digests; kubectl: the value at dl.k8s.io. No kwok image is pulled.
+      - name: Install kind, kubectl and kwok
+        env:
+          KIND_VERSION: v0.33.0
+          KIND_SHA256: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
+          KUBECTL_VERSION: v1.37.0
+          KUBECTL_SHA256: 6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f
+          KWOK_VERSION: v0.8.0
+          KWOK_SHA256: f5a4385a2ae1b9dd7f8acae18e002a75c0ebba124ae9d7259aa8dadb50711f46
+          KWOK_STAGES_SHA256: 2f28d95564ec43056c0873f7a25ac7d2a5bba4c8496c72f8b3ee73fd4f54ee24
+        run: |
+          set -euo pipefail
+          bin="${RUNNER_TEMP}/kind-bin"
+          mkdir -p "$bin" "${RUNNER_TEMP}/kwok"
+          curl -fsSL -o "${bin}/kind" \
+            "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
+          echo "${KIND_SHA256}  ${bin}/kind" | sha256sum -c -
+          curl -fsSL -o "${bin}/kubectl" \
+            "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          echo "${KUBECTL_SHA256}  ${bin}/kubectl" | sha256sum -c -
+          curl -fsSL -o "${bin}/kwok" \
+            "https://github.com/kubernetes-sigs/kwok/releases/download/${KWOK_VERSION}/kwok-linux-amd64"
+          echo "${KWOK_SHA256}  ${bin}/kwok" | sha256sum -c -
+          curl -fsSL -o "${RUNNER_TEMP}/kwok/stage-fast.yaml" \
+            "https://github.com/kubernetes-sigs/kwok/releases/download/${KWOK_VERSION}/stage-fast.yaml"
+          echo "${KWOK_STAGES_SHA256}  ${RUNNER_TEMP}/kwok/stage-fast.yaml" | sha256sum -c -
+          chmod +x "${bin}/kind" "${bin}/kubectl" "${bin}/kwok"
+          echo "$bin" >> "${GITHUB_PATH}"
+          "${bin}/kind" version
+          "${bin}/kubectl" version --client
+
+      # The test receives the binary, the scale, the kind node image, the kwok binary and stage
+      # file, a work directory for the cluster, the audit log and the cause records, and the
+      # output directory of the L graph file. The -run pattern is built from the list file, so
+      # this step runs exactly the listed tests. go test and the list check run in one step, so
+      # that the list check also prints its result when tests fail; the step exits non-zero if
+      # either of them failed.
+      - name: perf-server tests and list check
+        env:
+          INTUITIK_PERF_SCALE: ${{ github.event_name == 'workflow_dispatch' && 'L' || 'S' }}
+          GO_TEST_TIMEOUT: ${{ github.event_name == 'workflow_dispatch' && '95m' || '25m' }}
+        run: |
+          set -uo pipefail
+          export INTUITIK_E2E_BINARY="${RUNNER_TEMP}/e2e-bin/intuitik-linux-amd64"
+          export INTUITIK_PERF_KIND_IMAGE="kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5"
+          export INTUITIK_PERF_KWOK="${RUNNER_TEMP}/kind-bin/kwok"
+          export INTUITIK_PERF_KWOK_STAGES="${RUNNER_TEMP}/kwok/stage-fast.yaml"
+          export INTUITIK_PERF_WORK="${RUNNER_TEMP}/perf-work-${INTUITIK_PERF_SCALE}"
+          export INTUITIK_PERF_OUT="${RUNNER_TEMP}/perf-out"
+          mkdir -p "$INTUITIK_PERF_WORK" "$INTUITIK_PERF_OUT"
+          echo "PERF-PHASE scale=${INTUITIK_PERF_SCALE} start elapsed_s=${SECONDS}"
+          free -m
+          report="${RUNNER_TEMP}/perf-server-${INTUITIK_PERF_SCALE}.json"
+          test_code=0
+          go test -tags kind -json -timeout "$GO_TEST_TIMEOUT" -run "^($(paste -sd'|' test/perf/server/REQUIRED_TESTS_KIND))$" ./test/perf/server/... > "$report" || test_code=$?
+          list_code=0
+          python3 - test/perf/server/REQUIRED_TESTS_KIND "$report" <<'PY' || list_code=$?
+          import json, sys
+          list_path, report_path = sys.argv[1], sys.argv[2]
+          names = [l.strip() for l in open(list_path, encoding="utf-8") if l.strip() and not l.strip().startswith("#")]
+          seen = {}
+          for line in open(report_path, encoding="utf-8"):
+              if not line.startswith("{"):
+                  print(line, end="")
+                  continue
+              event = json.loads(line)
+              if event.get("Action") == "output":
+                  print(event.get("Output", ""), end="")
+              if event.get("Test") and event.get("Action") in ("pass", "fail", "skip"):
+                  seen.setdefault(event["Test"], []).append(event["Action"])
+          bad = 0
+          if not names:
+              print("list check: the list is empty")
+              bad = 1
+          if len(set(names)) != len(names):
+              print("list check: the list names a test more than once")
+              bad = 1
+          for name in names:
+              results = seen.get(name, [])
+              result = "missing" if not results else "pass" if all(r == "pass" for r in results) else ",".join(sorted(set(results)))
+              print(f"list check: {name} {result}")
+              if result != "pass":
+                  bad = 1
+          print(f"list check: {len(names)} listed, {'pass' if bad == 0 else 'fail'}")
+          sys.exit(bad)
+          PY
+          echo "PERF-PHASE scale=${INTUITIK_PERF_SCALE} end elapsed_s=${SECONDS}"
+          free -m
+          echo "go test exit=${test_code} list check exit=${list_code}"
+          if [ "$test_code" -ne 0 ] || [ "$list_code" -ne 0 ]; then
+            exit 1
+          fi
+
+      # Dispatch only. The byte count and sha256 are printed before the upload; a file above
+      # 50,000,000 bytes or a missing file fails this step, so nothing is uploaded.
+      - name: Check L graph file
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          file="${RUNNER_TEMP}/perf-out/l-graph.tar.gz"
+          if [ ! -f "$file" ]; then
+            echo "L graph file: ${file} missing"
+            exit 1
+          fi
+          bytes="$(stat -c %s "$file")"
+          echo "PERF-ARTIFACT l-graph.tar.gz bytes=${bytes} sha256=$(sha256sum "$file" | cut -d' ' -f1) limit=50000000"
+          if [ "$bytes" -gt 50000000 ]; then
+            echo "L graph file: ${bytes} bytes is above 50000000, not uploaded"
+            exit 1
+          fi
+
+      - name: Upload L graph file
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: l-graph
+          path: ${{ runner.temp }}/perf-out/l-graph.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          overwrite: false
+
+      - name: perf-server XL tests and list check
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          INTUITIK_PERF_SCALE: XL
+          GO_TEST_TIMEOUT: 60m
+        run: |
+          set -uo pipefail
+          export INTUITIK_E2E_BINARY="${RUNNER_TEMP}/e2e-bin/intuitik-linux-amd64"
+          export INTUITIK_PERF_KIND_IMAGE="kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5"
+          export INTUITIK_PERF_KWOK="${RUNNER_TEMP}/kind-bin/kwok"
+          export INTUITIK_PERF_KWOK_STAGES="${RUNNER_TEMP}/kwok/stage-fast.yaml"
+          export INTUITIK_PERF_WORK="${RUNNER_TEMP}/perf-work-${INTUITIK_PERF_SCALE}"
+          export INTUITIK_PERF_OUT="${RUNNER_TEMP}/perf-out"
+          mkdir -p "$INTUITIK_PERF_WORK" "$INTUITIK_PERF_OUT"
+          echo "PERF-PHASE scale=${INTUITIK_PERF_SCALE} start elapsed_s=${SECONDS}"
+          free -m
+          report="${RUNNER_TEMP}/perf-server-${INTUITIK_PERF_SCALE}.json"
+          test_code=0
+          go test -tags kind -json -timeout "$GO_TEST_TIMEOUT" -run "^($(paste -sd'|' test/perf/server/REQUIRED_TESTS_KIND))$" ./test/perf/server/... > "$report" || test_code=$?
+          list_code=0
+          python3 - test/perf/server/REQUIRED_TESTS_KIND "$report" <<'PY' || list_code=$?
+          import json, sys
+          list_path, report_path = sys.argv[1], sys.argv[2]
+          names = [l.strip() for l in open(list_path, encoding="utf-8") if l.strip() and not l.strip().startswith("#")]
+          seen = {}
+          for line in open(report_path, encoding="utf-8"):
+              if not line.startswith("{"):
+                  print(line, end="")
+                  continue
+              event = json.loads(line)
+              if event.get("Action") == "output":
+                  print(event.get("Output", ""), end="")
+              if event.get("Test") and event.get("Action") in ("pass", "fail", "skip"):
+                  seen.setdefault(event["Test"], []).append(event["Action"])
+          bad = 0
+          if not names:
+              print("list check: the list is empty")
+              bad = 1
+          if len(set(names)) != len(names):
+              print("list check: the list names a test more than once")
+              bad = 1
+          for name in names:
+              results = seen.get(name, [])
+              result = "missing" if not results else "pass" if all(r == "pass" for r in results) else ",".join(sorted(set(results)))
+              print(f"list check: {name} {result}")
+              if result != "pass":
+                  bad = 1
+          print(f"list check: {len(names)} listed, {'pass' if bad == 0 else 'fail'}")
+          sys.exit(bad)
+          PY
+          echo "PERF-PHASE scale=${INTUITIK_PERF_SCALE} end elapsed_s=${SECONDS}"
+          free -m
+          echo "go test exit=${test_code} list check exit=${list_code}"
+          if [ "$test_code" -ne 0 ] || [ "$list_code" -ne 0 ]; then
+            exit 1
+          fi
+
+      # Runs after a failed step too, so that every kind cluster of this job is deleted at the end.
+      - name: Delete perf kind clusters
+        if: always()
+        run: |
+          set -euo pipefail
+          if command -v kind > /dev/null; then
+            for name in $(kind get clusters 2>/dev/null); do
+              kind delete cluster --name "$name"
+            done
           fi
           echo "kind clusters after delete: [$(kind get clusters 2>/dev/null | tr '\n' ' ')]"
