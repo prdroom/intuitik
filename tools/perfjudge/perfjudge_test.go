@@ -2,6 +2,7 @@ package perfjudge
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -145,6 +146,45 @@ func TestN5Judge(t *testing.T) {
 	}
 	if p := RunPeak([]int64{10, 20}, 25); p != 25 {
 		t.Errorf("RunPeak VmHWM above samples: %d, want 25", p)
+	}
+}
+
+// TestRSSBand is the C3 band of a live run (decision C3-BAND-T12): the three sample and
+// VmHWM pairs recorded in dispatch 44748355995 (perf-server log L1341) are a PASS, since
+// packet 6.3 takes the run peak as max(VmHWM, samples); no sample, a sample of 0, VmHWM
+// below 5,000,000 bytes and read errors are FAIL.
+func TestRSSBand(t *testing.T) {
+	readErr := errors.New("open /proc/1/status: no such file or directory")
+	cases := []struct {
+		name       string
+		samples    []int64
+		hwm        int64
+		hwmErr     error
+		sampleErrs []string
+		pass       bool
+		want       string
+	}{
+		{"dispatch-L1341-run1", []int64{25772032, 116572160, 116154368}, 116154368, nil, nil, true, ""},
+		{"dispatch-L1341-run3", []int64{25772032, 109920256, 109760512}, 109760512, nil, nil, true, ""},
+		{"dispatch-L1341-run5", []int64{25829376, 115216384, 114868224}, 114868224, nil, nil, true, ""},
+		{"samples-below-hwm", []int64{25772032, 116000000}, 116154368, nil, nil, true, ""},
+		{"no-sample", nil, 116154368, nil, nil, false, "run 1: no sample"},
+		{"zero-sample", []int64{25772032, 0}, 116154368, nil, nil, false, "run 1 sample 2 = 0 bytes"},
+		{"hwm-below-5000000", []int64{4000000}, 4999999, nil, nil, false, "run 1 VmHWM 4999999 bytes below 5000000"},
+		{"hwm-read-error", []int64{25772032}, 0, readErr, nil, false, "run 1 VmHWM read: open /proc/1/status"},
+		{"sample-read-error", []int64{25772032}, 116154368, nil, []string{"open /proc/1/status: no such process"}, false, "run 1 sample read: open /proc/1/status"},
+	}
+	for _, c := range cases {
+		problems := RSSBand(1, c.samples, c.hwm, c.hwmErr, c.sampleErrs)
+		pass := len(problems) == 0
+		t.Logf("C3 band case=%s samples=%v hwm=%d problems=%q pass=%v want-pass=%v", c.name, c.samples, c.hwm, problems, pass, c.pass)
+		if pass != c.pass {
+			t.Errorf("C3 band case=%s: pass=%v problems=%q, want pass=%v", c.name, pass, problems, c.pass)
+			continue
+		}
+		if !c.pass && !strings.Contains(strings.Join(problems, "\n"), c.want) {
+			t.Errorf("C3 band case=%s: problems=%q, want one containing %q", c.name, problems, c.want)
+		}
 	}
 }
 

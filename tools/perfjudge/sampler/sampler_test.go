@@ -91,12 +91,27 @@ func TestRSSSampler(t *testing.T) {
 	if len(samples) < 5 || peak < lo || peak > hi || baseline <= 0 {
 		t.Errorf("C3 peak %d bytes (baseline %d, %d samples), want at least 5 samples and the peak in [%d, %d]", peak, baseline, len(samples), lo, hi)
 	}
-	// Another process (this test, which holds no block) gives a peak outside the band.
+	// The VmRSS samples on their own, apart from VmHWM, show which process was read
+	// (decision C3-BAND-T12 (d)): the helper's lie in the band.
+	samplesInBand := func(s []int64) (int64, bool) {
+		m := perfjudge.RunPeak(s, 0)
+		return m, len(s) > 0 && m >= lo && m <= hi
+	}
+	if m, ok := samplesInBand(samples); !ok {
+		t.Errorf("C3 helper VmRSS samples on their own: max %d bytes, want in [%d, %d]", m, lo, hi)
+	}
+	// Another process (this test, which holds no block) read in place of the helper gives a
+	// peak outside the band, and its samples stay outside it beside the helper's VmHWM.
 	own := Start(os.Getpid(), 200*time.Millisecond)
 	time.Sleep(500 * time.Millisecond)
 	ownSamples, _ := own.Stop()
 	ownPeak := perfjudge.RunPeak(ownSamples, 0)
 	if ownPeak <= 0 || ownPeak >= lo {
 		t.Errorf("C3 another process: peak %d bytes, want above 0 and below the band [%d, %d]", ownPeak, lo, hi)
+	}
+	m, ok := samplesInBand(ownSamples)
+	t.Logf("C3 wrong pid=%d samples=%d max=%d with helper VmHWM=%d: peak=%d samples-in-band=%v", os.Getpid(), len(ownSamples), m, hwm.HWM, perfjudge.RunPeak(ownSamples, hwm.HWM), ok)
+	if ok {
+		t.Errorf("C3 another process beside the helper's VmHWM %d: samples max %d bytes in the band [%d, %d], want outside", hwm.HWM, m, lo, hi)
 	}
 }

@@ -476,27 +476,8 @@ func measure(t *testing.T, kubeconfig string, index int, idle time.Duration) (pe
 	samples, errs := s.Stop()
 	p.stop()
 	r.Samples, r.HWM = samples, st.HWM
-	var problems []string
-	if err != nil {
-		problems = append(problems, fmt.Sprintf("run %d VmHWM read: %v", index, err))
-	}
-	for _, e := range errs {
-		problems = append(problems, fmt.Sprintf("run %d sample read: %s", index, e))
-	}
-	// C3 band of the live run: samples were taken, each is a resident size above zero and
-	// none exceeds the VmHWM read after the window, and VmHWM is at least 5,000,000 bytes.
-	if len(samples) == 0 {
-		problems = append(problems, fmt.Sprintf("run %d: no sample", index))
-	}
-	for i, v := range samples {
-		if v <= 0 || v > st.HWM {
-			problems = append(problems, fmt.Sprintf("run %d sample %d = %d bytes outside (0, VmHWM %d]", index, i+1, v, st.HWM))
-			break
-		}
-	}
-	if st.HWM < 5_000_000 {
-		problems = append(problems, fmt.Sprintf("run %d VmHWM %d bytes below 5000000", index, st.HWM))
-	}
+	// C3 band of the live run, judged by the same function as TestRSSBand.
+	problems := perfjudge.RSSBand(index, samples, st.HWM, err, errs)
 	phase(fmt.Sprintf("run-%d", index), t0)
 	freeM(clusterName, fmt.Sprintf("run-%d", index))
 	return r, problems

@@ -24,6 +24,32 @@ func RunPeak(samples []int64, hwm int64) int64 {
 	return peak
 }
 
+// RSSBand returns the C3 band problems of one live run (packet 6.3, 6.4): the VmHWM read
+// error, the sample read errors, no sample, a sample at or below zero or above VmHWM, and
+// a VmHWM below 5,000,000 bytes. No problem is the band PASS.
+func RSSBand(run int, samples []int64, hwm int64, hwmErr error, sampleErrs []string) []string {
+	var problems []string
+	if hwmErr != nil {
+		problems = append(problems, fmt.Sprintf("run %d VmHWM read: %v", run, hwmErr))
+	}
+	for _, e := range sampleErrs {
+		problems = append(problems, fmt.Sprintf("run %d sample read: %s", run, e))
+	}
+	if len(samples) == 0 {
+		problems = append(problems, fmt.Sprintf("run %d: no sample", run))
+	}
+	for i, v := range samples {
+		if v <= 0 || v > hwm {
+			problems = append(problems, fmt.Sprintf("run %d sample %d = %d bytes outside (0, VmHWM %d]", run, i+1, v, hwm))
+			break
+		}
+	}
+	if hwm < 5_000_000 {
+		problems = append(problems, fmt.Sprintf("run %d VmHWM %d bytes below 5000000", run, hwm))
+	}
+	return problems
+}
+
 // N5Result is the N-5 judgement of the run peaks.
 type N5Result struct {
 	Peaks []int64
