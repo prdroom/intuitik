@@ -1,0 +1,55 @@
+# 410 reproduction cluster intuitik-perf-410 of job perf-server (packet FA2-T12 r5.1 6.2,
+# 6.3), created by TestPerfServer only after every measurement of the run. It holds the
+# setup probe and C6 windows 3a and 3b on batch/v1 cronjobs, and no workload; no N-5, N-6,
+# C1 to C5 or noisy value comes from it.
+# kind v0.33.0 generates kubeadm v1beta4 for Kubernetes v1.37 and applies a JSON 6902
+# patch only to the document of the same group, version and kind, so these patches append
+# to kind's own argument lists.
+# - The API server writes an audit log with the same policy as the measurement cluster
+#   (test/perf/server/audit-policy.yaml, copied by the test to
+#   /tmp/intuitik-perf-audit/audit-policy.yaml on the runner) to
+#   /var/log/kubernetes/audit/audit.log inside its own node, in blocking mode.
+# - The API server compacts etcd every 30 s, and the watch cache is off for batch
+#   cronjobs (<resource>.<group>#0), so a cronjobs watch from resourceVersion 1 is served
+#   from etcd and can end with ERROR 410 (C6 row a).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraMounts:
+      - hostPath: /tmp/intuitik-perf-audit
+        containerPath: /etc/kubernetes/intuitik-audit
+        readOnly: true
+kubeadmConfigPatchesJSON6902:
+  - group: kubeadm.k8s.io
+    version: v1beta4
+    kind: ClusterConfiguration
+    patch: |
+      - op: add
+        path: /apiServer/extraArgs/-
+        value: {name: audit-policy-file, value: /etc/kubernetes/intuitik-audit/audit-policy.yaml}
+      - op: add
+        path: /apiServer/extraArgs/-
+        value: {name: audit-log-path, value: /var/log/kubernetes/audit/audit.log}
+      - op: add
+        path: /apiServer/extraArgs/-
+        value: {name: audit-log-mode, value: blocking}
+      - op: add
+        path: /apiServer/extraArgs/-
+        value: {name: etcd-compaction-interval, value: 30s}
+      - op: add
+        path: /apiServer/extraArgs/-
+        value: {name: watch-cache-sizes, value: "cronjobs.batch#0"}
+      - op: add
+        path: /apiServer/extraVolumes
+        value:
+          - name: intuitik-audit-policy
+            hostPath: /etc/kubernetes/intuitik-audit
+            mountPath: /etc/kubernetes/intuitik-audit
+            readOnly: true
+            pathType: Directory
+          - name: intuitik-audit-log
+            hostPath: /var/log/kubernetes/audit
+            mountPath: /var/log/kubernetes/audit
+            readOnly: false
+            pathType: DirectoryOrCreate
