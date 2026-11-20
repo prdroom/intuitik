@@ -3,6 +3,7 @@ package hk2judge
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -46,19 +47,39 @@ func answer(ns string, nodes []graph.Node, bridges ...graph.Bridge) graph.Answer
 		Nodes: nodes, Refused: []graph.Refusal{}, Bridges: bridges, Unsupported: []graph.Unsupported{}}
 }
 
-// faultAnswers are the C8 answers of A-1 to A-6, one per scenario.
+// owner is the Deployment dep (uid "d"+n) and its ReplicaSet (uid "r"+n) as the answer
+// holds them; ownedPod is a Pod node of that ReplicaSet.
+func owner(dep, n string) []graph.Node {
+	d := node("apps/v1", "Deployment", dep, "d"+n)
+	rs := node("apps/v1", "ReplicaSet", dep+"-1", "r"+n)
+	rs.Parent, rs.Owner.State = uid("d"+n), graph.StateContained
+	return []graph.Node{d, rs}
+}
+
+func ownedPod(name, id, state, text, n string) graph.Node {
+	p := podNode(name, id, state, text)
+	p.Parent, p.Owner.State = uid("r"+n), graph.StateContained
+	return p
+}
+
+// nodes is the Pod node first, then the other nodes, then the owner nodes of n.
+func nodes(pod graph.Node, dep, n string, other ...graph.Node) []graph.Node {
+	return append(append([]graph.Node{pod}, other...), owner(dep, n)...)
+}
+
+// faultAnswers are the C8 answers of A-1 to A-6, one per scenario; every scenario Pod node
+// sits in a ReplicaSet of the scenario's Deployment.
 func faultAnswers() map[string]graph.Answer {
 	return map[string]graph.Answer{
-		"A-1": answer("hk2-a1", []graph.Node{node("apps/v1", "Deployment", "crash", "d1"),
-			podNode("crash-1", "p1", graph.NodeFailing, "CrashLoopBackOff"+dot+"3 restarts")}),
-		"A-2": answer("hk2-a2", []graph.Node{podNode("pull-1", "p2", graph.NodeFailing, "ImagePullBackOff"+dot+missingImage)}),
-		"A-3": answer("hk2-a3", []graph.Node{node("v1", "Service", "web", "s3"), podNode("web-1", "p3", graph.NodeHealthy, "")},
+		"A-1": answer("hk2-a1", nodes(ownedPod("crash-1", "p1", graph.NodeFailing, "CrashLoopBackOff"+dot+"3 restarts", "1"), "crash", "1")),
+		"A-2": answer("hk2-a2", nodes(ownedPod("pull-1", "p2", graph.NodeFailing, "ImagePullBackOff"+dot+missingImage, "2"), "pull", "2")),
+		"A-3": answer("hk2-a3", nodes(ownedPod("web-1", "p3", graph.NodeHealthy, "", "3"), "web", "3", node("v1", "Service", "web", "s3")),
 			bridge(graph.BridgeServicePod, "s3", "", "Pod", "", nil, graph.BridgeBroken, graph.SelectorNoPodsText("app=web"))),
-		"A-4": answer("hk2-a4", []graph.Node{node("v1", "Service", "web", "s4"), podNode("web-1", "p4", graph.NodeHealthy, "")},
+		"A-4": answer("hk2-a4", nodes(ownedPod("web-1", "p4", graph.NodeHealthy, "", "4"), "web", "4", node("v1", "Service", "web", "s4")),
 			bridge(graph.BridgeServicePod, "s4", "", "Pod", "web-1", uid("p4"), graph.BridgeBroken, graph.NamedPortText("http"))),
-		"A-5": answer("hk2-a5", []graph.Node{podNode("app-1", "p5", graph.NodeFailing, "CreateContainerConfigError")},
+		"A-5": answer("hk2-a5", nodes(ownedPod("app-1", "p5", graph.NodeFailing, "CreateContainerConfigError", "5"), "app", "5"),
 			bridge(graph.BridgePodConfigMap, "p5", "", "ConfigMap", "app-config", nil, graph.BridgeBroken, graph.NotFoundText("ConfigMap", "app-config"))),
-		"A-6": answer("hk2-a6", []graph.Node{node("v1", "PersistentVolumeClaim", "data", "c6"), podNode("db-1", "p6", graph.NodeProgressing, "Pending"+dot+"scheduling")},
+		"A-6": answer("hk2-a6", nodes(ownedPod("db-1", "p6", graph.NodeProgressing, "Pending"+dot+"scheduling", "6"), "db", "6", node("v1", "PersistentVolumeClaim", "data", "c6")),
 			bridge(graph.BridgePVCPV, "c6", "", "PersistentVolume", "", nil, graph.BridgeBroken, graph.ClassUnboundText("missing-class")),
 			bridge(graph.BridgePVCStorageClass, "c6", "storage.k8s.io", "StorageClass", "missing-class", nil, graph.BridgeBroken, graph.ClassUnboundText("missing-class")),
 			bridge(graph.BridgePodPVC, "p6", "", "PersistentVolumeClaim", "data", uid("c6"), graph.BridgeConnected, "")),
@@ -70,7 +91,8 @@ var expectedPods = map[string]Pod{"A-1": {"p1", "crash-1"}, "A-2": {"p2", "pull-
 func stage(answers map[string]graph.Answer) []Scenario {
 	var out []Scenario
 	for _, id := range IDs {
-		s := Scenario{ID: id, Namespace: ScenarioNamespaces[id], Call: call(answers[id]), Pods: []Pod{expectedPods[id]}}
+		n := strings.TrimPrefix(id, "A-")
+		s := Scenario{ID: id, Namespace: ScenarioNamespaces[id], Call: call(answers[id]), Deployment: Deployment{ScenarioDeployments[id], "d" + n}, Pods: []Pod{expectedPods[id]}}
 		if id == "A-1" {
 			s.ReadBefore = ContainerRead{PodUID: "p1", Container: CrashContainer, State: "waiting", Reason: "CrashLoopBackOff", Restarts: 3}
 			s.ReadAfter = ContainerRead{PodUID: "p1", Container: CrashContainer, State: "running", Restarts: 4}
@@ -83,12 +105,13 @@ func stage(answers map[string]graph.Answer) []Scenario {
 // negativeAnswers are the C8 answers with A-3 in its healthy version (C10).
 func negativeAnswers() map[string]graph.Answer {
 	m := faultAnswers()
-	m["A-3"] = answer("hk2-a3", []graph.Node{node("v1", "Service", "web", "s3"), podNode("web-1", "p3", graph.NodeHealthy, "")},
+	m["A-3"] = answer("hk2-a3", nodes(ownedPod("web-1", "p3", graph.NodeHealthy, "", "3"), "web", "3", node("v1", "Service", "web", "s3")),
 		bridge(graph.BridgeServicePod, "s3", "", "Pod", "web-1", uid("p3"), graph.BridgeConnected, ""))
 	return m
 }
 
-// baselineAnswers are the C9 answers: every namespace the cluster answer lists.
+// baselineAnswers are the C9 answers: every namespace the cluster answer lists; the Pod of
+// each scenario namespace sits in a ReplicaSet of the scenario's Deployment.
 func baselineAnswers() (graph.ClusterAnswer, map[string]graph.Answer) {
 	ns := map[string]graph.Answer{
 		"hk2-a0": answer("hk2-a0", []graph.Node{node("v1", "PersistentVolumeClaim", "idle", "c0")},
@@ -99,7 +122,7 @@ func baselineAnswers() (graph.ClusterAnswer, map[string]graph.Answer) {
 	}
 	for _, id := range IDs {
 		n := ScenarioNamespaces[id]
-		ns[n] = answer(n, []graph.Node{podNode("ok-1", "h"+n, graph.NodeHealthy, "")})
+		ns[n] = answer(n, nodes(ownedPod("ok-1", "h"+n, graph.NodeHealthy, "", n), ScenarioDeployments[id], n))
 	}
 	var items []string
 	for n := range ns {
@@ -109,8 +132,18 @@ func baselineAnswers() (graph.ClusterAnswer, map[string]graph.Answer) {
 	return cluster, ns
 }
 
+// baselineExpected is what the baseline stage expects in each scenario namespace.
+func baselineExpected() map[string]Expected {
+	out := map[string]Expected{}
+	for _, id := range IDs {
+		n := ScenarioNamespaces[id]
+		out[n] = Expected{Deployment: Deployment{ScenarioDeployments[id], "d" + n}, Pods: []Pod{{"h" + n, "ok-1"}}}
+	}
+	return out
+}
+
 func baseline(cluster graph.ClusterAnswer, ns map[string]graph.Answer) Baseline {
-	b := Baseline{Cluster: call(cluster), Namespaces: map[string]Call{}}
+	b := Baseline{Cluster: call(cluster), Namespaces: map[string]Call{}, Expected: baselineExpected()}
 	for n, a := range ns {
 		b.Namespaces[n] = call(a)
 	}
@@ -206,7 +239,7 @@ func TestJudge_NodeValueDecides(t *testing.T) {
 		line      string
 	}{
 		{"a1-running-healthy", "A-1", func(m map[string]graph.Answer) {
-			m["A-1"].Nodes[1].NodeState = &graph.NodeState{State: graph.NodeHealthy, Text: "Running"}
+			m["A-1"].Nodes[0].NodeState = &graph.NodeState{State: graph.NodeHealthy, Text: "Running"}
 		}, "HK2 stage=faults A-1 check=node-state pod=crash-1 expected=failing actual=healthy result=FAIL"},
 		{"a2-image-one-character", "A-2", func(m map[string]graph.Answer) {
 			m["A-2"].Nodes[0].NodeState.Text = "ImagePullBackOff" + dot + "registry.k8s.io/pause:intuitik-a2-missinG"
@@ -233,7 +266,7 @@ func TestJudge_NodeValueDecides(t *testing.T) {
 	// A-1's restart count other than the candidate read's, and the singular form for n > 1.
 	for _, text := range []string{"CrashLoopBackOff" + dot + "4 restarts", "CrashLoopBackOff" + dot + "5 restarts", "CrashLoopBackOff" + dot + "3 restart", "CrashLoopBackOff" + dot + "03 restarts"} {
 		m := faultAnswers()
-		m["A-1"].Nodes[1].NodeState.Text = text
+		m["A-1"].Nodes[0].NodeState.Text = text
 		in := recorded()
 		in.Faults = stage(m)
 		lines, code := run(t, in)
@@ -290,7 +323,7 @@ func TestJudge_A1Reads(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.input, func(t *testing.T) {
 			m := faultAnswers()
-			m["A-1"].Nodes[1].NodeState.Text = c.api
+			m["A-1"].Nodes[0].NodeState.Text = c.api
 			in := recorded()
 			in.Faults = stage(m)
 			in.Faults[0].ReadBefore, in.Faults[0].ReadAfter = c.before, c.after
@@ -462,5 +495,220 @@ func TestJudge_StalePodAndNegative(t *testing.T) {
 	expect(t, "C10", "negative-a6-also-fails", lines, code, 1, []string{
 		"HK2 stage=negative A-6 result=FAIL",
 		"HK2 stage=negative total=4/6 expected=5/6 result=FAIL",
+	})
+}
+
+// kubectlList is a kubectl list of the given objects (JSON).
+func kubectlList(items ...string) []byte {
+	return []byte(`{"apiVersion":"v1","kind":"List","items":[` + strings.Join(items, ",") + `]}`)
+}
+
+// kubectlObject is one object of a kubectl list; owner is its ownerReferences (JSON) or "".
+func kubectlObject(kind, name, uid, owner string, terminating bool) string {
+	meta := `"name":"` + name + `","namespace":"hk2-a4","uid":"` + uid + `"`
+	if terminating {
+		meta += `,"deletionTimestamp":"2026-11-20T00:00:00Z"`
+	}
+	if owner != "" {
+		meta += `,"ownerReferences":` + owner
+	}
+	return `{"kind":"` + kind + `","metadata":{` + meta + `}}`
+}
+
+func controllerRef(kind, name, uid string, controller bool) string {
+	return `[{"apiVersion":"apps/v1","kind":"` + kind + `","name":"` + name + `","uid":"` + uid + `","controller":` + strconv.FormatBool(controller) + `}]`
+}
+
+// f1Lists are the kubectl lists of namespace hk2-a4 for F1: Deployment web (current uid
+// dep-web), ReplicaSet web-new of it, ReplicaSet web-old of an earlier Deployment web
+// (uid dep-web-old), ReplicaSet other-1 of Deployment other, and Pods of each, a
+// terminating Pod, a Pod without owner and a Pod whose ReplicaSet reference is not the
+// controller.
+func f1Lists() (deployments, replicaSets, pods []byte) {
+	deployments = kubectlList(
+		kubectlObject("Deployment", "web", "dep-web", "", false),
+		kubectlObject("Deployment", "other", "dep-other", "", false))
+	replicaSets = kubectlList(
+		kubectlObject("ReplicaSet", "web-new", "rs-new", controllerRef("Deployment", "web", "dep-web", true), false),
+		kubectlObject("ReplicaSet", "web-old", "rs-old", controllerRef("Deployment", "web", "dep-web-old", true), false),
+		kubectlObject("ReplicaSet", "other-1", "rs-other", controllerRef("Deployment", "other", "dep-other", true), false))
+	pods = kubectlList(
+		kubectlObject("Pod", "web-new-a", "pod-new", controllerRef("ReplicaSet", "web-new", "rs-new", true), false),
+		kubectlObject("Pod", "web-new-b", "pod-new-b", controllerRef("ReplicaSet", "web-new", "rs-new", true), true),
+		kubectlObject("Pod", "web-old-a", "pod-old", controllerRef("ReplicaSet", "web-old", "rs-old", true), false),
+		kubectlObject("Pod", "other-1-a", "pod-other", controllerRef("ReplicaSet", "other-1", "rs-other", true), false),
+		kubectlObject("Pod", "bare", "pod-bare", "", false),
+		kubectlObject("Pod", "adopted", "pod-adopted", controllerRef("ReplicaSet", "web-new", "rs-new", false), false))
+	return
+}
+
+// TestSelectPods (F1 of review 5987053962, 3.2, 6.4): only the Pods of a ReplicaSet of the
+// named Deployment's current UID are expected; a Pod of an earlier Deployment of the same
+// name, of another Deployment, without controller owner or terminating is left out.
+func TestSelectPods(t *testing.T) {
+	d, r, p := f1Lists()
+	dep, pods, excluded, err := SelectPods("web", d, r, p)
+	var names []string
+	for _, x := range pods {
+		names = append(names, x.Name+"="+x.UID)
+	}
+	actual := fmt.Sprintf("deployment=%s/%s pods=%s err=%v", dep.Name, dep.UID, strings.Join(names, ","), err)
+	expected := "deployment=web/dep-web pods=web-new-a=pod-new err=<nil>"
+	t.Logf("FA2-T7b F1 select input=hk2-a4-six-pods expected=%s actual=%s result=%s", expected, actual, passFail(actual == expected))
+	if actual != expected {
+		t.Errorf("F1 select: got %s, want %s", actual, expected)
+	}
+	want := strings.Join([]string{
+		"pod web-new-b: terminating",
+		"pod web-old-a: controller ReplicaSet/web-old uid=rs-old is not a ReplicaSet of Deployment web uid=dep-web",
+		"pod other-1-a: controller ReplicaSet/other-1 uid=rs-other is not a ReplicaSet of Deployment web uid=dep-web",
+		"pod bare: no controller owner",
+		"pod adopted: no controller owner",
+	}, "; ")
+	got := strings.Join(excluded, "; ")
+	t.Logf("FA2-T7b F1 excluded expected=%s actual=%s result=%s", want, got, passFail(got == want))
+	if got != want {
+		t.Errorf("F1 excluded: got %q, want %q", got, want)
+	}
+	for _, c := range []struct {
+		input, name string
+		d           []byte
+	}{
+		{"deployment-absent", "pull", d},
+		{"deployment-list-not-json", "web", []byte("<html>")},
+	} {
+		_, pods, _, err := SelectPods(c.name, c.d, r, p)
+		t.Logf("FA2-T7b F1 select input=%s expected=error actual=pods=%d err=%v result=%s", c.input, len(pods), err, passFail(err != nil && len(pods) == 0))
+		if err == nil || len(pods) != 0 {
+			t.Errorf("F1 select %s: pods %d err %v, want an error and no Pod", c.input, len(pods), err)
+		}
+	}
+}
+
+func ownedPodOf(name, id, rs string) graph.Node {
+	p := podNode(name, id, graph.NodeHealthy, "")
+	p.Parent, p.Owner.State = uid(rs), graph.StateContained
+	return p
+}
+
+func replicaSet(name, id, parent string) graph.Node {
+	rs := node("apps/v1", "ReplicaSet", name, id)
+	if parent != "" {
+		rs.Parent, rs.Owner.State = uid(parent), graph.StateContained
+	}
+	return rs
+}
+
+// TestJudge_CollectedStalePod (F1): a Pod of the wrong owner that a collection sees is not
+// expected, so when the API answer holds it the scenario fails with stale pod, also when
+// such a Pod is the only Pod of the namespace.
+func TestJudge_CollectedStalePod(t *testing.T) {
+	d, r, p := f1Lists()
+	dep, pods, _, err := SelectPods("web", d, r, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a4 := answer("hk2-a4", []graph.Node{
+		ownedPodOf("web-new-a", "pod-new", "rs-new"), ownedPodOf("web-old-a", "pod-old", "rs-old"),
+		node("v1", "Service", "web", "s4"), node("apps/v1", "Deployment", "web", "dep-web"),
+		replicaSet("web-new", "rs-new", "dep-web"), replicaSet("web-old", "rs-old", "")},
+		bridge(graph.BridgeServicePod, "s4", "", "Pod", "web-new-a", uid("pod-new"), graph.BridgeBroken, graph.NamedPortText("http")))
+	in := recorded()
+	in.Faults[3].Call, in.Faults[3].Deployment, in.Faults[3].Pods = call(a4), dep, pods
+	lines, code := run(t, in)
+	expect(t, "F1", "old-owner-pod-in-answer", lines, code, 1, []string{
+		"HK2 stage=faults A-4 check=pods expected=web-new-a actual=stale pod web-old-a result=FAIL",
+		"HK2 stage=faults A-4 check=owner pod=web-new-a expected=ReplicaSet/<any> -> Deployment/web uid=dep-web actual=ReplicaSet/web-new -> Deployment/web uid=dep-web result=PASS",
+		"HK2 stage=faults A-4 result=FAIL",
+		"HK2 stage=faults total=5/6",
+	})
+
+	// The namespace holds only a Pod of Deployment other: nothing is expected.
+	onlyOther := kubectlList(kubectlObject("Pod", "other-1-a", "pod-other", controllerRef("ReplicaSet", "other-1", "rs-other", true), false))
+	dep, pods, _, err = SelectPods("web", d, r, onlyOther)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a4 = answer("hk2-a4", []graph.Node{ownedPodOf("other-1-a", "pod-other", "rs-other"), node("v1", "Service", "web", "s4"),
+		node("apps/v1", "Deployment", "other", "dep-other"), replicaSet("other-1", "rs-other", "dep-other")},
+		bridge(graph.BridgeServicePod, "s4", "", "Pod", "other-1-a", uid("pod-other"), graph.BridgeBroken, graph.NamedPortText("http")))
+	in = recorded()
+	in.Faults[3].Call, in.Faults[3].Deployment, in.Faults[3].Pods = call(a4), dep, pods
+	lines, code = run(t, in)
+	expect(t, "F1", "only-wrong-owner-pod", lines, code, 1, []string{
+		"HK2 stage=faults A-4 check=pods expected=at least one pod actual=stale pod other-1-a result=FAIL",
+		"HK2 stage=faults A-4 result=FAIL",
+	})
+}
+
+// TestJudge_OwnerChain (F1, 3.2): an expected Pod node must sit in a ReplicaSet of the
+// stage's Deployment, by name and UID, in the API answer.
+func TestJudge_OwnerChain(t *testing.T) {
+	lines, code := run(t, recorded())
+	expect(t, "F1", "owner-chain-recorded", lines, code, 0, []string{
+		"HK2 stage=faults A-2 check=owner pod=pull-1 expected=ReplicaSet/<any> -> Deployment/pull uid=d2 actual=ReplicaSet/pull-1 -> Deployment/pull uid=d2 result=PASS",
+		"HK2 stage=negative A-3 check=owner pod=web-1 expected=ReplicaSet/<any> -> Deployment/web uid=d3 actual=ReplicaSet/web-1 -> Deployment/web uid=d3 result=PASS",
+	})
+	cases := []struct {
+		input  string
+		change func(in *Input, m map[string]graph.Answer)
+		line   string
+	}{
+		{"deployment-uid-of-earlier-stage", func(in *Input, m map[string]graph.Answer) { in.Faults[1].Deployment.UID = "d2-old" },
+			"HK2 stage=faults A-2 check=owner pod=pull-1 expected=ReplicaSet/<any> -> Deployment/pull uid=d2-old actual=ReplicaSet/pull-1 -> Deployment/pull uid=d2 result=FAIL"},
+		{"pod-without-parent", func(in *Input, m map[string]graph.Answer) {
+			m["A-2"].Nodes[0].Parent = nil
+			in.Faults[1].Call = call(m["A-2"])
+		}, "HK2 stage=faults A-2 check=owner pod=pull-1 expected=ReplicaSet/<any> -> Deployment/pull uid=d2 actual=no parent result=FAIL"},
+		{"replicaset-of-another-deployment", func(in *Input, m map[string]graph.Answer) {
+			m["A-2"].Nodes[2].Parent = uid("dx")
+			a := m["A-2"]
+			a.Nodes = append(a.Nodes, node("apps/v1", "Deployment", "pull", "dx"))
+			in.Faults[1].Call = call(a)
+		}, "HK2 stage=faults A-2 check=owner pod=pull-1 expected=ReplicaSet/<any> -> Deployment/pull uid=d2 actual=ReplicaSet/pull-1 -> Deployment/pull uid=dx result=FAIL"},
+	}
+	for _, c := range cases {
+		t.Run(c.input, func(t *testing.T) {
+			m := faultAnswers()
+			in := recorded()
+			c.change(&in, m)
+			lines, code := run(t, in)
+			expect(t, "F1", c.input, lines, code, 1, []string{c.line, "HK2 stage=faults A-2 result=FAIL", "HK2 stage=faults total=5/6"})
+		})
+	}
+}
+
+// TestJudge_BaselinePods (F1, 3.2, 3.3): the baseline checks the expected Pods and owner of
+// every scenario namespace; a Pod of an earlier stage or a namespace without expected Pods
+// fails A-0.
+func TestJudge_BaselinePods(t *testing.T) {
+	lines, code := run(t, recorded())
+	expect(t, "F1", "baseline-recorded", lines, code, 0, []string{
+		"HK2 stage=baseline A-0 check=pods namespace=hk2-a1 expected=ok-1 actual=ok-1 result=PASS",
+		"HK2 stage=baseline A-0 check=owner pod=ok-1 namespace=hk2-a6 expected=ReplicaSet/<any> -> Deployment/db uid=dhk2-a6 actual=ReplicaSet/db-1 -> Deployment/db uid=dhk2-a6 result=PASS",
+		"HK2 stage=baseline A-0 broken=0 warning=0 failing=0 waiting=1 optional=0 unknown=0 result=PASS",
+	})
+
+	cluster, ns := baselineAnswers()
+	a3 := ns["hk2-a3"]
+	a3.Nodes = append(a3.Nodes, ownedPodOf("web-old", "pod-old", "rs-old"))
+	ns["hk2-a3"] = a3
+	in := recorded()
+	in.Baseline = baseline(cluster, ns)
+	lines, code = run(t, in)
+	expect(t, "F1", "baseline-earlier-stage-pod", lines, code, 1, []string{
+		"HK2 stage=baseline A-0 check=pods namespace=hk2-a3 expected=ok-1 actual=stale pod web-old result=FAIL",
+		"HK2 stage=baseline A-0 broken=0 warning=0 failing=0 waiting=1 optional=0 unknown=0 result=FAIL",
+		"HK2 total=6/6 negative=PASS a0=FAIL verdict=FAIL",
+	})
+
+	cluster, ns = baselineAnswers()
+	in = recorded()
+	in.Baseline = baseline(cluster, ns)
+	delete(in.Baseline.Expected, "hk2-a5")
+	lines, code = run(t, in)
+	expect(t, "F1", "baseline-no-expected-pods", lines, code, 1, []string{
+		"HK2 stage=baseline A-0 check=pods namespace=hk2-a5 expected=expected pods and an answer actual=expected=false answer=true result=FAIL",
+		"HK2 total=6/6 negative=PASS a0=FAIL verdict=FAIL",
 	})
 }

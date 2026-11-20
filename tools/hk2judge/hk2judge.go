@@ -27,17 +27,35 @@ type Pod struct {
 	UID, Name string
 }
 
-// Scenario is one of A-1 to A-6 in one stage: the containment answer of its namespace and
-// the Pods the test read in that stage. ReadBefore and ReadAfter are A-1's crashing
-// container read with kubectl just before and just after the call (6.4 r5).
+// Deployment is the owner Deployment of a scenario's Pods as read with kubectl in that
+// stage: its name and its current UID (3.2, 6.4).
+type Deployment struct {
+	Name, UID string
+}
+
+// Scenario is one of A-1 to A-6 in one stage: the containment answer of its namespace,
+// the owner Deployment and the Pods of that Deployment the test read in that stage.
+// ReadBefore and ReadAfter are A-1's crashing container read with kubectl just before and
+// just after the call (6.4 r5).
 type Scenario struct {
 	ID         string
 	Namespace  string
 	Call       Call
+	Deployment Deployment
 	Pods       []Pod
 	ReadBefore ContainerRead
 	ReadAfter  ContainerRead
 }
+
+// Expected is the owner Deployment and its Pods that a stage expects in one scenario
+// namespace (3.2 stale-pod rule).
+type Expected struct {
+	Deployment Deployment
+	Pods       []Pod
+}
+
+// ScenarioDeployments is the owner Deployment name of each scenario (3.2).
+var ScenarioDeployments = map[string]string{"A-1": "crash", "A-2": "pull", "A-3": "web", "A-4": "web", "A-5": "app", "A-6": "db"}
 
 // ContainerRead is one kubectl read of a container (6.4 r5): the Pod UID, the container
 // name, its current state ("waiting", "terminated", "running", or "" when the read found
@@ -139,11 +157,13 @@ func restartsText(n int64) string {
 	return strconv.FormatInt(n, 10) + " restarts"
 }
 
-// Baseline is stage 3 (A-0): the cluster answer and one containment answer per namespace,
-// keyed by namespace name.
+// Baseline is stage 3 (A-0): the cluster answer, one containment answer per namespace,
+// keyed by namespace name, and the expected Deployment and Pods of each scenario
+// namespace, keyed by namespace name.
 type Baseline struct {
 	Cluster    Call
 	Namespaces map[string]Call
+	Expected   map[string]Expected
 }
 
 // Input is the three labelled stages of one judge call.
@@ -207,6 +227,7 @@ type decoded struct {
 type baseAnswers struct {
 	cluster    graph.ClusterAnswer
 	namespaces map[string]graph.Answer
+	expected   map[string]Expected
 }
 
 func decodeCall(what string, c Call, v any) error {
@@ -240,7 +261,7 @@ func decodeStage(stage string, in []Scenario) ([]decoded, error) {
 }
 
 func decodeBaseline(in Baseline) (baseAnswers, error) {
-	out := baseAnswers{namespaces: map[string]graph.Answer{}}
+	out := baseAnswers{namespaces: map[string]graph.Answer{}, expected: in.Expected}
 	if err := decodeCall("stage=baseline cluster", in.Cluster, &out.cluster); err != nil {
 		return out, err
 	}
@@ -385,7 +406,7 @@ func judgeScenario(c *scenarioCheck, s decoded) {
 	if len(s.ans.Refused) > 0 {
 		c.line("refused", "none", "refused "+s.ans.Refused[0].Text, false)
 	}
-	pods := checkPods(c, x, s.Pods)
+	pods := checkPods(c.line, x, s.Deployment, s.Pods)
 	switch s.ID {
 	case "A-1":
 		fmt.Fprintf(c.w, "HK2 stage=%s %s read=before %s\n", c.stage, c.id, s.ReadBefore)
@@ -491,8 +512,9 @@ func toName(bs []graph.Bridge, kind, name string) []graph.Bridge {
 }
 
 // checkPods compares the core Pod nodes of the answer with the Pods the stage expects
-// (3.2 stale-pod rule) and returns the expected Pod nodes the answer holds.
-func checkPods(c *scenarioCheck, x index, want []Pod) []graph.Node {
+// (3.2 stale-pod rule), checks the owner of each expected Pod node the answer holds and
+// returns those nodes.
+func checkPods(line func(name, expected, actual string, pass bool), x index, dep Deployment, want []Pod) []graph.Node {
 	expected := map[string]string{}
 	var names []string
 	for _, p := range want {
@@ -535,7 +557,10 @@ func checkPods(c *scenarioCheck, x index, want []Pod) []graph.Node {
 	if exp == "" {
 		exp = "at least one pod"
 	}
-	c.line("pods", exp, actual, len(want) > 0 && len(problems) == 0)
+	line("pods", exp, actual, len(want) > 0 && len(problems) == 0)
+	for _, n := range found {
+		checkOwner(line, x, dep, n)
+	}
 	return found
 }
 
@@ -630,7 +655,8 @@ func judgeBaseline(w io.Writer, base baseAnswers) bool {
 	want := "PersistentVolume/ waiting " + graph.ConsumerWaitText(idleClaim)
 	idlePass := idle == want
 	fmt.Fprintf(w, "HK2 stage=%s A-0 check=idle-waiting expected=%s actual=%s result=%s\n", StageBaseline, want, printable(idle), passFail(idlePass))
-	pass := ok && idlePass && counts.broken == 0 && counts.warning == 0 && counts.failing == 0
+	podsPass := baselinePods(w, base)
+	pass := ok && podsPass && idlePass && counts.broken == 0 && counts.warning == 0 && counts.failing == 0
 	fmt.Fprintf(w, "HK2 stage=%s A-0 broken=%d warning=%d failing=%d waiting=%d optional=%d unknown=%d result=%s\n",
 		StageBaseline, counts.broken, counts.warning, counts.failing, counts.waiting, counts.optional, counts.unknown, passFail(pass))
 	return pass

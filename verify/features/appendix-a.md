@@ -17,6 +17,12 @@ default configuration). The test applies `scenarios/appendix-a/*.yaml` in three 
 (faults, negative, baseline) and calls the judge `tools/hk2judge` once over the three;
 the job log holds every `HK2` line as printed. A line per expectation reads
 `HK2 stage=<faults|negative> <id> check=<name> expected=<value> actual=<value> result=PASS|FAIL`.
+The Pods a stage expects in a scenario namespace are the Pods of a ReplicaSet of the
+scenario's Deployment (`crash`, `pull`, `web`, `web`, `app`, `db`) at its current UID, read
+with kubectl in that stage; every other Pod is printed as not expected. A Pod node the
+answer holds outside that set fails the scenario with `actual=stale pod <name>`, and each
+expected Pod node must sit in that Deployment in the answer (`check=owner`). The baseline
+checks the same in `hk2-a1` to `hk2-a6`.
 
 - A-1 CrashLoopBackOff. Input: Deployment `crash` in `hk2-a1`, command `exit 1`
   (`a1.yaml`). Expected: the Pod node `failing`, and its text equal to the form of the

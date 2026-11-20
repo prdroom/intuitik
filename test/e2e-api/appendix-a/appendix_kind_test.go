@@ -248,7 +248,8 @@ func collectA1(t *testing.T, p *panel, stage string, deadline time.Time) hk2judg
 	const ns = "hk2-a1"
 	var s hk2judge.Scenario
 	for attempt := 1; ; attempt++ {
-		s = hk2judge.Scenario{ID: "A-1", Namespace: ns, Pods: expected(t, ns)}
+		s = hk2judge.Scenario{ID: "A-1", Namespace: ns}
+		s.Deployment, s.Pods = expected(t, stage, "A-1")
 		at := time.Now()
 		before, bp := a1Read(t)
 		logRead(t, stage, fmt.Sprintf("attempt=%d read=before", attempt), at, before, bp)
@@ -347,15 +348,29 @@ func removeNamespaces(t *testing.T, names ...string) {
 	t.Logf("appendix-a removed namespaces %s", strings.Join(names, ","))
 }
 
-// expected records the Pods of ns that are not terminating, as the stage expects them.
-func expected(t *testing.T, ns string) []hk2judge.Pod {
-	var out []hk2judge.Pod
-	for _, p := range pods(t, ns) {
-		if p.Metadata.DeletionTimestamp == nil {
-			out = append(out, hk2judge.Pod{UID: p.Metadata.UID, Name: p.Metadata.Name})
-		}
+// expected records the owner Deployment of scenario id and its Pods as the stage expects
+// them (3.2, 6.4): hk2judge.SelectPods over the kubectl lists of the namespace. Every Pod
+// it leaves out is printed; a list it cannot use is printed and leaves no expected Pod,
+// so the judge fails the scenario (FAIL, not ERROR).
+func expected(t *testing.T, stage, id string) (hk2judge.Deployment, []hk2judge.Pod) {
+	t.Helper()
+	ns := hk2judge.ScenarioNamespaces[id]
+	dep, pods, excluded, err := hk2judge.SelectPods(hk2judge.ScenarioDeployments[id],
+		kubectl(t, "get", "deployments", "-n", ns, "-o", "json"),
+		kubectl(t, "get", "replicasets", "-n", ns, "-o", "json"),
+		kubectl(t, "get", "pods", "-n", ns, "-o", "json"))
+	if err != nil {
+		t.Logf("appendix-a stage=%s %s namespace=%s expected pods not read: %v", stage, id, ns, err)
 	}
-	return out
+	for _, e := range excluded {
+		t.Logf("appendix-a stage=%s %s namespace=%s not expected: %s", stage, id, ns, e)
+	}
+	var names []string
+	for _, pod := range pods {
+		names = append(names, pod.Name+"="+pod.UID)
+	}
+	t.Logf("appendix-a stage=%s %s namespace=%s expected deployment=%s uid=%s pods=%s", stage, id, ns, dep.Name, dep.UID, strings.Join(names, ","))
+	return dep, pods
 }
 
 // readStage calls the containment answer of the six scenario namespaces of one stage;
@@ -369,7 +384,8 @@ func readStage(t *testing.T, p *panel, stage string, deadline time.Time) []hk2ju
 		if id == "A-1" {
 			s = collectA1(t, p, stage, deadline)
 		} else {
-			s = hk2judge.Scenario{ID: id, Namespace: ns, Pods: expected(t, ns)}
+			s = hk2judge.Scenario{ID: id, Namespace: ns}
+			s.Deployment, s.Pods = expected(t, stage, id)
 			s.Call.Status, s.Call.Body = p.request("GET", "/api/graph/containment?namespace="+ns, nil, true)
 		}
 		var names []string
@@ -382,11 +398,16 @@ func readStage(t *testing.T, p *panel, stage string, deadline time.Time) []hk2ju
 	return out
 }
 
-// readBaseline calls the cluster answer and the containment answer of every namespace it
-// lists.
+// readBaseline records the expected Deployment and Pods of every scenario namespace, then
+// calls the cluster answer and the containment answer of every namespace it lists.
 func readBaseline(t *testing.T, p *panel) hk2judge.Baseline {
 	t.Helper()
-	b := hk2judge.Baseline{Namespaces: map[string]hk2judge.Call{}}
+	b := hk2judge.Baseline{Namespaces: map[string]hk2judge.Call{}, Expected: map[string]hk2judge.Expected{}}
+	for _, id := range hk2judge.IDs {
+		var e hk2judge.Expected
+		e.Deployment, e.Pods = expected(t, hk2judge.StageBaseline, id)
+		b.Expected[hk2judge.ScenarioNamespaces[id]] = e
+	}
 	b.Cluster.Status, b.Cluster.Body = p.request("GET", "/api/graph/cluster", nil, true)
 	var cluster graph.ClusterAnswer
 	json.Unmarshal(b.Cluster.Body, &cluster)
