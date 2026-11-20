@@ -1,0 +1,13 @@
+# Audit policy of job perf-server (packet FA2-T12 6.3): level Metadata for the two
+# ServiceAccounts the harness measures (panel: the intuitik binary; control: the C6
+# control client), no RequestReceived stage, level None for every other request.
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages:
+  - RequestReceived
+rules:
+  - level: Metadata
+    users:
+      - system:serviceaccount:intuitik-perf:panel
+      - system:serviceaccount:intuitik-perf:control
+  - level: None
