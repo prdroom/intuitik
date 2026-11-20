@@ -1,0 +1,16 @@
+# FA2-T7b Appendix A A-0: namespace hk2-a0, PVC idle on the default StorageClass, no Pod (packet 3.3, 6.5).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hk2-a0
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: idle
+  namespace: hk2-a0
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Mi

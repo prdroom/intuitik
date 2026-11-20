@@ -1,0 +1,40 @@
+# FA2-T7b Appendix A A-4 healthy: Service web targetPort http (packet 3.2, 6.5).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hk2-a4
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: hk2-a4
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      terminationGracePeriodSeconds: 0
+      containers:
+        - name: web
+          image: registry.k8s.io/pause:3.10@sha256:ee6521f290b2168b6e0935a181d4cff9be1ac3f505666ef0e3c98fae8199917a
+          ports:
+            - name: http
+              containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: hk2-a4
+spec:
+  selector:
+    app: web
+  ports:
+    - port: 80
+      targetPort: http

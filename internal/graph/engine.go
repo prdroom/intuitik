@@ -193,6 +193,10 @@ func Build(ctx context.Context, open Open, namespace string) (Answer, error) {
 			p := e.parent
 			n.Parent = &p
 		}
+		if e.apiVersion == "v1" && e.kind == "Pod" && e.obj != nil {
+			s := podState(e.obj)
+			n.NodeState = &s
+		}
 		a.Nodes = append(a.Nodes, n)
 	}
 	// A document that no owner decision needed is reported with what was received; one

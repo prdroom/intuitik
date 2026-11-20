@@ -1,0 +1,26 @@
+# FA2-T7b Appendix A A-1 healthy: Deployment crash (packet 3.2, 6.5).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hk2-a1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crash
+  namespace: hk2-a1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crash
+  template:
+    metadata:
+      labels:
+        app: crash
+    spec:
+      terminationGracePeriodSeconds: 0
+      containers:
+        - name: crash
+          image: registry.k8s.io/e2e-test-images/busybox:1.37.0-1@sha256:0ffbe172f8d245c83f285c6992b452c53d085661e03ddfd3b484332026e6c8bb
+          command: ["sh", "-c", "sleep 3600"]
