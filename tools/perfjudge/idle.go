@@ -6,10 +6,11 @@ import (
 	"time"
 )
 
-// Record is one line of the control client's cause records (packet 6.3): the Audit-Id
-// response header of every request it made, and for a watch the terminal event it
-// received.
+// Record is one line of the control client's cause records (packet 6.3): the cluster it
+// talked to, the Audit-Id response header of every request it made, and for a watch the
+// terminal event it received.
 type Record struct {
+	Cluster string       `json:"cluster"`
 	AuditID string       `json:"auditID"`
 	Verb    string       `json:"verb"`
 	Path    string       `json:"path"`
@@ -22,7 +23,8 @@ type RecordEvent struct {
 	Code int    `json:"code"`
 }
 
-// ParseRecords reads the cause record lines; a line that does not decode is a problem.
+// ParseRecords reads the cause record lines; a line that does not decode with a cluster and
+// an auditID is a problem.
 func ParseRecords(lines [][]byte) ([]Record, []string) {
 	var out []Record
 	var problems []string
@@ -31,8 +33,8 @@ func ParseRecords(lines [][]byte) ([]Record, []string) {
 			continue
 		}
 		var r Record
-		if err := json.Unmarshal(raw, &r); err != nil || r.AuditID == "" {
-			problems = append(problems, fmt.Sprintf("cause record line %d does not decode with an auditID", i+1))
+		if err := json.Unmarshal(raw, &r); err != nil || r.AuditID == "" || r.Cluster == "" {
+			problems = append(problems, fmt.Sprintf("cause record line %d does not decode with a cluster and an auditID", i+1))
 			continue
 		}
 		out = append(out, r)
@@ -57,11 +59,12 @@ const AfterWatch = 5 * time.Second
 
 // Classify classes each list of user received inside span (packet 3.4, the C6 table of
 // 6.3): relist-410 when it is bound to an unconsumed 410 record (the client recorded the
-// list's auditID, and the record of a watch on the same group, resource, namespace and
-// scope says its terminal event was ERROR 410, and the list follows that watch's end
-// within 5 s; each record binds one list); else unverified when it follows the end of any
-// watch on the same group, resource, namespace and scope within 5 s; else periodic. The
-// detail lines name each list and its class.
+// list's auditID, and the record of a watch on the same cluster, group, resource,
+// namespace and scope says its terminal event was ERROR 410, and the list follows that
+// watch's end within 5 s; each record binds one list); else unverified when it follows the
+// end of any watch on the same cluster, group, resource, namespace and scope within 5 s;
+// else periodic. Records and requests are keyed by cluster and auditID, so a record of one
+// cluster never binds a request of another. The detail lines name each list and its class.
 func Classify(reqs []Request, user string, span Span, records []Record) (Counts, []string) {
 	// Red stub of packet FA2-T12 6.5: PASS with zero counts; the sampler returns 0.
 	return Counts{}, nil

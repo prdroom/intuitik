@@ -1,4 +1,7 @@
-# kind cluster of job perf-server (packet FA2-T12 6.2, 6.3), created by TestPerfServer.
+# Measurement cluster intuitik-perf of job perf-server (packet FA2-T12 r5.1 6.2, 6.3), created
+# by TestPerfServer. Every N-5, N-6, C1 to C5 and noisy value is measured in it. It carries no
+# etcd compaction and no watch-cache option, so both are at kube-apiserver defaults; the 410
+# reproduction cluster has its own file, kind-config-410.yaml.
 # Copied from the e2e-graph pattern (test/e2e-api/graph/kind-config.yaml), not shared.
 # kind v0.33.0 generates kubeadm v1beta4 for Kubernetes v1.37 and applies a JSON 6902
 # patch only to the document of the same group, version and kind, so these patches append
@@ -7,9 +10,6 @@
 #   by the test to /tmp/intuitik-perf-audit/audit-policy.yaml on the runner) to
 #   /var/log/kubernetes/audit/audit.log inside the node, in blocking mode (every event is
 #   written before the response).
-# - The API server compacts etcd every 30 s instead of every 5 minutes (DECISION
-#   delegation T COMPACT-410-T12), so that a watch from resourceVersion 1 can end with
-#   ERROR 410 (C6 row a). Every value of this harness is measured with this setting.
 # - The controller manager's client may send 200 requests per second (burst 400) instead
 #   of 20, so the ReplicaSets create the Pods of the L and XL clusters within the
 #   readiness limits.
@@ -35,9 +35,6 @@ kubeadmConfigPatchesJSON6902:
       - op: add
         path: /apiServer/extraArgs/-
         value: {name: audit-log-mode, value: blocking}
-      - op: add
-        path: /apiServer/extraArgs/-
-        value: {name: etcd-compaction-interval, value: 30s}
       - op: add
         path: /apiServer/extraVolumes
         value:

@@ -9,8 +9,10 @@ import (
 // Request is one API request of the audit log: one auditID (packet 6.3 counting unit). A
 // list or get counts once, at its ResponseComplete line; a watch is the pair of its
 // ResponseStarted and ResponseComplete lines, and its end is the ResponseComplete
-// stageTimestamp.
+// stageTimestamp. Cluster is the kind cluster whose audit log held the request (packet 6.2
+// r5.1: every binding key includes it).
 type Request struct {
+	Cluster   string
 	AuditID   string
 	Verb      string
 	User      string
@@ -51,8 +53,9 @@ type auditLine struct {
 	StageAt  time.Time `json:"stageTimestamp"`
 }
 
-// ParseAudit reads the audit log lines (one JSON event per line) into requests.
-func ParseAudit(lines [][]byte) Audit {
+// ParseAudit reads the audit log lines of one cluster (one JSON event per line) into
+// requests of that cluster.
+func ParseAudit(cluster string, lines [][]byte) Audit {
 	// Red stub of packet FA2-T12 6.5: PASS with zero counts; the sampler returns 0.
 	return Audit{}
 }

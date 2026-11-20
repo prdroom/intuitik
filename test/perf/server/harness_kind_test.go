@@ -1,13 +1,16 @@
 //go:build kind
 
 // Package server holds the kind test of packet FA2-T12 (job perf-server): the server
-// performance harness. TestPerfServer creates its own kind cluster (kind-config.yaml,
-// audit-policy.yaml), runs kwok out of cluster for the fake nodes, builds the synthetic
-// cluster of one size (package gen), measures the release binary (INTUITIK_E2E_BINARY)
-// and calls tools/perfjudge with what it recorded. It holds no judge logic: every count,
-// class and verdict comes from tools/perfjudge. Requests go through net/http, so no
-// client-go import leaves the read-only layer (readonly-gate R1). Every kubeconfig and
-// token is made at run time, so no credential is committed.
+// performance harness. TestPerfServer creates the measurement cluster intuitik-perf
+// (kind-config.yaml, audit-policy.yaml), runs kwok out of cluster for the fake nodes,
+// builds the synthetic cluster of one size (package gen), measures the release binary
+// (INTUITIK_E2E_BINARY) and calls tools/perfjudge with what it recorded; after every
+// measurement it deletes that cluster and creates the 410 reproduction cluster
+// intuitik-perf-410 (kind-config-410.yaml) for C6 windows 3a and 3b (packet r5.1 6.2). It
+// holds no judge logic: every count, class and verdict comes from tools/perfjudge.
+// Requests go through net/http, so no client-go import leaves the read-only layer
+// (readonly-gate R1). Every kubeconfig and token is made at run time, so no credential is
+// committed.
 package server
 
 import (
@@ -33,19 +36,48 @@ import (
 )
 
 const (
-	clusterName = "intuitik-perf"
-	nodeName    = "intuitik-perf-control-plane"
-	auditDir    = "/tmp/intuitik-perf-audit" // kind-config.yaml extraMounts hostPath
-	auditLog    = "/var/log/kubernetes/audit/audit.log"
-	perfNS      = "intuitik-perf"
-	panelUser   = "system:serviceaccount:intuitik-perf:panel"
-	controlUser = "system:serviceaccount:intuitik-perf:control"
+	clusterName    = "intuitik-perf"            // the measurement cluster
+	clusterName410 = "intuitik-perf-410"        // the 410 reproduction cluster
+	auditDir       = "/tmp/intuitik-perf-audit" // extraMounts hostPath of both kind configs
+	auditLog       = "/var/log/kubernetes/audit/audit.log"
+	perfNS         = "intuitik-perf"
+	panelUser      = "system:serviceaccount:intuitik-perf:panel"
+	controlUser    = "system:serviceaccount:intuitik-perf:control"
 )
 
 var started = time.Now()
 
+// active is the cluster the test is working in; every PERF line names it (packet r5.1
+// 6.2). A line that already names its cluster keeps that name.
+var active = clusterName
+
+// labelled ends the first line of a PERF text with cluster=<active> unless it names its
+// cluster already.
+func labelled(s string) string {
+	if !strings.HasPrefix(s, "PERF") || strings.Contains(s, " cluster=") {
+		return s
+	}
+	first, rest, more := strings.Cut(s, "\n")
+	first += " cluster=" + active
+	if more {
+		return first + "\n" + rest
+	}
+	return first
+}
+
 // say prints one harness line to the test output, which the job prints as it is.
-func say(format string, a ...any) { fmt.Printf(format+"\n", a...) }
+func say(format string, a ...any) { fmt.Println(labelled(fmt.Sprintf(format, a...))) }
+
+// fatalf and errorf are t.Fatalf and t.Errorf with the PERF line labelled.
+func fatalf(t *testing.T, format string, a ...any) {
+	t.Helper()
+	t.Fatal(labelled(fmt.Sprintf(format, a...)))
+}
+
+func errorf(t *testing.T, format string, a ...any) {
+	t.Helper()
+	t.Error(labelled(fmt.Sprintf(format, a...)))
+}
 
 // phase prints the elapsed time of a phase since the test started (packet 7).
 func phase(name string, since time.Time) {
@@ -57,7 +89,7 @@ func env(t *testing.T, name string) string {
 	t.Helper()
 	v := os.Getenv(name)
 	if v == "" {
-		t.Fatalf("PERF verdict=ERROR %s is not set", name)
+		fatalf(t, "PERF verdict=ERROR %s is not set", name)
 	}
 	return v
 }
@@ -70,24 +102,38 @@ func run(t *testing.T, name string, args ...string) []byte {
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("PERF verdict=ERROR %s %s: %v: %s", name, strings.Join(args, " "), err, stderr.String())
+		fatalf(t, "PERF verdict=ERROR %s %s: %v: %s", name, strings.Join(args, " "), err, stderr.String())
 	}
 	return out
 }
 
-// cluster is the kind cluster of the test and its admin client.
+// cluster is one kind cluster of the test and its admin client.
 type cluster struct {
+	name       string
+	node       string
 	kubeconfig string
 	server     string
 	caData     string
 	admin      *http.Client
+	deleted    sync.Once
 }
 
-// createCluster creates the kind cluster with the audit policy and reads its admin
-// credentials; the cluster is deleted at the end of the test.
-func createCluster(t *testing.T, work string) *cluster {
+// options is what createCluster checks in the applied static Pod manifests: options that
+// must be present exactly, and option name prefixes that must be absent.
+type options struct {
+	apiserver, controllerManager []string
+	absent                       []string
+}
+
+// createCluster creates the kind cluster name from config with the audit policy, prints
+// the sha256 of config and the applied kube-apiserver and kube-controller-manager options
+// from the node's static Pod manifests, checks them against want, and reads the admin
+// credentials into a kubeconfig of its own. The cluster is deleted by delete or at the end
+// of the test.
+func createCluster(t *testing.T, work, name, config string, want options) *cluster {
 	t.Helper()
 	t0 := time.Now()
+	active = name
 	if err := os.MkdirAll(auditDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -98,33 +144,47 @@ func createCluster(t *testing.T, work string) *cluster {
 	if err := os.WriteFile(filepath.Join(auditDir, "audit-policy.yaml"), policy, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	c := &cluster{kubeconfig: filepath.Join(work, "kubeconfig")}
+	c := &cluster{name: name, node: name + "-control-plane", kubeconfig: filepath.Join(work, "kubeconfig-"+name)}
 	image := env(t, "INTUITIK_PERF_KIND_IMAGE")
-	say("PERF-CLUSTER kind node image %s", image)
-	t.Cleanup(func() {
-		out, err := exec.Command("kind", "delete", "cluster", "--name", clusterName, "--kubeconfig", c.kubeconfig).CombinedOutput()
-		say("PERF-CLUSTER delete: %v %s", err, strings.TrimSpace(string(out)))
-	})
-	run(t, "kind", "create", "cluster", "--name", clusterName, "--image", image, "--config", "kind-config.yaml",
+	say("PERF-CLUSTER kind node image %s config %s", image, config)
+	t.Cleanup(c.delete)
+	run(t, "kind", "create", "cluster", "--name", name, "--image", image, "--config", config,
 		"--kubeconfig", c.kubeconfig, "--wait", "180s")
 	phase("cluster-create", t0)
-	// The measurement environment (COMPACT-410-T12): the config file as used and the API
-	// server options as applied in the node's static Pod manifest.
-	cfg, err := os.ReadFile("kind-config.yaml")
+	// The cluster environment (packet r5.1 6.2): the config file as used and the options
+	// as applied in the node's static Pod manifests, so the defaults are on record.
+	cfg, err := os.ReadFile(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	say("PERF-CLUSTER kind-config.yaml sha256=%x", sha256.Sum256(cfg))
-	manifest := string(run(t, "docker", "exec", nodeName, "cat", "/etc/kubernetes/manifests/kube-apiserver.yaml"))
-	applied := false
-	for _, l := range strings.Split(manifest, "\n") {
-		if l = strings.TrimSpace(l); strings.HasPrefix(l, "- --etcd-compaction-interval=") || strings.HasPrefix(l, "- --audit-") {
-			say("PERF-CLUSTER kube-apiserver option %s", strings.TrimPrefix(l, "- "))
-			applied = applied || l == "- --etcd-compaction-interval=30s"
+	say("PERF-CLUSTER %s sha256=%x", config, sha256.Sum256(cfg))
+	for _, m := range []struct {
+		component string
+		want      []string
+	}{{"kube-apiserver", want.apiserver}, {"kube-controller-manager", want.controllerManager}} {
+		manifest := string(run(t, "docker", "exec", c.node, "cat", "/etc/kubernetes/manifests/"+m.component+".yaml"))
+		applied := map[string]bool{}
+		for _, l := range strings.Split(manifest, "\n") {
+			opt, ok := strings.CutPrefix(strings.TrimSpace(l), "- --")
+			if !ok {
+				continue
+			}
+			say("PERF-CLUSTER %s option --%s", m.component, opt)
+			applied["--"+opt] = true
+			if m.component != "kube-apiserver" {
+				continue
+			}
+			for _, prefix := range want.absent {
+				if strings.HasPrefix("--"+opt, prefix) {
+					fatalf(t, "PERF verdict=ERROR %s runs with --%s; this cluster must keep the default of %s", m.component, opt, prefix)
+				}
+			}
 		}
-	}
-	if !applied {
-		t.Fatalf("PERF verdict=ERROR kube-apiserver runs without --etcd-compaction-interval=30s")
+		for _, w := range m.want {
+			if !applied[w] {
+				fatalf(t, "PERF verdict=ERROR %s runs without %s", m.component, w)
+			}
+		}
 	}
 	raw := run(t, "kubectl", "config", "view", "--raw", "-o", "json", "--kubeconfig", c.kubeconfig)
 	var v struct {
@@ -142,7 +202,7 @@ func createCluster(t *testing.T, work string) *cluster {
 		} `json:"users"`
 	}
 	if err := json.Unmarshal(raw, &v); err != nil || len(v.Clusters) != 1 || len(v.Users) != 1 {
-		t.Fatalf("PERF verdict=ERROR the kind kubeconfig is not one cluster and one user (%v)", err)
+		fatalf(t, "PERF verdict=ERROR the kind kubeconfig is not one cluster and one user (%v)", err)
 	}
 	c.server, c.caData = v.Clusters[0].Cluster.Server, v.Clusters[0].Cluster.CA
 	pool := x509.NewCertPool()
@@ -151,11 +211,21 @@ func createCluster(t *testing.T, work string) *cluster {
 	keyPEM, _ := base64.StdEncoding.DecodeString(v.Users[0].User.Key)
 	cert, err := tls.X509KeyPair(certPEM, keyPEM)
 	if !pool.AppendCertsFromPEM(ca) || err != nil {
-		t.Fatalf("PERF verdict=ERROR the kind credentials cannot be read (%v)", err)
+		fatalf(t, "PERF verdict=ERROR the kind credentials cannot be read (%v)", err)
 	}
 	c.admin = &http.Client{Timeout: 120 * time.Second, Transport: &http.Transport{
 		TLSClientConfig: &tls.Config{RootCAs: pool, Certificates: []tls.Certificate{cert}}, MaxIdleConnsPerHost: 64}}
 	return c
+}
+
+// delete deletes the cluster once, printing the runner's memory before and after.
+func (c *cluster) delete() {
+	c.deleted.Do(func() {
+		freeM(c.name, "before delete")
+		out, err := exec.Command("kind", "delete", "cluster", "--name", c.name, "--kubeconfig", c.kubeconfig).CombinedOutput()
+		say("PERF-CLUSTER delete cluster=%s: %v %s", c.name, err, strings.TrimSpace(string(out)))
+		freeM(c.name, "after delete")
+	})
 }
 
 // tokenClient is a client of the cluster that sends a bearer token.
@@ -254,7 +324,7 @@ func (c *cluster) mustCreate(t *testing.T, what string, objs []object) {
 	close(jobs)
 	wg.Wait()
 	if first != nil {
-		t.Fatalf("PERF verdict=ERROR preparation: creating %s: %v", what, first)
+		fatalf(t, "PERF verdict=ERROR preparation: creating %s: %v", what, first)
 	}
 	phase("create-"+what+fmt.Sprintf(" objects=%d", len(objs)), t0)
 }
@@ -301,7 +371,7 @@ func (c *cluster) list(t *testing.T, path, selector string, metadataOnly bool) [
 		}
 		status, b, _, err := c.do(context.Background(), c.admin, "GET", path+q, nil, accept)
 		if err != nil || status != 200 {
-			t.Fatalf("PERF verdict=ERROR list %s: status %d %v: %.300s", path, status, err, b)
+			fatalf(t, "PERF verdict=ERROR list %s: status %d %v: %.300s", path, status, err, b)
 		}
 		var l struct {
 			Metadata struct {
@@ -310,7 +380,7 @@ func (c *cluster) list(t *testing.T, path, selector string, metadataOnly bool) [
 			Items []listItem `json:"items"`
 		}
 		if err := json.Unmarshal(b, &l); err != nil {
-			t.Fatalf("PERF verdict=ERROR list %s does not decode: %v", path, err)
+			fatalf(t, "PERF verdict=ERROR list %s does not decode: %v", path, err)
 		}
 		out = append(out, l.Items...)
 		if l.Metadata.Continue == "" {
@@ -321,8 +391,9 @@ func (c *cluster) list(t *testing.T, path, selector string, metadataOnly bool) [
 }
 
 // startKwok runs kwok out of cluster for the nodes annotated kwok.x-k8s.io/node=fake, with
-// the checked stage file stage-fast.yaml (packet 6.2).
-func startKwok(t *testing.T, c *cluster, work string) {
+// the checked stage file stage-fast.yaml (packet 6.2). It returns the function that stops
+// kwok once, which also runs at the end of the test.
+func startKwok(t *testing.T, c *cluster, work string) func() {
 	t.Helper()
 	logPath := filepath.Join(work, "kwok.log")
 	f, err := os.Create(logPath)
@@ -346,21 +417,26 @@ func startKwok(t *testing.T, c *cluster, work string) {
 	cmd.Stdout, cmd.Stderr = f, f
 	cmd.WaitDelay = 5 * time.Second
 	if err := cmd.Start(); err != nil {
-		t.Fatalf("PERF verdict=ERROR starting kwok: %v", err)
+		fatalf(t, "PERF verdict=ERROR starting kwok: %v", err)
 	}
 	say("PERF-KWOK pid=%d args=%q", cmd.Process.Pid, cmd.Args[1:])
-	t.Cleanup(func() {
-		cmd.Process.Kill()
-		cmd.Wait()
-		f.Close()
-		if b, err := os.ReadFile(logPath); err == nil {
-			ls := strings.Split(strings.TrimSpace(string(b)), "\n")
-			if len(ls) > 20 {
-				ls = ls[len(ls)-20:]
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			cmd.Process.Kill()
+			cmd.Wait()
+			f.Close()
+			if b, err := os.ReadFile(logPath); err == nil {
+				ls := strings.Split(strings.TrimSpace(string(b)), "\n")
+				if len(ls) > 20 {
+					ls = ls[len(ls)-20:]
+				}
+				say("PERF-KWOK cluster=%s log tail (%d lines kept):\n%s", c.name, len(ls), strings.Join(ls, "\n"))
 			}
-			say("PERF-KWOK log tail (%d lines kept):\n%s", len(ls), strings.Join(ls, "\n"))
-		}
-	})
+		})
+	}
+	t.Cleanup(stop)
+	return stop
 }
 
 // rbac creates the namespace intuitik-perf, the ServiceAccounts panel and control, and the
@@ -393,20 +469,20 @@ func (c *cluster) rbac(t *testing.T) (panelToken, controlToken string) {
 	}
 	for _, o := range objs {
 		if err := c.create(o.path, o.body); err != nil {
-			t.Fatalf("PERF verdict=ERROR preparation: %v", err)
+			fatalf(t, "PERF verdict=ERROR preparation: %v", err)
 		}
 	}
 	tokens := map[string]string{}
 	for _, sa := range []string{"panel", "control"} {
 		if err := c.create("/api/v1/namespaces/"+perfNS+"/serviceaccounts", map[string]any{"apiVersion": "v1", "kind": "ServiceAccount",
 			"metadata": map[string]any{"name": sa, "namespace": perfNS}}); err != nil {
-			t.Fatalf("PERF verdict=ERROR preparation: %v", err)
+			fatalf(t, "PERF verdict=ERROR preparation: %v", err)
 		}
 		if err := c.create("/apis/rbac.authorization.k8s.io/v1/clusterrolebindings", map[string]any{"apiVersion": "rbac.authorization.k8s.io/v1",
 			"kind": "ClusterRoleBinding", "metadata": map[string]any{"name": "intuitik-perf-" + sa},
 			"roleRef":  map[string]any{"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": "intuitik-perf-read"},
 			"subjects": []any{map[string]any{"kind": "ServiceAccount", "name": sa, "namespace": perfNS}}}); err != nil {
-			t.Fatalf("PERF verdict=ERROR preparation: %v", err)
+			fatalf(t, "PERF verdict=ERROR preparation: %v", err)
 		}
 		status, b, _, err := c.do(context.Background(), c.admin, "POST", "/api/v1/namespaces/"+perfNS+"/serviceaccounts/"+sa+"/token",
 			map[string]any{"apiVersion": "authentication.k8s.io/v1", "kind": "TokenRequest", "spec": map[string]any{"expirationSeconds": 10800}}, "")
@@ -416,7 +492,7 @@ func (c *cluster) rbac(t *testing.T) (panelToken, controlToken string) {
 			} `json:"status"`
 		}
 		if err != nil || status != http.StatusCreated || json.Unmarshal(b, &tr) != nil || tr.Status.Token == "" {
-			t.Fatalf("PERF verdict=ERROR preparation: token of %s: status %d %v", sa, status, err)
+			fatalf(t, "PERF verdict=ERROR preparation: token of %s: status %d %v", sa, status, err)
 		}
 		tokens[sa] = tr.Status.Token
 	}
@@ -438,10 +514,10 @@ func (c *cluster) tokenKubeconfig(t *testing.T, name, token string) string {
 	return path
 }
 
-// readAudit reads the whole audit log of the node.
-func readAudit(t *testing.T) [][]byte {
+// readAudit reads the whole audit log of the cluster's node.
+func (c *cluster) readAudit(t *testing.T) [][]byte {
 	t.Helper()
-	out := run(t, "docker", "exec", nodeName, "cat", auditLog)
+	out := run(t, "docker", "exec", c.node, "cat", auditLog)
 	var lines [][]byte
 	for _, l := range bytes.Split(out, []byte("\n")) {
 		if len(bytes.TrimSpace(l)) > 0 {

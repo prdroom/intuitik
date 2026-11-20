@@ -30,6 +30,8 @@ func event(id, stage, verb, user, group, resource, ns, uri string, code int, rec
 const (
 	panelU   = "system:serviceaccount:intuitik-perf:panel"
 	controlU = "system:serviceaccount:intuitik-perf:control"
+	perfC    = "intuitik-perf"     // the measurement cluster
+	reproC   = "intuitik-perf-410" // the 410 reproduction cluster
 )
 
 // done is one complete list or get of user.
@@ -109,7 +111,7 @@ func TestScale(t *testing.T) {
 		t.Log(l)
 	}
 	// Every L verdict of a short scale is not-measured.
-	rep := Judge(Input{Scale: "L", Fixture: full("L"), Readback: short, Runs: []Run{{Index: 1, Samples: []int64{1}, HWM: 1}}})
+	rep := Judge(Input{Cluster: perfC, Scale: "L", Fixture: full("L"), Readback: short, Runs: []Run{{Index: 1, Samples: []int64{1}, HWM: 1}}})
 	text := strings.Join(rep.Lines, "\n")
 	if rep.ScaleOK || !strings.Contains(text, "PERF N-5 not-measured") || rep.Exit != 2 {
 		t.Errorf("C1 short L run: ScaleOK=%v exit=%d, want not-measured N-5 and exit 2:\n%s", rep.ScaleOK, rep.Exit, text)
@@ -176,7 +178,7 @@ func TestPageJudge(t *testing.T) {
 	span := Span{t0, at(60_000)}
 	expected := ExpectedSet(false, served(), true)
 	judge := func(lines [][]byte, nodes int) []PageLine {
-		return JudgePages("perf-big", ParseAudit(lines).Requests, panelU, span, expected, true, 1200, nodes)
+		return JudgePages("perf-big", ParseAudit(perfC, lines).Requests, panelU, span, expected, true, 1200, nodes)
 	}
 	failed := func(ls []PageLine) []string {
 		var out []string
@@ -235,12 +237,12 @@ func TestAuditUnit(t *testing.T) {
 		event("watch-1", "ResponseStarted", "watch", controlU, "", "pods", "perf-001", "/api/v1/namespaces/perf-001/pods?watch=1", 0, at(100), at(110)),
 		event("watch-1", "ResponseComplete", "watch", controlU, "", "pods", "perf-001", "/api/v1/namespaces/perf-001/pods?watch=1", 200, at(100), at(900)),
 	}
-	a := ParseAudit(lines)
+	a := ParseAudit(perfC, lines)
 	if len(a.Requests) != 2 || len(a.Duplicates) != 1 || len(a.Problems) != 0 || a.Lines != 4 {
 		t.Fatalf("duplicate stage line: requests=%d duplicates=%q problems=%q lines=%d, want 2, 1, none, 4", len(a.Requests), a.Duplicates, a.Problems, a.Lines)
 	}
 	w := a.Requests[1]
-	if w.Verb != "watch" || !w.End.Equal(at(900)) || !w.Received.Equal(at(100)) || w.User != controlU || w.Namespace != "perf-001" {
+	if w.Verb != "watch" || !w.End.Equal(at(900)) || !w.Received.Equal(at(100)) || w.User != controlU || w.Namespace != "perf-001" || w.Cluster != perfC {
 		t.Errorf("watch pair: %+v, want received at 100 ms and end at 900 ms", w)
 	}
 	for _, c := range []struct {
@@ -253,15 +255,21 @@ func TestAuditUnit(t *testing.T) {
 		{"list without ResponseComplete", event("list-2", "ResponseStarted", "list", panelU, "", "pods", "perf-001", "/x", 0, at(0), at(5)), "list list-2 has no ResponseComplete line"},
 		{"line that does not decode", []byte(`{"auditID":`), "audit line 1 does not decode as an event with auditID and stage"},
 	} {
-		a := ParseAudit([][]byte{c.line})
+		a := ParseAudit(perfC, [][]byte{c.line})
 		if len(a.Problems) != 1 || a.Problems[0] != c.want || len(a.Requests) != 0 {
 			t.Errorf("%s: problems %q requests %d, want [%q] and none counted", c.name, a.Problems, len(a.Requests), c.want)
 		}
 	}
 	// An orphan line makes the judge exit 2.
-	rep := Judge(Input{Scale: "S", Audit: [][]byte{event("watch-2", "ResponseComplete", "watch", controlU, "", "pods", "perf-001", "/x", 200, at(0), at(5))}})
-	if rep.Exit != 2 || !strings.Contains(strings.Join(rep.Lines, "\n"), "PERF ERROR audit watch watch-2 ends without its ResponseStarted line") {
+	rep := Judge(Input{Cluster: perfC, Scale: "S", Audit: [][]byte{event("watch-2", "ResponseComplete", "watch", controlU, "", "pods", "perf-001", "/x", 200, at(0), at(5))}})
+	if rep.Exit != 2 || !strings.Contains(strings.Join(rep.Lines, "\n"), "PERF ERROR audit watch watch-2 ends without its ResponseStarted line cluster=intuitik-perf") {
 		t.Errorf("orphan watch end: judge exit %d, want 2 with the ERROR line", rep.Exit)
+	}
+	// Every line names the cluster it judged.
+	for _, l := range rep.Lines {
+		if !strings.HasPrefix(l, "PERF ") || !strings.HasSuffix(l, " cluster=intuitik-perf") {
+			t.Errorf("judge line without its cluster: %q", l)
+		}
 	}
 }
 
@@ -309,7 +317,7 @@ func TestIdentityFilter(t *testing.T) {
 		{"another user", calls(controlU, cluster, ""), cluster, false, 0, "namespaces,nodes,storageclasses.storage.k8s.io,persistentvolumes"},
 		{"one resource not listed", calls(panelU, namespace, "secrets"), namespace, false, 14, "secrets"},
 	} {
-		s := JudgeIdentity("call", ParseAudit(c.lines).Requests, panelU, span, c.set)
+		s := JudgeIdentity("call", ParseAudit(perfC, c.lines).Requests, panelU, span, c.set)
 		t.Log(s.Line())
 		if s.Pass != c.pass || s.Matched != c.matched || strings.Join(s.Missing, ",") != c.missing || s.K != len(c.set) {
 			t.Errorf("C5 %s: %q, want pass=%v matched=%d K=%d missing=%q", c.name, s.Line(), c.pass, c.matched, len(c.set), c.missing)
@@ -317,43 +325,49 @@ func TestIdentityFilter(t *testing.T) {
 	}
 }
 
-// rows are the C6 table rows of packet 6.3 as recorded audit lines and cause records,
-// starting at ms: row a (a watch of perf-001 that ends with ERROR 410, then a list of
-// perf-001), and with mixed rows b (a cancelled watch, then a list of perf-001 within
-// 5 s), c (a list of perf-002) and d (a second list of perf-001).
-func rows(ms int, mixed bool) ([][]byte, [][]byte) {
-	pods := "/api/v1/namespaces/perf-001/pods"
-	rec := func(id, verb string, ev *RecordEvent) []byte {
-		b, _ := json.Marshal(Record{AuditID: id, Verb: verb, Path: pods, Event: ev})
-		return b
-	}
-	watch := func(id string, start, end int) [][]byte {
+// rec is one cause record of the control client in cluster cl.
+func rec(cl, id, verb, path string, ev *RecordEvent) []byte {
+	b, _ := json.Marshal(Record{Cluster: cl, AuditID: id, Verb: verb, Path: path, Event: ev})
+	return b
+}
+
+// cronjobs is the collection of the C6 410 rows (packet 6.3 r5: batch/v1 cronjobs).
+const cronjobs = "/apis/batch/v1/namespaces/perf-001/cronjobs"
+
+// rows are the C6 table rows of packet 6.3 as recorded audit lines and cause records of
+// the reproduction cluster, all batch/v1 cronjobs, starting at ms: row a (a watch of
+// perf-001 that ends with ERROR 410, then a list of perf-001), and with mixed rows b (a
+// cancelled watch, then a list of perf-001 within 5 s), c (a list of perf-002) and d (a
+// second list of perf-001). Every auditID starts with id.
+func rows(id string, ms int, mixed bool) ([][]byte, [][]byte) {
+	watch := func(wid string, start, end int) [][]byte {
 		return [][]byte{
-			event(id, "ResponseStarted", "watch", controlU, "", "pods", "perf-001", pods+"?watch=1", 0, at(start), at(start+5)),
-			event(id, "ResponseComplete", "watch", controlU, "", "pods", "perf-001", pods+"?watch=1", 200, at(start), at(end)),
+			event(wid, "ResponseStarted", "watch", controlU, "batch", "cronjobs", "perf-001", cronjobs+"?watch=1", 0, at(start), at(start+5)),
+			event(wid, "ResponseComplete", "watch", controlU, "batch", "cronjobs", "perf-001", cronjobs+"?watch=1", 200, at(start), at(end)),
 		}
 	}
-	audit := watch("a-watch", ms, ms+100)
-	audit = append(audit, done("a-list", "list", controlU, "", "pods", "perf-001", pods, ms+600))
-	records := [][]byte{rec("a-watch", "watch", &RecordEvent{Type: "ERROR", Code: 410}), rec("a-list", "list", nil)}
+	audit := watch(id+"a-watch", ms, ms+100)
+	audit = append(audit, done(id+"a-list", "list", controlU, "batch", "cronjobs", "perf-001", cronjobs, ms+600))
+	records := [][]byte{rec(reproC, id+"a-watch", "watch", cronjobs, &RecordEvent{Type: "ERROR", Code: 410}), rec(reproC, id+"a-list", "list", cronjobs, nil)}
 	if mixed {
-		audit = append(audit, watch("b-watch", ms+700, ms+1200)...)
+		audit = append(audit, watch(id+"b-watch", ms+700, ms+1200)...)
 		audit = append(audit,
-			done("b-list", "list", controlU, "", "pods", "perf-001", pods, ms+2200),
-			done("c-list", "list", controlU, "", "pods", "perf-002", "/api/v1/namespaces/perf-002/pods", ms+2300),
-			done("d-list", "list", controlU, "", "pods", "perf-001", pods, ms+2400))
-		records = append(records, rec("b-watch", "watch", nil), rec("b-list", "list", nil), rec("c-list", "list", nil), rec("d-list", "list", nil))
+			done(id+"b-list", "list", controlU, "batch", "cronjobs", "perf-001", cronjobs, ms+2200),
+			done(id+"c-list", "list", controlU, "batch", "cronjobs", "perf-002", "/apis/batch/v1/namespaces/perf-002/cronjobs", ms+2300),
+			done(id+"d-list", "list", controlU, "batch", "cronjobs", "perf-001", cronjobs, ms+2400))
+		records = append(records, rec(reproC, id+"b-watch", "watch", cronjobs, nil), rec(reproC, id+"b-list", "list", cronjobs, nil),
+			rec(reproC, id+"c-list", "list", "/apis/batch/v1/namespaces/perf-002/cronjobs", nil), rec(reproC, id+"d-list", "list", cronjobs, nil))
 	}
 	return audit, records
 }
 
 func TestIdleDetector(t *testing.T) {
-	classify := func(audit, records [][]byte, span Span) Counts {
+	classify := func(cl string, audit, records [][]byte, span Span) Counts {
 		recs, problems := ParseRecords(records)
 		if len(problems) != 0 {
 			t.Fatalf("records: %q", problems)
 		}
-		c, detail := Classify(ParseAudit(audit).Requests, controlU, span, recs)
+		c, detail := Classify(ParseAudit(cl, audit).Requests, controlU, span, recs)
 		for _, d := range detail {
 			t.Log(d)
 		}
@@ -365,31 +379,78 @@ func TestIdleDetector(t *testing.T) {
 		noisy = append(noisy, done(fmt.Sprint("n-", i), "list", controlU, "", "pods", "perf-001", "/api/v1/namespaces/perf-001/pods", 500+6000*i))
 	}
 	span := Span{t0, at(60_000)}
-	if c, want := classify(noisy, nil, span), ExpectedPeriodic(60*time.Second, 6*time.Second); c.Periodic != 10 || want != 10 || c.Pass() {
+	if c, want := classify(perfC, noisy, nil, span), ExpectedPeriodic(60*time.Second, 6*time.Second); c.Periodic != 10 || want != 10 || c.Pass() {
 		t.Errorf("C6 noisy: %s (expected %d), want periodic=10 and FAIL", c, want)
 	}
 	// Quiet window: no list.
-	if c := classify(nil, nil, span); c != (Counts{}) || !c.Pass() {
+	if c := classify(perfC, nil, nil, span); c != (Counts{}) || !c.Pass() {
 		t.Errorf("C6 quiet: %s, want 0 and PASS", c)
 	}
 	// Window (3a): row a alone.
-	a, ra := rows(1000, false)
-	if c := classify(a, ra, span); c != (Counts{Relist410: 1}) || !c.Pass() {
+	a, ra := rows("", 1000, false)
+	if c := classify(reproC, a, ra, span); c != (Counts{Relist410: 1}) || !c.Pass() {
 		t.Errorf("C6 410 positive (row a): %s, want relist-410=1 unverified=0 periodic=0 and PASS", c)
 	}
 	// Window (3b): rows a to d.
-	m, rm := rows(1000, true)
-	if c := classify(m, rm, span); c != (Counts{Relist410: 1, Unverified: 2, Periodic: 1}) || c.Pass() {
+	m, rm := rows("", 1000, true)
+	if c := classify(reproC, m, rm, span); c != (Counts{Relist410: 1, Unverified: 2, Periodic: 1}) || c.Pass() {
 		t.Errorf("C6 410 mixed (rows a to d): %s, want relist-410=1 unverified=2 periodic=1 and FAIL", c)
 	}
 	// Row a without its 410 record (a normal end): unverified, not relist-410.
-	if c := classify(a, ra[1:], span); c != (Counts{Unverified: 1}) {
+	if c := classify(reproC, a, ra[1:], span); c != (Counts{Unverified: 1}) {
 		t.Errorf("C6 watch end without a 410 record: %s, want unverified=1", c)
 	}
 	// A list 6 s after the watch end does not follow it.
-	late := append(append([][]byte{}, a[:2]...), done("a-list", "list", controlU, "", "pods", "perf-001", "/api/v1/namespaces/perf-001/pods", 1000+100+6000))
-	if c := classify(late, ra, span); c != (Counts{Periodic: 1}) {
+	late := append(append([][]byte{}, a[:2]...), done("a-list", "list", controlU, "batch", "cronjobs", "perf-001", cronjobs, 1000+100+6000))
+	if c := classify(reproC, late, ra, span); c != (Counts{Periodic: 1}) {
 		t.Errorf("C6 list 6 s after a 410 watch end: %s, want periodic=1", c)
+	}
+	// r5: the 410 record of the batch/v1 cronjobs watch binds no list of another resource
+	// or group in the same namespace: a list of core/v1 pods, or of group apps with the
+	// resource name cronjobs, is periodic (no watch on that resource ended), not relist-410.
+	for _, other := range []struct{ group, resource, path string }{
+		{"", "pods", "/api/v1/namespaces/perf-001/pods"},
+		{"apps", "cronjobs", "/apis/apps/v1/namespaces/perf-001/cronjobs"},
+	} {
+		wrong := append(append([][]byte{}, a[:2]...), done("a-list", "list", controlU, other.group, other.resource, "perf-001", other.path, 1600))
+		recs := [][]byte{ra[0], rec(reproC, "a-list", "list", other.path, nil)}
+		if c := classify(reproC, wrong, recs, span); c != (Counts{Periodic: 1}) {
+			t.Errorf("C6 410 record of batch cronjobs and a list of %q %s: %s, want periodic=1", other.group, other.resource, c)
+		}
+	}
+	// r5.1: the records of row a written in the measurement cluster bind nothing in the
+	// reproduction cluster: the list follows the watch end without a record of its cluster.
+	var elsewhere [][]byte
+	for _, r := range [][2]string{{"a-watch", "watch"}, {"a-list", "list"}} {
+		var ev *RecordEvent
+		if r[1] == "watch" {
+			ev = &RecordEvent{Type: "ERROR", Code: 410}
+		}
+		elsewhere = append(elsewhere, rec(perfC, r[0], r[1], cronjobs, ev))
+	}
+	if c := classify(reproC, a, elsewhere, span); c != (Counts{Unverified: 1}) {
+		t.Errorf("C6 row a with the records of another cluster: %s, want unverified=1", c)
+	}
+	// The judge of the reproduction cluster: window (3a) holds row a, window (3b) rows a
+	// to d; a record of the measurement cluster in its input is an ERROR.
+	pa, pra := rows("3a-", 1000, false)
+	ma, mra := rows("3b-", 61_000, true)
+	in := ReproInput{Cluster: reproC, PanelUser: panelU, ControlUser: controlU,
+		Positive: Window{Span: Span{t0, at(60_000)}}, Mixed: Window{Span: Span{at(60_000), at(120_000)}},
+		Audit: append(pa, ma...), Records: append(pra, mra...)}
+	rep := JudgeRepro(in)
+	for _, l := range rep.Lines {
+		t.Log(l)
+		if !strings.HasSuffix(l, " cluster=intuitik-perf-410") {
+			t.Errorf("reproduction judge line without its cluster: %q", l)
+		}
+	}
+	if rep.Positive != (Counts{Relist410: 1}) || rep.Mixed != (Counts{Relist410: 1, Unverified: 2, Periodic: 1}) || rep.Exit != 0 {
+		t.Errorf("JudgeRepro: 3a %s, 3b %s, exit %d; want relist-410=1 alone, then 1 2 1, exit 0", rep.Positive, rep.Mixed, rep.Exit)
+	}
+	in.Records = append(in.Records, rec(perfC, "x-list", "list", cronjobs, nil))
+	if rep := JudgeRepro(in); rep.Exit != 2 {
+		t.Errorf("JudgeRepro with a record of the measurement cluster: exit %d, want 2", rep.Exit)
 	}
 }
 
