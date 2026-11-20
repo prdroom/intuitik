@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,15 +28,115 @@ type Pod struct {
 }
 
 // Scenario is one of A-1 to A-6 in one stage: the containment answer of its namespace and
-// the Pods the test read in that stage. RestartsBefore and RestartsAfter are A-1's crashing
-// container restartCount read with kubectl just before and just after the call.
+// the Pods the test read in that stage. ReadBefore and ReadAfter are A-1's crashing
+// container read with kubectl just before and just after the call (6.4 r5).
 type Scenario struct {
-	ID             string
-	Namespace      string
-	Call           Call
-	Pods           []Pod
-	RestartsBefore int64
-	RestartsAfter  int64
+	ID         string
+	Namespace  string
+	Call       Call
+	Pods       []Pod
+	ReadBefore ContainerRead
+	ReadAfter  ContainerRead
+}
+
+// ContainerRead is one kubectl read of a container (6.4 r5): the Pod UID, the container
+// name, its current state ("waiting", "terminated", "running", or "" when the read found
+// no such container or no state), the reason of that state, the exitCode when terminated
+// and restartCount. lastState is not part of a read.
+type ContainerRead struct {
+	PodUID    string
+	Container string
+	State     string
+	Reason    string
+	ExitCode  int64
+	Restarts  int64
+}
+
+// ReadContainer is the read of container name in one Pod object as kubectl returns it
+// (JSON). It decodes metadata.uid and, of that container's status, the current state and
+// restartCount only; a Pod that does not decode or has no such container gives a read
+// with State "".
+func ReadContainer(pod []byte, name string) ContainerRead {
+	var v struct {
+		Metadata struct {
+			UID string `json:"uid"`
+		} `json:"metadata"`
+		Status struct {
+			ContainerStatuses []struct {
+				Name         string `json:"name"`
+				RestartCount int64  `json:"restartCount"`
+				State        struct {
+					Waiting *struct {
+						Reason string `json:"reason"`
+					} `json:"waiting"`
+					Running *struct {
+					} `json:"running"`
+					Terminated *struct {
+						Reason   string `json:"reason"`
+						ExitCode int64  `json:"exitCode"`
+					} `json:"terminated"`
+				} `json:"state"`
+			} `json:"containerStatuses"`
+		} `json:"status"`
+	}
+	r := ContainerRead{Container: name}
+	if json.Unmarshal(pod, &v) != nil {
+		return r
+	}
+	r.PodUID = v.Metadata.UID
+	for _, c := range v.Status.ContainerStatuses {
+		if c.Name != name {
+			continue
+		}
+		r.Restarts = c.RestartCount
+		switch {
+		case c.State.Waiting != nil:
+			r.State, r.Reason = "waiting", c.State.Waiting.Reason
+		case c.State.Terminated != nil:
+			r.State, r.Reason, r.ExitCode = "terminated", c.State.Terminated.Reason, c.State.Terminated.ExitCode
+		case c.State.Running != nil:
+			r.State = "running"
+		}
+		break
+	}
+	return r
+}
+
+// Candidate is the A-1 text the read's current state gives (3.2 r5), and whether the read
+// is a candidate at all: waiting CrashLoopBackOff or terminated, restartCount >= 1.
+func (r ContainerRead) Candidate() (string, bool) {
+	if r.Restarts < 1 {
+		return "", false
+	}
+	switch {
+	case r.State == "waiting" && r.Reason == "CrashLoopBackOff":
+		return "CrashLoopBackOff" + dot + restartsText(r.Restarts), true
+	case r.State == "terminated" && r.Reason != "":
+		return r.Reason + dot + restartsText(r.Restarts), true
+	case r.State == "terminated":
+		return "exit " + strconv.FormatInt(r.ExitCode, 10) + dot + restartsText(r.Restarts), true
+	}
+	return "", false
+}
+
+// String is the read as printed: never as the API's state or text.
+func (r ContainerRead) String() string {
+	exit := "-"
+	if r.State == "terminated" {
+		exit = strconv.FormatInt(r.ExitCode, 10)
+	}
+	state := r.State
+	if state == "" {
+		state = "none"
+	}
+	return fmt.Sprintf("uid=%s container=%s state=%s reason=%q exitCode=%s restartCount=%d", r.PodUID, r.Container, state, r.Reason, exit, r.Restarts)
+}
+
+func restartsText(n int64) string {
+	if n == 1 {
+		return "1 restart"
+	}
+	return strconv.FormatInt(n, 10) + " restarts"
 }
 
 // Baseline is stage 3 (A-0): the cluster answer and one containment answer per namespace,
@@ -67,6 +166,9 @@ var (
 	ScenarioNamespaces = map[string]string{"A-1": "hk2-a1", "A-2": "hk2-a2", "A-3": "hk2-a3", "A-4": "hk2-a4", "A-5": "hk2-a5", "A-6": "hk2-a6"}
 )
 
+// CrashContainer is the container of A-1's Deployment crash (3.2, 6.5).
+const CrashContainer = "crash"
+
 // The scenario values of 3.2.
 const (
 	missingImage = "registry.k8s.io/pause:intuitik-a2-missing"
@@ -76,8 +178,6 @@ const (
 
 // dot is U+00B7 with one space on each side (3.1).
 var dot = " " + string(rune(0x00b7)) + " "
-
-var crashText = regexp.MustCompile(`^CrashLoopBackOff ` + string(rune(0x00b7)) + ` ([0-9]+) (restarts?)$`)
 
 // Judge prints the HK2 lines of 3.4 for in to w and returns the exit value: 0 for verdict
 // PASS, 1 for verdict FAIL, 2 when an answer cannot be judged (a status other than 200 or
@@ -288,14 +388,27 @@ func judgeScenario(c *scenarioCheck, s decoded) {
 	pods := checkPods(c, x, s.Pods)
 	switch s.ID {
 	case "A-1":
+		fmt.Fprintf(c.w, "HK2 stage=%s %s read=before %s\n", c.stage, c.id, s.ReadBefore)
+		fmt.Fprintf(c.w, "HK2 stage=%s %s read=after %s\n", c.stage, c.id, s.ReadAfter)
 		for _, p := range pods {
 			checkNodeState(c, p, graph.NodeFailing)
 			text := nodeText(p)
-			expected := fmt.Sprintf("CrashLoopBackOff%s<n> restart(s) with 1 <= %d <= n <= %d", dot, s.RestartsBefore, s.RestartsAfter)
+			var candidates []string
+			for _, r := range []ContainerRead{s.ReadBefore, s.ReadAfter} {
+				if r.PodUID != p.UID || r.Container != CrashContainer {
+					continue
+				}
+				if want, ok := r.Candidate(); ok && (len(candidates) == 0 || candidates[0] != want) {
+					candidates = append(candidates, want)
+				}
+			}
+			expected := strings.Join(candidates, " | ")
+			if expected == "" {
+				expected = "a candidate read of uid=" + p.UID + " container=" + CrashContainer + " (none)"
+			}
 			pass := false
-			if m := crashText.FindStringSubmatch(text); m != nil {
-				n, err := strconv.ParseInt(m[1], 10, 64)
-				pass = err == nil && m[1] == strconv.FormatInt(n, 10) && n >= 1 && s.RestartsBefore <= n && n <= s.RestartsAfter && (m[2] == "restart") == (n == 1)
+			for _, want := range candidates {
+				pass = pass || text == want
 			}
 			c.line("node-text pod="+p.Name, expected, text, pass)
 		}

@@ -3,6 +3,7 @@ package hk2judge
 import (
 	"bytes"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -71,7 +72,8 @@ func stage(answers map[string]graph.Answer) []Scenario {
 	for _, id := range IDs {
 		s := Scenario{ID: id, Namespace: ScenarioNamespaces[id], Call: call(answers[id]), Pods: []Pod{expectedPods[id]}}
 		if id == "A-1" {
-			s.RestartsBefore, s.RestartsAfter = 3, 4
+			s.ReadBefore = ContainerRead{PodUID: "p1", Container: CrashContainer, State: "waiting", Reason: "CrashLoopBackOff", Restarts: 3}
+			s.ReadAfter = ContainerRead{PodUID: "p1", Container: CrashContainer, State: "running", Restarts: 4}
 		}
 		out = append(out, s)
 	}
@@ -179,7 +181,9 @@ func expect(t *testing.T, criterion, input string, lines []string, code, wantCod
 func TestJudge_Recorded(t *testing.T) {
 	lines, code := run(t, recorded())
 	expect(t, "recorded", "c8-c9-c10-answers", lines, code, 0, []string{
-		"HK2 stage=faults A-1 check=node-text pod=crash-1 expected=CrashLoopBackOff \\u00b7 <n> restart(s) with 1 <= 3 <= n <= 4 actual=CrashLoopBackOff \\u00b7 3 restarts result=PASS",
+		`HK2 stage=faults A-1 read=before uid=p1 container=crash state=waiting reason="CrashLoopBackOff" exitCode=- restartCount=3`,
+		`HK2 stage=faults A-1 read=after uid=p1 container=crash state=running reason="" exitCode=- restartCount=4`,
+		"HK2 stage=faults A-1 check=node-text pod=crash-1 expected=CrashLoopBackOff \\u00b7 3 restarts actual=CrashLoopBackOff \\u00b7 3 restarts result=PASS",
 		"HK2 stage=faults A-3 check=service-pod from=Service/web expected=Pod/ broken selector app=web matches 0 Pods actual=Pod/ broken selector app=web matches 0 Pods result=PASS",
 		"HK2 stage=faults total=6/6",
 		"HK2 stage=negative A-3 result=FAIL",
@@ -226,14 +230,77 @@ func TestJudge_NodeValueDecides(t *testing.T) {
 			})
 		})
 	}
-	// A-1's restart count outside the kubectl reads, and the singular form for n > 1.
-	for _, text := range []string{"CrashLoopBackOff" + dot + "5 restarts", "CrashLoopBackOff" + dot + "3 restart", "CrashLoopBackOff" + dot + "03 restarts"} {
+	// A-1's restart count other than the candidate read's, and the singular form for n > 1.
+	for _, text := range []string{"CrashLoopBackOff" + dot + "4 restarts", "CrashLoopBackOff" + dot + "5 restarts", "CrashLoopBackOff" + dot + "3 restart", "CrashLoopBackOff" + dot + "03 restarts"} {
 		m := faultAnswers()
 		m["A-1"].Nodes[1].NodeState.Text = text
 		in := recorded()
 		in.Faults = stage(m)
 		lines, code := run(t, in)
 		expect(t, "C11", "a1-text "+printable(text), lines, code, 1, []string{"HK2 stage=faults A-1 result=FAIL", "HK2 stage=faults total=5/6"})
+	}
+}
+
+// kubectlPod is a Pod object as kubectl returns it, with container crash in state (JSON)
+// and lastState (JSON, "" for none).
+func kubectlPod(uid, state, lastState string, restarts int) []byte {
+	s := `{"name":"crash","ready":false,"restartCount":` + strconv.Itoa(restarts) + `,"state":` + state
+	if lastState != "" {
+		s += `,"lastState":` + lastState
+	}
+	return []byte(`{"apiVersion":"v1","kind":"Pod","metadata":{"name":"crash-1","uid":"` + uid + `"},"status":{"phase":"Running","containerStatuses":[` + s + `}]}}`)
+}
+
+// TestJudge_A1Reads (C11 r5, 6.4): the A-1 text must equal the normal form of the current
+// state of a kubectl read of the same Pod UID and container; lastState is never a
+// candidate.
+func TestJudge_A1Reads(t *testing.T) {
+	errorText := "Error" + dot + "4 restarts"
+	terminated := func(reason string, exit, rc int64) ContainerRead {
+		return ContainerRead{PodUID: "p1", Container: CrashContainer, State: "terminated", Reason: reason, ExitCode: exit, Restarts: rc}
+	}
+	running := ContainerRead{PodUID: "p1", Container: CrashContainer, State: "running", Restarts: 4}
+	cases := []struct {
+		input         string
+		api           string
+		before, after ContainerRead
+		pass          bool
+		line          string
+	}{
+		{"both-reads-running-rc-4", errorText, running, running, false,
+			"HK2 stage=faults A-1 check=node-text pod=crash-1 expected=a candidate read of uid=p1 container=crash (none) actual=Error \\u00b7 4 restarts result=FAIL"},
+		{"laststate-terminated-error-only", errorText,
+			ReadContainer(kubectlPod("p1", `{"running":{"startedAt":"2026-11-20T00:00:00Z"}}`, `{"terminated":{"reason":"Error","exitCode":1}}`, 4), CrashContainer),
+			ReadContainer(kubectlPod("p1", `{"running":{"startedAt":"2026-11-20T00:00:00Z"}}`, `{"terminated":{"reason":"Error","exitCode":1}}`, 4), CrashContainer), false,
+			`HK2 stage=faults A-1 read=before uid=p1 container=crash state=running reason="" exitCode=- restartCount=4`},
+		{"terminated-error-of-another-pod-uid", errorText, running,
+			ContainerRead{PodUID: "p0", Container: CrashContainer, State: "terminated", Reason: "Error", ExitCode: 1, Restarts: 4}, false,
+			"HK2 stage=faults A-1 check=node-text pod=crash-1 expected=a candidate read of uid=p1 container=crash (none) actual=Error \\u00b7 4 restarts result=FAIL"},
+		{"terminated-empty-reason-exit-1-rc-4", "exit 1" + dot + "4 restarts", running,
+			ReadContainer(kubectlPod("p1", `{"terminated":{"exitCode":1}}`, "", 4), CrashContainer), true,
+			"HK2 stage=faults A-1 check=node-text pod=crash-1 expected=exit 1 \\u00b7 4 restarts actual=exit 1 \\u00b7 4 restarts result=PASS"},
+		{"terminated-read-at-rc-5", errorText, running, terminated("Error", 1, 5), false,
+			"HK2 stage=faults A-1 check=node-text pod=crash-1 expected=Error \\u00b7 5 restarts actual=Error \\u00b7 4 restarts result=FAIL"},
+		{"terminated-error-rc-4", errorText, terminated("Error", 1, 4), running, true,
+			"HK2 stage=faults A-1 check=node-text pod=crash-1 expected=Error \\u00b7 4 restarts actual=Error \\u00b7 4 restarts result=PASS"},
+		{"crashloop-read-other-container", "CrashLoopBackOff" + dot + "4 restarts",
+			ContainerRead{PodUID: "p1", Container: "other", State: "waiting", Reason: "CrashLoopBackOff", Restarts: 4}, running, false,
+			"HK2 stage=faults A-1 check=node-text pod=crash-1 expected=a candidate read of uid=p1 container=crash (none) actual=CrashLoopBackOff \\u00b7 4 restarts result=FAIL"},
+	}
+	for _, c := range cases {
+		t.Run(c.input, func(t *testing.T) {
+			m := faultAnswers()
+			m["A-1"].Nodes[1].NodeState.Text = c.api
+			in := recorded()
+			in.Faults = stage(m)
+			in.Faults[0].ReadBefore, in.Faults[0].ReadAfter = c.before, c.after
+			lines, code := run(t, in)
+			if c.pass {
+				expect(t, "C11", "a1-"+c.input, lines, code, 0, []string{c.line, "HK2 stage=faults A-1 result=PASS", "HK2 stage=faults total=6/6"})
+				return
+			}
+			expect(t, "C11", "a1-"+c.input, lines, code, 1, []string{c.line, "HK2 stage=faults A-1 result=FAIL", "HK2 stage=faults total=5/6"})
+		})
 	}
 }
 

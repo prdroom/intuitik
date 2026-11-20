@@ -119,8 +119,9 @@ type condition struct {
 }
 
 // waitAll polls every condition against one deadline and prints each result; a wait that
-// ends without its condition is printed and left to the judge (FAIL, not ERROR).
-func waitAll(t *testing.T, stage string, limit time.Duration, conds ...condition) {
+// ends without its condition is printed and left to the judge (FAIL, not ERROR). It
+// returns the deadline, the stage clock of the A-1 collection.
+func waitAll(t *testing.T, stage string, limit time.Duration, conds ...condition) time.Time {
 	t.Helper()
 	start := time.Now()
 	deadline := start.Add(limit)
@@ -137,7 +138,7 @@ func waitAll(t *testing.T, stage string, limit time.Duration, conds ...condition
 			}
 		}
 		if left == 0 {
-			return
+			return deadline
 		}
 		if time.Now().After(deadline) {
 			for i, c := range conds {
@@ -145,25 +146,142 @@ func waitAll(t *testing.T, stage string, limit time.Duration, conds ...condition
 					t.Logf("appendix-a wait stage=%s %s not reached within %s", stage, c.what, limit)
 				}
 			}
-			return
+			return deadline
 		}
 		time.Sleep(2 * time.Second)
 	}
 }
 
-func crashing(t *testing.T) condition {
-	return condition{"hk2-a1 CrashLoopBackOff with restartCount >= 1", func() bool {
-		p, ok := onePod(t, "hk2-a1")
-		if !ok {
-			return false
+// a1Read reads container crash of the one A-1 Pod that is not terminating with kubectl
+// (6.4 r5) and returns the read and that Pod; with no such single Pod the read has no
+// state.
+func a1Read(t *testing.T) (hk2judge.ContainerRead, podStatus) {
+	t.Helper()
+	var v struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(kubectl(t, "get", "pods", "-n", "hk2-a1", "-o", "json"), &v); err != nil {
+		t.Fatalf("HK2 verdict=ERROR preparation: pods of hk2-a1: %v", err)
+	}
+	var raws []json.RawMessage
+	var live []podStatus
+	for _, raw := range v.Items {
+		var p podStatus
+		if json.Unmarshal(raw, &p) == nil && p.Metadata.DeletionTimestamp == nil {
+			raws, live = append(raws, raw), append(live, p)
 		}
-		for _, c := range p.Status.ContainerStatuses {
-			if c.State.Waiting != nil && c.State.Waiting.Reason == "CrashLoopBackOff" && c.RestartCount >= 1 {
-				return true
+	}
+	if len(live) != 1 {
+		return hk2judge.ContainerRead{Container: hk2judge.CrashContainer}, podStatus{}
+	}
+	return hk2judge.ReadContainer(raws[0], hk2judge.CrashContainer), live[0]
+}
+
+// readyText is the N-9 text the read Pod gives for its current state: "Running \u00b7 <r>/<c>
+// ready" over the names of spec.containers (3.1, 6.3).
+func readyText(p podStatus) string {
+	names := map[string]bool{}
+	for _, c := range p.Spec.Containers {
+		names[c.Name] = true
+	}
+	r := 0
+	for _, c := range p.Status.ContainerStatuses {
+		if c.Ready && names[c.Name] {
+			r++
+		}
+	}
+	return fmt.Sprintf("Running%s%d/%d ready", dot, r, len(p.Spec.Containers))
+}
+
+var dot = " " + string(rune(0x00b7)) + " "
+
+// printable writes U+00B7 as its escape, so the log stays ASCII.
+func printable(s string) string {
+	return strings.ReplaceAll(s, string(rune(0x00b7)), "\\"+"u00b7")
+}
+
+// logRead prints one A-1 kubectl read with its time (UTC, ms), as a read (6.5 r5).
+func logRead(t *testing.T, stage, label string, at time.Time, r hk2judge.ContainerRead, p podStatus) {
+	t.Logf("appendix-a stage=%s A-1 %s time=%s pod=%s %s", stage, label, at.UTC().Format("2006-01-02T15:04:05.000Z"), p.Metadata.Name, r)
+}
+
+// candidateState reports a read whose current state is waiting CrashLoopBackOff or
+// terminated (6.5 r5).
+func candidateState(r hk2judge.ContainerRead) bool {
+	return r.State == "terminated" || (r.State == "waiting" && r.Reason == "CrashLoopBackOff")
+}
+
+func crashing(t *testing.T, stage string) condition {
+	return condition{"hk2-a1 container crash waiting CrashLoopBackOff or terminated, with restartCount >= 1", func() bool {
+		at := time.Now()
+		r, p := a1Read(t)
+		logRead(t, stage, "poll", at, r, p)
+		return candidateState(r) && r.Restarts >= 1
+	}}
+}
+
+// apiPodState is the nodeState of the core Pod node uid in a containment answer, as
+// "<state> text=<text>", and its state and text.
+func apiPodState(body []byte, uid string) (string, string, string) {
+	var a graph.Answer
+	if json.Unmarshal(body, &a) != nil {
+		return "answer does not decode", "", ""
+	}
+	for _, n := range a.Nodes {
+		if n.APIVersion == "v1" && n.Kind == "Pod" && n.UID == uid {
+			if n.NodeState == nil {
+				return "no nodeState", "", ""
+			}
+			return n.NodeState.State + " text=" + printable(n.NodeState.Text), n.NodeState.State, n.NodeState.Text
+		}
+	}
+	return "no Pod node", "", ""
+}
+
+// collectA1 makes A-1 attempts (6.5 r5): kubectl read, API call, kubectl read. The first
+// attempt with a candidate read is taken whatever the API said, except when the API
+// answered progressing with the N-9 text a running read of the same Pod UID gives; any
+// other attempt is printed and repeated after 500 ms, at most 20 attempts within the stage
+// clock. With none taken, the last attempt goes to the judge.
+func collectA1(t *testing.T, p *panel, stage string, deadline time.Time) hk2judge.Scenario {
+	t.Helper()
+	const ns = "hk2-a1"
+	var s hk2judge.Scenario
+	for attempt := 1; ; attempt++ {
+		s = hk2judge.Scenario{ID: "A-1", Namespace: ns, Pods: expected(t, ns)}
+		at := time.Now()
+		before, bp := a1Read(t)
+		logRead(t, stage, fmt.Sprintf("attempt=%d read=before", attempt), at, before, bp)
+		s.Call.Status, s.Call.Body = p.request("GET", "/api/graph/containment?namespace="+ns, nil, true)
+		at = time.Now()
+		after, ap := a1Read(t)
+		logRead(t, stage, fmt.Sprintf("attempt=%d read=after", attempt), at, after, ap)
+		s.ReadBefore, s.ReadAfter = before, after
+		n9 := false
+		for i, r := range []hk2judge.ContainerRead{before, after} {
+			pod := []podStatus{bp, ap}[i]
+			shown, state, text := apiPodState(s.Call.Body, r.PodUID)
+			t.Logf("appendix-a stage=%s A-1 attempt=%d api status=%d uid=%s nodeState=%s", stage, attempt, s.Call.Status, r.PodUID, shown)
+			if r.State == "running" && state == graph.NodeProgressing && text == readyText(pod) {
+				n9 = true
 			}
 		}
-		return false
-	}}
+		candidate := candidateState(before) || candidateState(after)
+		taken := candidate && !n9
+		result := "repeated"
+		if taken {
+			result = "taken"
+		}
+		last := !taken && (attempt >= 20 || time.Now().Add(500*time.Millisecond).After(deadline))
+		if last {
+			result = "last, no attempt taken within the limit"
+		}
+		t.Logf("appendix-a stage=%s A-1 attempt=%d candidate-read=%v api-n9-of-running-read=%v result=%s", stage, attempt, candidate, n9, result)
+		if taken || last {
+			return s
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 func waiting(t *testing.T, ns string, reasons ...string) condition {
@@ -240,36 +358,19 @@ func expected(t *testing.T, ns string) []hk2judge.Pod {
 	return out
 }
 
-// restarts is the restartCount of container crash of the A-1 Pod, or -1 when it cannot be
-// read.
-func restarts(t *testing.T) int64 {
-	p, ok := onePod(t, "hk2-a1")
-	if !ok {
-		return -1
-	}
-	for _, c := range p.Status.ContainerStatuses {
-		if c.Name == "crash" {
-			return c.RestartCount
-		}
-	}
-	return -1
-}
-
-// readStage calls the containment answer of the six scenario namespaces of one stage,
-// with A-1's restartCount read with kubectl just before and just after its call.
-func readStage(t *testing.T, p *panel, stage string) []hk2judge.Scenario {
+// readStage calls the containment answer of the six scenario namespaces of one stage;
+// A-1 is collected with its kubectl reads as 6.5 states, within the stage clock.
+func readStage(t *testing.T, p *panel, stage string, deadline time.Time) []hk2judge.Scenario {
 	t.Helper()
 	var out []hk2judge.Scenario
 	for _, id := range hk2judge.IDs {
 		ns := hk2judge.ScenarioNamespaces[id]
-		s := hk2judge.Scenario{ID: id, Namespace: ns, Pods: expected(t, ns)}
+		var s hk2judge.Scenario
 		if id == "A-1" {
-			s.RestartsBefore = restarts(t)
-		}
-		s.Call.Status, s.Call.Body = p.request("GET", "/api/graph/containment?namespace="+ns, nil, true)
-		if id == "A-1" {
-			s.RestartsAfter = restarts(t)
-			t.Logf("appendix-a stage=%s A-1 restartCount before=%d after=%d (kubectl, container crash)", stage, s.RestartsBefore, s.RestartsAfter)
+			s = collectA1(t, p, stage, deadline)
+		} else {
+			s = hk2judge.Scenario{ID: id, Namespace: ns, Pods: expected(t, ns)}
+			s.Call.Status, s.Call.Body = p.request("GET", "/api/graph/containment?namespace="+ns, nil, true)
 		}
 		var names []string
 		for _, pod := range s.Pods {
@@ -341,21 +442,21 @@ func TestA_AppendixA(t *testing.T) {
 		files = append(files, manifest(id, false))
 	}
 	apply(t, files...)
-	waitAll(t, hk2judge.StageFaults, 180*time.Second,
-		crashing(t),
+	faultClock := waitAll(t, hk2judge.StageFaults, 180*time.Second,
+		crashing(t, hk2judge.StageFaults),
 		waiting(t, "hk2-a2", "ErrImagePull", "ImagePullBackOff"),
 		ready(t, "hk2-a3"),
 		ready(t, "hk2-a4"),
 		waiting(t, "hk2-a5", "CreateContainerConfigError"),
 		claim(t, "hk2-a6", "data", "Pending", true),
 		claim(t, "hk2-a0", "idle", "Pending", false))
-	faults := readStage(t, p, hk2judge.StageFaults)
+	faults := readStage(t, p, hk2judge.StageFaults, faultClock)
 
 	// Stage 2, negative: A-3 switched to its healthy version (120 s + 120 s).
 	removeNamespaces(t, "hk2-a3")
 	apply(t, manifest("A-3", true))
-	waitAll(t, hk2judge.StageNegative, 120*time.Second, ready(t, "hk2-a3"))
-	negative := readStage(t, p, hk2judge.StageNegative)
+	negativeClock := waitAll(t, hk2judge.StageNegative, 120*time.Second, ready(t, "hk2-a3"))
+	negative := readStage(t, p, hk2judge.StageNegative, negativeClock)
 
 	// Stage 3, baseline: the five other scenarios switched to healthy (120 s + 180 s).
 	rest := []string{"A-1", "A-2", "A-4", "A-5", "A-6"}

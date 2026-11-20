@@ -19,9 +19,14 @@ the job log holds every `HK2` line as printed. A line per expectation reads
 `HK2 stage=<faults|negative> <id> check=<name> expected=<value> actual=<value> result=PASS|FAIL`.
 
 - A-1 CrashLoopBackOff. Input: Deployment `crash` in `hk2-a1`, command `exit 1`
-  (`a1.yaml`). Expected: the Pod node `failing`, text `CrashLoopBackOff \u00b7 <n> restarts`
-  (`restart` for 1), n >= 1 and between the container's restartCount read with kubectl
-  before and after the call. Line: `HK2 stage=faults A-1 result=PASS` (C2).
+  (`a1.yaml`). Expected: the Pod node `failing`, and its text equal to the form of the
+  current state of container `crash` at the kubectl read just before or just after the
+  call (same Pod UID): waiting `CrashLoopBackOff` gives `CrashLoopBackOff \u00b7 <n> restarts`,
+  terminated gives `<reason> \u00b7 <n> restarts` (`exit <exitCode> \u00b7 <n> restarts` when the
+  reason is empty), `<n>` that read's restartCount, n >= 1, `restart` for 1 (rules N-1 and
+  N-1b). `lastState` is never a candidate. The log prints every A-1 poll and read (time,
+  state, reason, exitCode, restartCount) and each attempt. Line:
+  `HK2 stage=faults A-1 result=PASS` (C2).
 - A-2 image pull. Input: Deployment `pull` in `hk2-a2`, image
   `registry.k8s.io/pause:intuitik-a2-missing` (`a2.yaml`). Expected: the Pod node
   `failing`, text `ImagePullBackOff \u00b7 registry.k8s.io/pause:intuitik-a2-missing` or
@@ -87,8 +92,13 @@ body-contains: intuitik-embedded-page
 ## Gotchas
 
 - Tested on kind on ubuntu only.
-- A-1 needs at least one restart before CrashLoopBackOff shows; the faults stage waits at
-  most 180 s for it, and a wait that ends without its condition is printed and the
+- A-1 needs at least one restart before CrashLoopBackOff or N-1b shows; between restarts
+  the kubelet may report the container `terminated` (a hypothesis the A-1 prints record).
+  The faults stage waits at most 180 s for a waiting `CrashLoopBackOff` or terminated
+  container with restartCount >= 1. An attempt (kubectl read, API call, kubectl read) with
+  no such read, or whose API answer is the N-9 text of a running read, is printed and
+  repeated after 500 ms, at most 20 attempts within the stage clock; an attempt with such
+  a read is never repeated. A wait that ends without its condition is printed and the
   scenario then FAILs on the API answer.
 - A-2 alternates between `ErrImagePull` and `ImagePullBackOff`; both pass.
 - What A-2 proves is that the panel shows the waiting reason and the exact image of a Pod
