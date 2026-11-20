@@ -37,9 +37,10 @@ the job log holds every `PERF` line as printed. On pull_request the scale is S (
   `PERF scale=<S|L> ok`; a read-back count different from the generator's table is
   `PERF ERROR count ...` (judge exit 2). Harness line `PERF-HARNESS check=C1-exact-counts`.
 - C3 RSS sampler. Input: VmRSS of the binary every 1 s and VmHWM after the window.
-  Expected: `PERF rss run=<i> samples=<n> interval=1s ... peak=<n>` with every sample above
-  0 and at most VmHWM, and VmHWM at least 5,000,000 bytes. Harness line
-  `PERF-HARNESS check=C3-band`. Unit: `TestRSSSampler`.
+  Expected: `PERF rss run=<i> samples=<n> interval=1s ... peak=<n>` with at least one
+  sample, every sample above 0, no read error, and VmHWM at least 5,000,000 bytes; the peak
+  is max(VmHWM, samples), so a sample above VmHWM is no FAIL (decision C3-BAND-T12).
+  Harness line `PERF-HARNESS check=C3-band`. Unit: `TestRSSSampler`, `TestRSSBand`.
 - C5 Identity filter. Input: the audit log of the cluster call and of the measured
   namespace call (S `perf-001`, L `perf-big`) and the served resources read with the
   control identity. Expected: `PERF C5 call=<call> user=<panel> matched=<n> K=<k> missing=none result=PASS`

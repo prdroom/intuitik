@@ -25,8 +25,9 @@ func RunPeak(samples []int64, hwm int64) int64 {
 }
 
 // RSSBand returns the C3 band problems of one live run (packet 6.3, 6.4): the VmHWM read
-// error, the sample read errors, no sample, a sample at or below zero or above VmHWM, and
-// a VmHWM below 5,000,000 bytes. No problem is the band PASS.
+// error, the sample read errors, no sample, a sample at or below zero, and a VmHWM below
+// 5,000,000 bytes. No problem is the band PASS. A sample above VmHWM is no problem: the run
+// peak is max(VmHWM, samples) (decision C3-BAND-T12).
 func RSSBand(run int, samples []int64, hwm int64, hwmErr error, sampleErrs []string) []string {
 	var problems []string
 	if hwmErr != nil {
@@ -39,8 +40,8 @@ func RSSBand(run int, samples []int64, hwm int64, hwmErr error, sampleErrs []str
 		problems = append(problems, fmt.Sprintf("run %d: no sample", run))
 	}
 	for i, v := range samples {
-		if v <= 0 || v > hwm {
-			problems = append(problems, fmt.Sprintf("run %d sample %d = %d bytes outside (0, VmHWM %d]", run, i+1, v, hwm))
+		if v <= 0 {
+			problems = append(problems, fmt.Sprintf("run %d sample %d = %d bytes, not above 0", run, i+1, v))
 			break
 		}
 	}
