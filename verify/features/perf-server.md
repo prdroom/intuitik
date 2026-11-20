@@ -82,6 +82,18 @@ body-contains: intuitik-embedded-page
 ## Gotchas
 
 - Tested on kind on ubuntu only; kwok fakes the nodes and the Pods, so no container runs.
+- The kind API server compacts etcd every 30 s (`--etcd-compaction-interval=30s`,
+  DECISION delegation T COMPACT-410-T12), at every scale, so that C6 row a (a watch from
+  `resourceVersion=1`) can end with ERROR 410. Every N-5 and read-pattern value is
+  measured in this environment; equivalence to the default 5-minute interval is not
+  claimed. The job prints the option as applied (`PERF-CLUSTER kube-apiserver option`) and
+  the sha256 of `kind-config.yaml`. Before window 3a a setup probe lists Pods of
+  `perf-001` at `resourceVersion=1` (`resourceVersionMatch=Exact`) until it answers 410
+  (at most 120 s; `PERF-SETUP` lines, outside every window, never counted); that shows
+  only that the version is no longer readable, not that a watch ends with 410.
+- Hypotheses, not measured: which path (watch cache or etcd) served the MODIFIED events
+  of the earlier red run R2 without compaction, and whether the 30 s setting is what makes
+  the 410 appear. T11 chooses its own compaction setting when it reuses this harness.
 - The product lists every kind in one request without `limit` today, so the N-6 page lines
   print FAIL with `limit=none` and `handled-in=T11` (P-T12-2). The product idle line is
   information until T11 (`judged-in=T11`, P-T12-1): before T11 nothing in the server

@@ -7,6 +7,9 @@
 #   by the test to /tmp/intuitik-perf-audit/audit-policy.yaml on the runner) to
 #   /var/log/kubernetes/audit/audit.log inside the node, in blocking mode (every event is
 #   written before the response).
+# - The API server compacts etcd every 30 s instead of every 5 minutes (DECISION
+#   delegation T COMPACT-410-T12), so that a watch from resourceVersion 1 can end with
+#   ERROR 410 (C6 row a). Every value of this harness is measured with this setting.
 # - The controller manager's client may send 200 requests per second (burst 400) instead
 #   of 20, so the ReplicaSets create the Pods of the L and XL clusters within the
 #   readiness limits.
@@ -32,6 +35,9 @@ kubeadmConfigPatchesJSON6902:
       - op: add
         path: /apiServer/extraArgs/-
         value: {name: audit-log-mode, value: blocking}
+      - op: add
+        path: /apiServer/extraArgs/-
+        value: {name: etcd-compaction-interval, value: 30s}
       - op: add
         path: /apiServer/extraVolumes
         value:

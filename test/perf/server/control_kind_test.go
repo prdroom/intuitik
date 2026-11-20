@@ -123,6 +123,46 @@ func (k *control) noisyWindow(t *testing.T, length, interval time.Duration) perf
 	return w
 }
 
+// compacted is the setup probe of COMPACT-410-T12, run before window (3a), outside every
+// window: an exact list of the Pods of perf-001 at resourceVersion 1, repeated until the
+// API server answers 410 (that version is compacted away). 200 means it is still readable:
+// wait and ask again. One 120 s deadline covers every request and wait, and each request
+// gets the remaining time. Any other answer, a read failure or the deadline is the packet
+// 8 named stop. The result is only "RV=1 LIST no longer readable"; it is not evidence
+// that a watch ends with 410.
+func (k *control) compacted(t *testing.T) {
+	t.Helper()
+	t0 := time.Now()
+	deadline := t0.Add(120 * time.Second)
+	path := "/api/v1/namespaces/perf-001/pods?resourceVersion=1&resourceVersionMatch=Exact&limit=1"
+	for {
+		left := time.Until(deadline)
+		if left <= 0 {
+			break
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), left)
+		status, _, id, err := k.c.do(ctx, k.client, "GET", path, nil, metadataAccept)
+		cancel()
+		say("PERF-SETUP probe (outside the product window and windows 3a/3b) auditID=%s uri=%s status=%d at=%s elapsed_ms=%d err=%v",
+			id, path, status, stamp(time.Now()), time.Since(t0).Milliseconds(), err)
+		switch {
+		case err != nil:
+			t.Fatalf("PERF verdict=ERROR STOP-4 named stop (packet 8): RV=1 probe read failure: %v", err)
+		case status == http.StatusGone:
+			say("PERF-SETUP RV=1 LIST no longer readable after %d ms", time.Since(t0).Milliseconds())
+			return
+		case status != http.StatusOK:
+			t.Fatalf("PERF verdict=ERROR STOP-4 named stop (packet 8): RV=1 probe answered %d", status)
+		}
+		wait := 2 * time.Second
+		if left := time.Until(deadline); left < wait {
+			wait = left
+		}
+		time.Sleep(wait)
+	}
+	t.Fatalf("PERF verdict=ERROR STOP-4 named stop (packet 8): RV=1 LIST still readable after 120 s")
+}
+
 // rowA is row a of the C6 table: a watch of perf-001 from resourceVersion 1 that must end
 // with an ERROR event of code 410 within 10 s (a named stop otherwise, packet 8), then a
 // list of perf-001.

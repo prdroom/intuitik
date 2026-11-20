@@ -99,6 +99,7 @@ func TestPerfServer(t *testing.T) {
 	if sz.controlWindows {
 		t0 := time.Now()
 		in.Noisy = k.noisyWindow(t, sz.noisy, sz.every)
+		k.compacted(t)
 		in.Positive = k.window410(t, "410-positive", false)
 		in.Mixed = k.window410(t, "410-mixed", true)
 		phase("control-windows", t0)

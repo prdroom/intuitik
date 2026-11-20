@@ -13,6 +13,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
@@ -107,6 +108,24 @@ func createCluster(t *testing.T, work string) *cluster {
 	run(t, "kind", "create", "cluster", "--name", clusterName, "--image", image, "--config", "kind-config.yaml",
 		"--kubeconfig", c.kubeconfig, "--wait", "180s")
 	phase("cluster-create", t0)
+	// The measurement environment (COMPACT-410-T12): the config file as used and the API
+	// server options as applied in the node's static Pod manifest.
+	cfg, err := os.ReadFile("kind-config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	say("PERF-CLUSTER kind-config.yaml sha256=%x", sha256.Sum256(cfg))
+	manifest := string(run(t, "docker", "exec", nodeName, "cat", "/etc/kubernetes/manifests/kube-apiserver.yaml"))
+	applied := false
+	for _, l := range strings.Split(manifest, "\n") {
+		if l = strings.TrimSpace(l); strings.HasPrefix(l, "- --etcd-compaction-interval=") || strings.HasPrefix(l, "- --audit-") {
+			say("PERF-CLUSTER kube-apiserver option %s", strings.TrimPrefix(l, "- "))
+			applied = applied || l == "- --etcd-compaction-interval=30s"
+		}
+	}
+	if !applied {
+		t.Fatalf("PERF verdict=ERROR kube-apiserver runs without --etcd-compaction-interval=30s")
+	}
 	raw := run(t, "kubectl", "config", "view", "--raw", "-o", "json", "--kubeconfig", c.kubeconfig)
 	var v struct {
 		Clusters []struct {
