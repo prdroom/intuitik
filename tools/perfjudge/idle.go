@@ -3,6 +3,7 @@ package perfjudge
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -66,8 +67,58 @@ const AfterWatch = 5 * time.Second
 // else periodic. Records and requests are keyed by cluster and auditID, so a record of one
 // cluster never binds a request of another. The detail lines name each list and its class.
 func Classify(reqs []Request, user string, span Span, records []Record) (Counts, []string) {
-	// Red stub of packet FA2-T12 6.5: PASS with zero counts; the sampler returns 0.
-	return Counts{}, nil
+	recorded := map[string]Record{}
+	for _, r := range records {
+		recorded[r.Cluster+" "+r.AuditID] = r
+	}
+	var watches []Request
+	for _, r := range reqs {
+		if r.User == user && r.Verb == "watch" {
+			watches = append(watches, r)
+		}
+	}
+	same := func(a, b Request) bool {
+		return a.Cluster == b.Cluster && a.Group == b.Group && a.Resource == b.Resource && a.Namespace == b.Namespace
+	}
+	follows := func(w, l Request) bool {
+		d := l.Received.Sub(w.End)
+		return d >= 0 && d <= AfterWatch
+	}
+	consumed := map[string]bool{}
+	var c Counts
+	var detail []string
+	lists := in(reqs, user, span, "list")
+	sort.SliceStable(lists, func(i, j int) bool { return lists[i].Received.Before(lists[j].Received) })
+	for _, l := range lists {
+		var bound, after *Request
+		for i := range watches {
+			w := watches[i]
+			if !same(w, l) || !follows(w, l) {
+				continue
+			}
+			after = &watches[i]
+			rec, ok := recorded[w.Cluster+" "+w.AuditID]
+			if _, own := recorded[l.Cluster+" "+l.AuditID]; own && ok && !consumed[w.Cluster+" "+w.AuditID] && rec.Event != nil && rec.Event.Type == "ERROR" && rec.Event.Code == 410 {
+				if bound == nil || w.End.After(bound.End) {
+					bound = &watches[i]
+				}
+			}
+		}
+		class := "periodic"
+		switch {
+		case bound != nil:
+			consumed[bound.Cluster+" "+bound.AuditID] = true
+			c.Relist410++
+			class = "relist-410 watch=" + bound.AuditID
+		case after != nil:
+			c.Unverified++
+			class = "unverified watch=" + after.AuditID
+		default:
+			c.Periodic++
+		}
+		detail = append(detail, fmt.Sprintf("list=%s namespace=%s resource=%s at=%s class=%s", l.AuditID, l.Namespace, key(l.Group, l.Resource), l.Received.UTC().Format("15:04:05.000"), class))
+	}
+	return c, detail
 }
 
 // ExpectedPeriodic is the count of lists a client makes at a fixed interval inside a

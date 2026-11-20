@@ -127,8 +127,24 @@ func (s SetResult) Line() string {
 // must be at least K (the expected set's size), and every expected resource must have at
 // least one list. An empty log or another user gives 0 matches and FAIL, never 0 as PASS.
 func JudgeIdentity(call string, reqs []Request, user string, span Span, expected []Resource) SetResult {
-	// Red stub of packet FA2-T12 6.5: PASS with zero counts; the sampler returns 0.
-	return SetResult{Call: call, User: user, Pass: true}
+	s := SetResult{Call: call, User: user, K: len(expected)}
+	listed := map[string]bool{}
+	for _, r := range in(reqs, user, span, "list", "get") {
+		if r.Resource == "" {
+			continue
+		}
+		s.Matched++
+		if r.Verb == "list" {
+			listed[key(r.Group, r.Resource)] = true
+		}
+	}
+	for _, e := range expected {
+		if !listed[e.Key()] {
+			s.Missing = append(s.Missing, e.Key())
+		}
+	}
+	s.Pass = s.K > 0 && s.Matched >= s.K && len(s.Missing) == 0
+	return s
 }
 
 // PageLine is the N-6 read pattern of one resource in one call (packet 3.3).
@@ -165,10 +181,72 @@ const PageLimit = "500"
 // lists must also be exactly ceil(podsWant/500) pages, all but the first with continue, and
 // the answer must hold podsWant Pod nodes (podNodes, counted from the answer body).
 func JudgePages(call string, reqs []Request, user string, span Span, expected []Resource, measured bool, podsWant, podNodes int) []PageLine {
-	// Red stub of packet FA2-T12 6.5: PASS with zero counts; the sampler returns 0.
-	var out []PageLine
+	order := []string{}
+	lines := map[string]*PageLine{}
+	add := func(k string) *PageLine {
+		if lines[k] == nil {
+			lines[k] = &PageLine{Call: call, Resource: k}
+			order = append(order, k)
+		}
+		return lines[k]
+	}
+	isExpected := map[string]bool{}
 	for _, e := range expected {
-		out = append(out, PageLine{Call: call, Resource: e.Key(), Pass: true})
+		add(e.Key())
+		isExpected[e.Key()] = true
+	}
+	limits := map[string]map[string]bool{}
+	for _, r := range in(reqs, user, span, "list", "get") {
+		if r.Resource == "" {
+			continue
+		}
+		p := add(key(r.Group, r.Resource))
+		if r.Verb == "get" {
+			p.Gets++
+			continue
+		}
+		p.Lists++
+		l := query(r.URI, "limit")
+		if l == "" {
+			l = "none"
+		}
+		if limits[p.Resource] == nil {
+			limits[p.Resource] = map[string]bool{}
+		}
+		if !limits[p.Resource][l] {
+			limits[p.Resource][l] = true
+			p.Limits = append(p.Limits, l)
+		}
+		if l != PageLimit {
+			p.Shortfall = append(p.Shortfall, fmt.Sprintf("list %d limit=%s", p.Lists, l))
+		}
+		if query(r.URI, "continue") != "" {
+			p.Continue++
+		}
+	}
+	var out []PageLine
+	for _, k := range order {
+		p := lines[k]
+		if p.Lists == 0 && isExpected[k] {
+			p.Shortfall = append(p.Shortfall, "no list")
+		}
+		if measured && k == "pods" {
+			pages := (podsWant + 499) / 500
+			if pages < 1 {
+				pages = 1
+			}
+			if p.Lists != pages {
+				p.Shortfall = append(p.Shortfall, fmt.Sprintf("pages %d/%d", p.Lists, pages))
+			}
+			if p.Continue != pages-1 {
+				p.Shortfall = append(p.Shortfall, fmt.Sprintf("continue %d/%d", p.Continue, pages-1))
+			}
+			if podNodes != podsWant {
+				p.Shortfall = append(p.Shortfall, fmt.Sprintf("pod nodes %d/%d", podNodes, podsWant))
+			}
+		}
+		p.Pass = len(p.Shortfall) == 0
+		out = append(out, *p)
 	}
 	return out
 }

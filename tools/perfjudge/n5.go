@@ -33,8 +33,14 @@ type N5Result struct {
 
 // JudgeN5 judges the run peaks: PASS only when their maximum is at most 600,000,000 bytes.
 func JudgeN5(peaks []int64) N5Result {
-	// Red stub of packet FA2-T12 6.5: PASS with zero counts; the sampler returns 0.
-	return N5Result{Peaks: peaks, Pass: true}
+	r := N5Result{Peaks: peaks}
+	for _, p := range peaks {
+		if p > r.Max {
+			r.Max = p
+		}
+	}
+	r.Pass = len(peaks) > 0 && r.Max <= N5Limit
+	return r
 }
 
 // MB prints a byte count in units of 1,000,000 bytes, exactly: 601000000 -> "601MB",

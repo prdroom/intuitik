@@ -5,6 +5,12 @@
 package sampler
 
 import (
+	"bufio"
+	"bytes"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -18,14 +24,49 @@ type Status struct {
 
 // ParseStatus reads VmRSS, VmHWM and VmSize (kB) from the text of /proc/<pid>/status.
 func ParseStatus(b []byte) (Status, error) {
-	// Red stub of packet FA2-T12 6.5: PASS with zero counts; the sampler returns 0.
-	return Status{}, nil
+	var s Status
+	found := 0
+	sc := bufio.NewScanner(bytes.NewReader(b))
+	for sc.Scan() {
+		name, rest, ok := strings.Cut(sc.Text(), ":")
+		if !ok {
+			continue
+		}
+		var dst *int64
+		switch name {
+		case "VmRSS":
+			dst = &s.RSS
+		case "VmHWM":
+			dst = &s.HWM
+		case "VmSize":
+			dst = &s.Size
+		default:
+			continue
+		}
+		f := strings.Fields(rest)
+		if len(f) != 2 || f[1] != "kB" {
+			return Status{}, fmt.Errorf("%s: unexpected value %q", name, rest)
+		}
+		kb, err := strconv.ParseInt(f[0], 10, 64)
+		if err != nil {
+			return Status{}, fmt.Errorf("%s: %v", name, err)
+		}
+		*dst = kb * 1024
+		found++
+	}
+	if found != 3 {
+		return Status{}, fmt.Errorf("VmRSS, VmHWM and VmSize: %d of 3 found", found)
+	}
+	return s, nil
 }
 
 // ReadStatus reads the memory status of process pid.
 func ReadStatus(pid int) (Status, error) {
-	// Red stub of packet FA2-T12 6.5: PASS with zero counts; the sampler returns 0.
-	return Status{}, nil
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/status")
+	if err != nil {
+		return Status{}, err
+	}
+	return ParseStatus(b)
 }
 
 // Sampler samples VmRSS of one process at a fixed interval until Stop.

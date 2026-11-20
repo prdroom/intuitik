@@ -1,5 +1,11 @@
 package perfjudge
 
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
+
 // Count is the number of labelled objects of one kind in one namespace ("" for a
 // cluster-scoped kind and for the Namespace objects themselves).
 type Count struct {
@@ -41,8 +47,62 @@ type ScaleResult struct {
 // exactly. A kind whose read-back total is below the table makes the scale short; every
 // verdict of a short scale is not-measured.
 func JudgeScale(scale string, fixture, readback []Count) ScaleResult {
-	// Red stub of packet FA2-T12 6.5: PASS with zero counts; the sampler returns 0.
-	return ScaleResult{OK: true}
+	var r ScaleResult
+	want, known := table[scale]
+	if !known {
+		r.Errors = append(r.Errors, "unknown scale "+scale)
+		r.Lines = append(r.Lines, fmt.Sprintf("PERF scale=%s unknown", scale))
+		return r
+	}
+	fix, fixTotal := index(fixture)
+	read, readTotal := index(readback)
+	var short []string
+	total := map[string]int{}
+	for _, k := range Kinds {
+		r.Lines = append(r.Lines, fmt.Sprintf("PERF count scale=%s kind=%s want=%d fixture=%d read=%d", scale, k, want[k], fixTotal[k], readTotal[k]))
+		if fixTotal[k] != want[k] {
+			r.Errors = append(r.Errors, fmt.Sprintf("fixture %s=%d, table %d", k, fixTotal[k], want[k]))
+		}
+		if readTotal[k] < want[k] {
+			short = append(short, fmt.Sprintf("%s=%d/%d", k, readTotal[k], want[k]))
+		}
+		if k != "Event" {
+			total["want"] += want[k]
+			total["read"] += readTotal[k]
+		}
+	}
+	keys := map[string]bool{}
+	for key := range fix {
+		keys[key] = true
+	}
+	for key := range read {
+		keys[key] = true
+	}
+	var sorted []string
+	for key := range keys {
+		sorted = append(sorted, key)
+	}
+	sort.Strings(sorted)
+	for _, key := range sorted {
+		if fix[key] != read[key] {
+			ns, kind, _ := strings.Cut(key, "\x00")
+			r.Errors = append(r.Errors, fmt.Sprintf("namespace=%q kind=%s fixture=%d read=%d", ns, kind, fix[key], read[key]))
+		}
+	}
+	for _, e := range r.Errors {
+		r.Lines = append(r.Lines, "PERF ERROR count "+e)
+	}
+	r.Lines = append(r.Lines, fmt.Sprintf("PERF count scale=%s total want=%d read=%d (Event apart)", scale, total["want"], total["read"]))
+	r.OK = len(short) == 0 && len(r.Errors) == 0
+	switch {
+	case len(short) > 0:
+		r.Lines = append(r.Lines, fmt.Sprintf("PERF scale=%s short %s", scale, strings.Join(short, " ")))
+	case len(r.Errors) > 0:
+		r.Lines = append(r.Lines, fmt.Sprintf("PERF scale=%s not-equal %d count(s)", scale, len(r.Errors)))
+	default:
+		r.Lines = append(r.Lines, fmt.Sprintf("PERF scale=%s ok", scale))
+	}
+	return r
 }
 
 // index sums counts per namespace and kind, and per kind.

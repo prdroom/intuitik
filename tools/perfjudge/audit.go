@@ -1,7 +1,10 @@
 package perfjudge
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
@@ -56,8 +59,71 @@ type auditLine struct {
 // ParseAudit reads the audit log lines of one cluster (one JSON event per line) into
 // requests of that cluster.
 func ParseAudit(cluster string, lines [][]byte) Audit {
-	// Red stub of packet FA2-T12 6.5: PASS with zero counts; the sampler returns 0.
-	return Audit{}
+	var a Audit
+	type entry struct {
+		r                 Request
+		started, complete bool
+		order             int
+	}
+	byID := map[string]*entry{}
+	seen := map[string]bool{}
+	for i, raw := range lines {
+		if len(strings.TrimSpace(string(raw))) == 0 {
+			continue
+		}
+		a.Lines++
+		var l auditLine
+		if err := json.Unmarshal(raw, &l); err != nil || l.AuditID == "" || l.Stage == "" {
+			a.Problems = append(a.Problems, fmt.Sprintf("audit line %d does not decode as an event with auditID and stage", i+1))
+			continue
+		}
+		key := l.AuditID + " " + l.Stage
+		if seen[key] {
+			a.Duplicates = append(a.Duplicates, key)
+			continue
+		}
+		seen[key] = true
+		e := byID[l.AuditID]
+		if e == nil {
+			e = &entry{order: len(byID)}
+			e.r = Request{Cluster: cluster, AuditID: l.AuditID, Verb: l.Verb, User: l.User.Username, URI: l.URI, Received: l.Received}
+			if l.ObjectRef != nil {
+				e.r.Group, e.r.Resource, e.r.Namespace = l.ObjectRef.APIGroup, l.ObjectRef.Resource, l.ObjectRef.Namespace
+			}
+			byID[l.AuditID] = e
+		}
+		switch l.Stage {
+		case "ResponseStarted":
+			e.started = true
+		case "ResponseComplete":
+			e.complete = true
+			e.r.End = l.StageAt
+			if l.ResponseStatus != nil {
+				e.r.Code = l.ResponseStatus.Code
+			}
+		case "Panic":
+			a.Problems = append(a.Problems, "audit "+l.AuditID+" stage Panic")
+		}
+	}
+	var entries []*entry
+	for _, e := range byID {
+		entries = append(entries, e)
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].order < entries[j].order })
+	for _, e := range entries {
+		switch {
+		case e.r.Verb == "watch" && e.complete && !e.started:
+			a.Problems = append(a.Problems, "watch "+e.r.AuditID+" ends without its ResponseStarted line")
+		case e.r.Verb == "watch" && !e.complete:
+			a.Problems = append(a.Problems, "watch "+e.r.AuditID+" has no ResponseComplete line")
+		case e.r.Verb != "watch" && !e.complete:
+			a.Problems = append(a.Problems, e.r.Verb+" "+e.r.AuditID+" has no ResponseComplete line")
+		default:
+			a.Requests = append(a.Requests, e.r)
+		}
+	}
+	sort.SliceStable(a.Requests, func(i, j int) bool { return a.Requests[i].Received.Before(a.Requests[j].Received) })
+	return a
 }
 
 // Span is a closed time interval.
