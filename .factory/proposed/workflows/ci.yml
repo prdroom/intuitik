@@ -1644,10 +1644,16 @@ jobs:
           set -euo pipefail
           npm run build
           out="../cmd/intuitik/dist"
-          hits="$(grep -r -l -E 'data-prototype|INTUITIK-CANARY|@xyflow|sigma|graphology|dagre' "$out" || true)"
-          if [ -n "$hits" ]; then
+          # grep exit 1 = no marker; 0 = marker found; any other exit = grep could not read the build.
+          rc=0
+          hits="$(grep -r -l -E 'data-prototype|INTUITIK-CANARY|@xyflow|sigma|graphology|dagre' "$out")" || rc=$?
+          if [ "$rc" -eq 0 ]; then
             echo "FAIL product build: prototype marker in"
             echo "$hits"
+            exit 1
+          fi
+          if [ "$rc" -ne 1 ]; then
+            echo "FAIL product build: marker grep exit ${rc}"
             exit 1
           fi
           echo "product build: no prototype marker in ${out}"
