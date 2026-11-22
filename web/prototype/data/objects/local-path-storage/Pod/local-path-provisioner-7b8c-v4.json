@@ -1,0 +1,21 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "local-path-provisioner-7b8c-v4",
+    "namespace": "local-path-storage",
+    "uid": "u-local-path-storage-pod-local-path-provisioner-7b8c-v4",
+    "labels": {
+      "app": "local-path-provisioner"
+    },
+    "ownerReferences": [
+      {
+        "apiVersion": "apps/v1",
+        "kind": "ReplicaSet",
+        "name": "local-path-provisioner-7b8c",
+        "uid": "u-local-path-storage-replicaset-local-path-provisioner-7b8c",
+        "controller": true
+      }
+    ]
+  }
+}

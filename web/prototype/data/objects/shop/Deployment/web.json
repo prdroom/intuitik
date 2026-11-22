@@ -1,0 +1,20 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "name": "web",
+    "namespace": "shop",
+    "uid": "u-shop-deployment-web",
+    "labels": {
+      "app": "web-v2"
+    }
+  },
+  "spec": {
+    "replicas": 2,
+    "selector": {
+      "matchLabels": {
+        "app": "web-v2"
+      }
+    }
+  }
+}

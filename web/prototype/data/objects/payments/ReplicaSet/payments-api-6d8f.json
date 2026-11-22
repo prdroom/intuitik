@@ -1,0 +1,18 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "ReplicaSet",
+  "metadata": {
+    "name": "payments-api-6d8f",
+    "namespace": "payments",
+    "uid": "u-payments-replicaset-payments-api-6d8f",
+    "ownerReferences": [
+      {
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "name": "payments-api",
+        "uid": "u-payments-deployment-payments-api",
+        "controller": true
+      }
+    ]
+  }
+}

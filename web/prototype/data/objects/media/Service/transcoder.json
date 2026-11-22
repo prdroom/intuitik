@@ -1,0 +1,22 @@
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "name": "transcoder",
+    "namespace": "media",
+    "uid": "u-media-service-transcoder"
+  },
+  "spec": {
+    "type": "ClusterIP",
+    "selector": {
+      "app": "transcoder"
+    },
+    "ports": [
+      {
+        "port": 80,
+        "targetPort": 8080,
+        "protocol": "TCP"
+      }
+    ]
+  }
+}

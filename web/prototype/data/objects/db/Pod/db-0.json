@@ -1,0 +1,21 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "db-0",
+    "namespace": "db",
+    "uid": "u-db-pod-db-0",
+    "labels": {
+      "app": "db"
+    },
+    "ownerReferences": [
+      {
+        "apiVersion": "apps/v1",
+        "kind": "StatefulSet",
+        "name": "db",
+        "uid": "u-db-statefulset-db",
+        "controller": true
+      }
+    ]
+  }
+}

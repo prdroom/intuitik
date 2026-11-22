@@ -1,0 +1,12 @@
+{
+  "apiVersion": "v1",
+  "kind": "ConfigMap",
+  "metadata": {
+    "name": "local-path-config",
+    "namespace": "local-path-storage",
+    "uid": "u-local-path-storage-configmap-local-path-config"
+  },
+  "data": {
+    "settings.yaml": "level: info\n"
+  }
+}

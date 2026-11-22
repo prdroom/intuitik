@@ -1,0 +1,41 @@
+{
+  "packet": "FA2-T8 technical 6.2",
+  "rows": [
+    {
+      "base64": "SU5UVUlUSUstQ0FOQVJZLXNob3AtZGJjcmVkLXBhc3N3b3JkLWE0MWM3ZTA5",
+      "canary": "INTUITIK-CANARY-shop-dbcred-password-a41c7e09",
+      "key": "password",
+      "namespace": "shop",
+      "readable": true,
+      "secret": "db-credentials",
+      "use": "env secretKeyRef of the shop api Pods (red input of C4)"
+    },
+    {
+      "base64": "SU5UVUlUSUstQ0FOQVJZLXNob3AtZGJjcmVkLXVzZXJuYW1lLTViMmU5ZDEw",
+      "canary": "INTUITIK-CANARY-shop-dbcred-username-5b2e9d10",
+      "key": "username",
+      "namespace": "shop",
+      "readable": true,
+      "secret": "db-credentials",
+      "use": "same Secret, second key"
+    },
+    {
+      "base64": "SU5UVUlUSUstQ0FOQVJZLW1lZGlhLXRscy10bHNrZXktYzgzZjFhNDI=",
+      "canary": "INTUITIK-CANARY-media-tls-tlskey-c83f1a42",
+      "key": "tls.key",
+      "namespace": "media",
+      "readable": true,
+      "secret": "media-tls",
+      "use": "mounted as a volume by the media Pods"
+    },
+    {
+      "base64": "SU5UVUlUSUstQ0FOQVJZLXBheW1lbnRzLWFwaS10b2tlbi0wZDk3YjZlNQ==",
+      "canary": "INTUITIK-CANARY-payments-api-token-0d97b6e5",
+      "key": "token",
+      "namespace": "payments",
+      "readable": false,
+      "secret": "payment-api",
+      "use": "Secret is Unknown in the graph answer (no permission, J-10 failure P59); its object file exists and the prototype must not use it"
+    }
+  ]
+}

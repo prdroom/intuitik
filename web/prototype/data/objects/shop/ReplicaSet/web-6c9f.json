@@ -1,0 +1,18 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "ReplicaSet",
+  "metadata": {
+    "name": "web-6c9f",
+    "namespace": "shop",
+    "uid": "u-shop-replicaset-web-6c9f",
+    "ownerReferences": [
+      {
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "name": "web",
+        "uid": "u-shop-deployment-web",
+        "controller": true
+      }
+    ]
+  }
+}

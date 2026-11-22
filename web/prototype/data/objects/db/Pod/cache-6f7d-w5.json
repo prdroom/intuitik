@@ -1,0 +1,21 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "cache-6f7d-w5",
+    "namespace": "db",
+    "uid": "u-db-pod-cache-6f7d-w5",
+    "labels": {
+      "app": "cache"
+    },
+    "ownerReferences": [
+      {
+        "apiVersion": "apps/v1",
+        "kind": "ReplicaSet",
+        "name": "cache-6f7d",
+        "uid": "u-db-replicaset-cache-6f7d",
+        "controller": true
+      }
+    ]
+  }
+}

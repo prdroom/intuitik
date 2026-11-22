@@ -22,3 +22,118 @@ The licence text is in web/src/design-system/fonts/OFL.txt.
 Notices for content adapted from the Kubernetes documentation (kubernetes.io),
 licensed under the Creative Commons Attribution 4.0 International License
 (CC BY 4.0), are listed in this section.
+
+## Prototype renderer packages (npm)
+
+The relation map prototype (web/prototype, packet FA2-T8) uses the renderer packages
+@xyflow/react, @dagrejs/dagre, sigma, graphology and graphology-types and the packages
+they depend on, as listed in web/package-lock.json. They are not part of the product build.
+
+### @dagrejs/dagre 3.1.3 (MIT)
+
+Copyright (c) 2012-2014 Chris Pettitt
+
+### @dagrejs/graphlib 4.0.6 (MIT)
+
+Copyright (c) 2012-2014 Chris Pettitt
+
+### @types/d3-color 3.1.3 (MIT)
+
+Copyright (c) Microsoft Corporation.
+
+### @types/d3-drag 3.0.7 (MIT)
+
+Copyright (c) Microsoft Corporation.
+
+### @types/d3-interpolate 3.0.4 (MIT)
+
+Copyright (c) Microsoft Corporation.
+
+### @types/d3-selection 3.0.12 (MIT)
+
+Copyright (c) Microsoft Corporation.
+
+### @types/d3-transition 3.0.9 (MIT)
+
+Copyright (c) Microsoft Corporation.
+
+### @types/d3-zoom 3.0.9 (MIT)
+
+Copyright (c) Microsoft Corporation.
+
+### @xyflow/react 12.12.1 (MIT)
+
+Copyright (c) 2019-2025 webkid GmbH
+
+### @xyflow/system 0.0.84 (MIT)
+
+Copyright (c) 2019-2025 webkid GmbH
+
+### classcat 5.0.5 (MIT)
+
+Copyright © Jorge Bucaran <<https://jorgebucaran.com>>
+
+### d3-color 3.1.1 (ISC)
+
+Copyright 2010-2026 Mike Bostock
+
+### d3-dispatch 3.0.2 (ISC)
+
+Copyright 2010-2026 Mike Bostock
+
+### d3-drag 3.0.1 (ISC)
+
+Copyright 2010-2026 Mike Bostock
+
+### d3-ease 3.0.2 (BSD-3-Clause)
+
+Copyright 2010-2026 Mike Bostock
+Copyright 2001 Robert Penner
+
+### d3-interpolate 3.0.2 (ISC)
+
+Copyright 2010-2026 Mike Bostock
+
+### d3-selection 3.0.1 (ISC)
+
+Copyright 2010-2026 Mike Bostock
+
+### d3-timer 3.0.2 (ISC)
+
+Copyright 2010-2026 Mike Bostock
+
+### d3-transition 3.0.2 (ISC)
+
+Copyright 2010-2026 Mike Bostock
+
+### d3-zoom 3.0.1 (ISC)
+
+Copyright 2010-2026 Mike Bostock
+
+### events 3.3.0 (MIT)
+
+Copyright Joyent, Inc. and other Node contributors.
+
+### graphology 0.26.0 (MIT)
+
+Copyright (c) 2016-2021 Guillaume Plique (Yomguithereal)
+
+### graphology-types 0.24.8 (MIT)
+
+Copyright (c) 2020-2021 Guillaume Plique (Yomguithereal)
+
+### graphology-utils 2.5.2 (MIT)
+
+Copyright (c) 2017-2021 Guillaume Plique (Yomguithereal)
+
+### sigma 4.0.4 (MIT)
+
+Copyright (C) 2012-2026, Alexis Jacomy, Guillaume Plique, Benoît Simard https://www.sigmajs.org
+
+### use-sync-external-store 1.7.0 (MIT)
+
+Copyright (c) Meta Platforms, Inc. and affiliates.
+
+### zustand 4.5.7 (MIT)
+
+Copyright (c) 2019 Paul Henschel

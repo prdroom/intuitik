@@ -1,0 +1,21 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "web-6c9f-b2",
+    "namespace": "shop",
+    "uid": "u-shop-pod-web-6c9f-b2",
+    "labels": {
+      "app": "web-v2"
+    },
+    "ownerReferences": [
+      {
+        "apiVersion": "apps/v1",
+        "kind": "ReplicaSet",
+        "name": "web-6c9f",
+        "uid": "u-shop-replicaset-web-6c9f",
+        "controller": true
+      }
+    ]
+  }
+}

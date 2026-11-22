@@ -1,0 +1,323 @@
+{
+  "packet": "FA2-T8 5 C2: each string, the screen whose DOM holds it, and its source. Keys: bridge:<id> = BRIDGE_SENTENCES of strings.js, S:<name> and ds:<name> = S and DS of strings.js, session:<id>:<line> = SESSION_LINES of strings.js, data:<name> = a server text of the fixed data.",
+  "strings": [
+    {
+      "key": "bridge:a3-selector",
+      "screen": "P06",
+      "text": "Broken \u2014 selector app=web matches 0 Pods",
+      "source": "UI.md 4.4"
+    },
+    {
+      "key": "bridge:a4-named-port",
+      "screen": "P07",
+      "text": "Broken \u2014 targetPort \"http\": no container port with this name",
+      "source": "UI.md 4.4"
+    },
+    {
+      "key": "bridge:a5-configmap",
+      "screen": "P08",
+      "text": "Broken \u2014 ConfigMap payments-config not found",
+      "source": "UI.md 4.4"
+    },
+    {
+      "key": "bridge:a6-storageclass",
+      "screen": "P09",
+      "text": "Broken \u2014 StorageClass \"fast\" not found (claim cannot bind)",
+      "source": "UI.md 4.4"
+    },
+    {
+      "key": "bridge:f18-route",
+      "screen": "P19",
+      "text": "Broken \u2014 Service checkout not found",
+      "source": "UI.md 4.4"
+    },
+    {
+      "key": "bridge:waiting-claim",
+      "screen": "P11",
+      "text": "Waiting \u2014 data-db-0 waits for consumer Pod db-0",
+      "source": "UI.md 4.4"
+    },
+    {
+      "key": "bridge:warning-port",
+      "screen": "P13",
+      "text": "Warning \u2014 targetPort 9000 is not declared by the container (traffic not verifiable)",
+      "source": "UI.md 4.4"
+    },
+    {
+      "key": "bridge:unknown-secrets",
+      "screen": "P14",
+      "text": "Unknown \u2014 no permission to read Secrets (the view role does not include Secrets)",
+      "source": "UI.md 4.4"
+    },
+    {
+      "key": "bridge:optional-configmap",
+      "screen": "P15",
+      "text": "Optional \u2014 ConfigMap feature-flags not found",
+      "source": "UI.md 4.4"
+    },
+    {
+      "key": "S:unsupportedRoute",
+      "screen": "P05",
+      "text": "Unsupported version v1alpha1",
+      "source": "UI.md 4.4"
+    },
+    {
+      "key": "S:ownerMissing",
+      "screen": "P04",
+      "text": "Owner Deployment/web not found",
+      "source": "UI.md 4.4"
+    },
+    {
+      "key": "S:loading",
+      "screen": "P46",
+      "text": "Loading cluster \u00b7 7 of 12 resource types",
+      "source": "UI.md 8"
+    },
+    {
+      "key": "S:noList",
+      "screen": "P48",
+      "text": "You can't list namespaces in this cluster. Showing shop from your kubeconfig.",
+      "source": "UI.md 8"
+    },
+    {
+      "key": "S:openNamespace",
+      "screen": "P48",
+      "text": "Open namespace",
+      "source": "UI.md 8"
+    },
+    {
+      "key": "S:noPermission",
+      "screen": "P49",
+      "text": "No permission",
+      "source": "UI.md 8"
+    },
+    {
+      "key": "data:refused-hpa",
+      "screen": "P50",
+      "text": "Couldn't load HPAs (403)",
+      "source": "UI.md 8"
+    },
+    {
+      "key": "S:emptyDefault",
+      "screen": "P51",
+      "text": "No resources in default",
+      "source": "UI.md 8"
+    },
+    {
+      "key": "S:paused",
+      "screen": "P52",
+      "text": "Updates paused \u2014 showing data from 14:32:05. Reconnecting\u2026",
+      "source": "UI.md 8"
+    },
+    {
+      "key": "S:nothing",
+      "screen": "P55",
+      "text": "Nothing needs attention",
+      "source": "UI.md 8"
+    },
+    {
+      "key": "S:countingOnly",
+      "screen": "P48",
+      "text": "Counting only namespaces you can read",
+      "source": "UI.md 5"
+    },
+    {
+      "key": "S:connectionFailure",
+      "screen": "P47",
+      "text": "Cannot reach the API server https://127.0.0.1:6443 of context kind-intuitik-qa: dial tcp 127.0.0.1:6443: connect: connection refused. Check your VPN or network connection, then retry from the intuitik tab or restart intuitik.",
+      "source": "M1-T3a K-UR"
+    },
+    {
+      "key": "S:errAuth",
+      "screen": "P33",
+      "text": "Authentication failed \u2014 check the API key in Settings",
+      "source": "UI.md 7"
+    },
+    {
+      "key": "S:errRate",
+      "screen": "P34",
+      "text": "Rate limit reached \u2014 try again in 40 s",
+      "source": "UI.md 7"
+    },
+    {
+      "key": "S:errTimeout",
+      "screen": "P35",
+      "text": "No response after 60 s \u2014 try again or use a smaller question",
+      "source": "UI.md 7"
+    },
+    {
+      "key": "S:errLocal",
+      "screen": "P36",
+      "text": "Can't reach http://localhost:11434 \u2014 is your model server running?",
+      "source": "UI.md 7"
+    },
+    {
+      "key": "S:secretNotice",
+      "screen": "P21",
+      "text": "Values are never shown, copied or sent to the model.",
+      "source": "UI.md 6"
+    },
+    {
+      "key": "S:noLogs",
+      "screen": "P24",
+      "text": "No logs \u2014 the container has terminated",
+      "source": "UI.md 6"
+    },
+    {
+      "key": "S:showPreviousLogs",
+      "screen": "P24",
+      "text": "Show previous container logs",
+      "source": "UI.md 6"
+    },
+    {
+      "key": "S:noPermissionEvents",
+      "screen": "P26",
+      "text": "No permission to read events in payments",
+      "source": "UI.md 6"
+    },
+    {
+      "key": "S:selectSomething",
+      "screen": "P01",
+      "text": "Select a resource or a bridge",
+      "source": "UI.md 6"
+    },
+    {
+      "key": "ds:runThisYourself",
+      "screen": "P31",
+      "text": "Run this yourself \u2014 intuitik never changes your cluster.",
+      "source": "UI.md 7"
+    },
+    {
+      "key": "ds:logsCanContainSecrets",
+      "screen": "P29",
+      "text": "Logs can contain secrets your app printed",
+      "source": "UI.md 7"
+    },
+    {
+      "key": "S:useLocal",
+      "screen": "P30",
+      "text": "Use a local model instead",
+      "source": "UI.md 7"
+    },
+    {
+      "key": "S:withoutLogs",
+      "screen": "P32",
+      "text": "Diagnosed without logs",
+      "source": "UI.md 7"
+    },
+    {
+      "key": "S:conversationsNotSaved",
+      "screen": "P28",
+      "text": "Conversations are not saved. Closing this tab clears them.",
+      "source": "UI.md 7"
+    },
+    {
+      "key": "S:connectedModel",
+      "screen": "P38",
+      "text": "Connected \u00b7 sample-model-large",
+      "source": "UI.md 7"
+    },
+    {
+      "key": "S:deleted",
+      "screen": "P40",
+      "text": "Deleted",
+      "source": "UI.md 7"
+    },
+    {
+      "key": "S:couldntDelete",
+      "screen": "P41",
+      "text": "Couldn't delete \u2014 remove the key from ~/.config/intuitik/config.yaml manually",
+      "source": "UI.md 7"
+    },
+    {
+      "key": "S:resetHint",
+      "screen": "P37",
+      "text": "To erase everything, run `intuitik reset` in a terminal",
+      "source": "UI.md 7"
+    },
+    {
+      "key": "S:noMatches",
+      "screen": "P43",
+      "text": "No matches",
+      "source": "UI.md 11"
+    },
+    {
+      "key": "data:crashloop",
+      "screen": "P04",
+      "text": "CrashLoopBackOff \u00b7 7 restarts",
+      "source": "FA2-T7b 3.1"
+    },
+    {
+      "key": "data:imagepull",
+      "screen": "P05",
+      "text": "ImagePullBackOff \u00b7 registry.example.com/media/transcoder:2.4-missing",
+      "source": "FA2-T7b 3.1"
+    },
+    {
+      "key": "data:createconfig",
+      "screen": "P08",
+      "text": "CreateContainerConfigError",
+      "source": "FA2-T7b 3.1"
+    },
+    {
+      "key": "data:pending",
+      "screen": "P11",
+      "text": "Pending \u00b7 scheduling",
+      "source": "FA2-T7b 3.1"
+    },
+    {
+      "key": "data:status-unknown",
+      "screen": "P04",
+      "text": "Status unknown",
+      "source": "FA2-T7b 3.1"
+    },
+    {
+      "key": "session:B-NS:0",
+      "screen": "P56",
+      "text": "No session in this tab.",
+      "source": "M1-T2 3.3"
+    },
+    {
+      "key": "session:B-NS:1",
+      "screen": "P56",
+      "text": "To open the panel, press Enter in the terminal where intuitik is running. A new login address opens in your browser. You can also restart intuitik.",
+      "source": "M1-T2 3.3"
+    },
+    {
+      "key": "session:B-NS:2",
+      "screen": "P56",
+      "text": "If your terminal shows \"someone else may have connected first\", restart intuitik instead of pressing Enter.",
+      "source": "M1-T2 3.3"
+    },
+    {
+      "key": "session:B-RF:0",
+      "screen": "P57",
+      "text": "This login address is no longer valid. It was already used, or it expired after 60 seconds.",
+      "source": "M1-T2 3.3"
+    },
+    {
+      "key": "session:B-RF:1",
+      "screen": "P57",
+      "text": "Press Enter in the terminal where intuitik is running to open a new login address, or restart intuitik.",
+      "source": "M1-T2 3.3"
+    },
+    {
+      "key": "session:B-RF:2",
+      "screen": "P57",
+      "text": "If your terminal shows \"someone else may have connected first\", restart intuitik instead of pressing Enter.",
+      "source": "M1-T2 3.3"
+    },
+    {
+      "key": "session:B-ST:0",
+      "screen": "P58",
+      "text": "intuitik has stopped, and this tab is disconnected.",
+      "source": "M1-T2 3.3"
+    },
+    {
+      "key": "session:B-ST:1",
+      "screen": "P58",
+      "text": "Close this tab. To continue, run intuitik again; it opens a new tab.",
+      "source": "M1-T2 3.3"
+    }
+  ]
+}

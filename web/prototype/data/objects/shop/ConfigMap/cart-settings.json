@@ -1,0 +1,12 @@
+{
+  "apiVersion": "v1",
+  "kind": "ConfigMap",
+  "metadata": {
+    "name": "cart-settings",
+    "namespace": "shop",
+    "uid": "u-shop-configmap-cart-settings"
+  },
+  "data": {
+    "settings.yaml": "level: info\n"
+  }
+}

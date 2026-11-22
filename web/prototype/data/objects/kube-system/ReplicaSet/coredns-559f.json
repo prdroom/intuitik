@@ -1,0 +1,18 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "ReplicaSet",
+  "metadata": {
+    "name": "coredns-559f",
+    "namespace": "kube-system",
+    "uid": "u-kube-system-replicaset-coredns-559f",
+    "ownerReferences": [
+      {
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "name": "coredns",
+        "uid": "u-kube-system-deployment-coredns",
+        "controller": true
+      }
+    ]
+  }
+}

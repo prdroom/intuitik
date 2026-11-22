@@ -1,0 +1,129 @@
+{
+  "namespace": "media",
+  "namespaceState": {
+    "state": "ok",
+    "existenceChecked": true
+  },
+  "nodes": [
+    {
+      "uid": "u-media-deployment-transcoder",
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "name": "transcoder",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-media-replicaset-transcoder-58d6",
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "transcoder-58d6",
+      "parent": "u-media-deployment-transcoder",
+      "owner": {
+        "state": "contained"
+      }
+    },
+    {
+      "uid": "u-media-pod-transcoder-58d6-r7",
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "name": "transcoder-58d6-r7",
+      "parent": "u-media-replicaset-transcoder-58d6",
+      "owner": {
+        "state": "contained"
+      },
+      "nodeState": {
+        "state": "failing",
+        "text": "ImagePullBackOff \u00b7 registry.example.com/media/transcoder:2.4-missing"
+      }
+    },
+    {
+      "uid": "u-media-service-transcoder",
+      "apiVersion": "v1",
+      "kind": "Service",
+      "name": "transcoder",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-media-secret-media-tls",
+      "apiVersion": "v1",
+      "kind": "Secret",
+      "name": "media-tls",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-media-httproute-media-gw",
+      "apiVersion": "gateway.networking.k8s.io/v1alpha1",
+      "kind": "HTTPRoute",
+      "name": "media-gw",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    }
+  ],
+  "refused": [
+    {
+      "kind": "HorizontalPodAutoscaler",
+      "status": 403,
+      "reason": "403",
+      "text": "Couldn't load HPAs (403)"
+    }
+  ],
+  "bridges": [
+    {
+      "kind": "service-pod",
+      "from": {
+        "uid": "u-media-service-transcoder"
+      },
+      "to": {
+        "group": "",
+        "namespace": "media",
+        "kind": "Pod",
+        "name": "transcoder-58d6-r7",
+        "uid": "u-media-pod-transcoder-58d6-r7"
+      },
+      "state": "connected",
+      "settings": [
+        "selector app=transcoder",
+        ":80\u21928080"
+      ]
+    },
+    {
+      "kind": "pod-secret",
+      "from": {
+        "uid": "u-media-pod-transcoder-58d6-r7"
+      },
+      "to": {
+        "group": "",
+        "namespace": "media",
+        "kind": "Secret",
+        "name": "media-tls",
+        "uid": "u-media-secret-media-tls"
+      },
+      "state": "connected",
+      "settings": [
+        "volume transcoder:/etc/tls: tls.key"
+      ],
+      "optional": [
+        false
+      ]
+    }
+  ],
+  "unsupported": [
+    {
+      "group": "gateway.networking.k8s.io",
+      "kind": "HTTPRoute",
+      "version": "v1alpha1",
+      "text": "Unsupported version v1alpha1"
+    }
+  ]
+}

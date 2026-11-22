@@ -1,0 +1,21 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "coredns-559f-j2",
+    "namespace": "kube-system",
+    "uid": "u-kube-system-pod-coredns-559f-j2",
+    "labels": {
+      "k8s-app": "kube-dns"
+    },
+    "ownerReferences": [
+      {
+        "apiVersion": "apps/v1",
+        "kind": "ReplicaSet",
+        "name": "coredns-559f",
+        "uid": "u-kube-system-replicaset-coredns-559f",
+        "controller": true
+      }
+    ]
+  }
+}

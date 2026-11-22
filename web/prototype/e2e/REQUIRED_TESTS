@@ -1,0 +1,11 @@
+# prototype required cases (packet FA2-T8 section 6.5), each passed in the project chromium.
+fixed tables
+C1 screen list
+C2 strings
+C3 controls
+C4 secret canary
+C5 renderer measurement
+C5 input mismatch refused
+C5 comparison scenes
+C6 keyboard path
+C6 grayscale

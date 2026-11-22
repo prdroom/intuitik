@@ -1,0 +1,53 @@
+{
+  "forbidden": [
+    "payments"
+  ],
+  "items": {
+    "shop/Service/web": [
+      {
+        "type": "Warning",
+        "reason": "NoEndpoints",
+        "age": "2m",
+        "message": "No endpoints available for service web: selector app=web matches no ready Pod"
+      },
+      {
+        "type": "Normal",
+        "reason": "Synced",
+        "age": "14m",
+        "message": "Service synced"
+      }
+    ],
+    "shop/Deployment/api": [
+      {
+        "type": "Normal",
+        "reason": "ScalingReplicaSet",
+        "age": "20m",
+        "message": "Scaled up replica set api-7f9c to 2"
+      }
+    ],
+    "batch/Pod/crash-7d4b-p6": [
+      {
+        "type": "Warning",
+        "reason": "BackOff",
+        "age": "40s",
+        "message": "Back-off restarting failed container crash"
+      }
+    ],
+    "media/Pod/transcoder-58d6-r7": [
+      {
+        "type": "Warning",
+        "reason": "Failed",
+        "age": "1m",
+        "message": "Failed to pull image registry.example.com/media/transcoder:2.4-missing: not found"
+      }
+    ],
+    "db/PersistentVolumeClaim/data-cache": [
+      {
+        "type": "Warning",
+        "reason": "ProvisioningFailed",
+        "age": "3m",
+        "message": "storageclass.storage.k8s.io \"fast\" not found"
+      }
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+/* The measurement and comparison pages: the drawing fills the window. */
+#measure { position: fixed; inset: 0; }
+.measure-canvas { position: absolute; inset: 0; background: var(--color-canvas); }
+.measure-canvas > .react-flow { position: absolute; inset: 0; }
+.compare { display: flex; flex-direction: column; gap: 8px; padding: 8px; height: 100vh; box-sizing: border-box; }
+.compare__title { margin: 0; font-size: 14px; }
+.compare__scene { display: flex; flex: 1; gap: 8px; min-height: 0; }
+.compare__part { position: relative; flex: 1; min-width: 0; min-height: 300px; box-shadow: 0 0 0 1px var(--color-line); border-radius: 8px; overflow: hidden; }
+.compare__part > .react-flow, .compare__part > .measure-canvas { position: absolute; inset: 0; }

@@ -1,0 +1,25 @@
+{
+  "packet": "FA2-T8 product 3.2: Diagnose answers are fixed sample text, not model output",
+  "answer": {
+    "likelyCause": "The Service web selects app=web, but the Pods of Deployment web carry app=web-v2.",
+    "explanation": "No Pod matches the selector, so the Service has no endpoints. Another possibility is that the Deployment was renamed on purpose and the Service was not updated.",
+    "evidence": [
+      {
+        "label": "selects app=web",
+        "state": "broken"
+      },
+      {
+        "label": "Deployment web app=web-v2",
+        "state": "connected"
+      },
+      {
+        "label": "Event NoEndpoints",
+        "state": "warning"
+      }
+    ],
+    "fix": "kubectl -n shop get pods -l app=web --show-labels\nkubectl -n shop edit service web   # set spec.selector.app to web-v2",
+    "docs": [
+      "kubernetes.io/docs/concepts/services-networking/service/ (v1.31)"
+    ]
+  }
+}

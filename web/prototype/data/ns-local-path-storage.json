@@ -1,0 +1,76 @@
+{
+  "namespace": "local-path-storage",
+  "namespaceState": {
+    "state": "ok",
+    "existenceChecked": true
+  },
+  "nodes": [
+    {
+      "uid": "u-local-path-storage-deployment-local-path-provisioner",
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "name": "local-path-provisioner",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-local-path-storage-replicaset-local-path-provisioner-7b8c",
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "local-path-provisioner-7b8c",
+      "parent": "u-local-path-storage-deployment-local-path-provisioner",
+      "owner": {
+        "state": "contained"
+      }
+    },
+    {
+      "uid": "u-local-path-storage-pod-local-path-provisioner-7b8c-v4",
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "name": "local-path-provisioner-7b8c-v4",
+      "parent": "u-local-path-storage-replicaset-local-path-provisioner-7b8c",
+      "owner": {
+        "state": "contained"
+      },
+      "nodeState": {
+        "state": "healthy"
+      }
+    },
+    {
+      "uid": "u-local-path-storage-configmap-local-path-config",
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "name": "local-path-config",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    }
+  ],
+  "refused": [],
+  "bridges": [
+    {
+      "kind": "pod-configmap",
+      "from": {
+        "uid": "u-local-path-storage-pod-local-path-provisioner-7b8c-v4"
+      },
+      "to": {
+        "group": "",
+        "namespace": "local-path-storage",
+        "kind": "ConfigMap",
+        "name": "local-path-config",
+        "uid": "u-local-path-storage-configmap-local-path-config"
+      },
+      "state": "connected",
+      "settings": [
+        "volume local-path-provisioner:/etc/config/ (all keys)"
+      ],
+      "optional": [
+        false
+      ]
+    }
+  ],
+  "unsupported": []
+}

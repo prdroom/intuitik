@@ -1,0 +1,12 @@
+{
+  "apiVersion": "v1",
+  "kind": "ConfigMap",
+  "metadata": {
+    "name": "crash-script",
+    "namespace": "batch",
+    "uid": "u-batch-configmap-crash-script"
+  },
+  "data": {
+    "settings.yaml": "level: info\n"
+  }
+}

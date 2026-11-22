@@ -1,0 +1,86 @@
+{
+  "packet": "FA2-T8 product 3.2",
+  "scenarios": [
+    {
+      "id": "A-0",
+      "namespace": "db",
+      "target": "bridge",
+      "kind": "pvc-pv",
+      "from": "data-db-0",
+      "state": "waiting",
+      "text": "data-db-0 waits for consumer Pod db-0"
+    },
+    {
+      "id": "A-1",
+      "namespace": "batch",
+      "target": "node",
+      "kind": "Pod",
+      "name": "crash-7d4b-p6",
+      "state": "failing",
+      "text": "CrashLoopBackOff \u00b7 7 restarts"
+    },
+    {
+      "id": "A-2",
+      "namespace": "media",
+      "target": "node",
+      "kind": "Pod",
+      "name": "transcoder-58d6-r7",
+      "state": "failing",
+      "text": "ImagePullBackOff \u00b7 registry.example.com/media/transcoder:2.4-missing"
+    },
+    {
+      "id": "A-3",
+      "namespace": "shop",
+      "target": "bridge",
+      "kind": "service-pod",
+      "from": "web",
+      "state": "broken",
+      "text": "selector app=web matches 0 Pods"
+    },
+    {
+      "id": "A-4",
+      "namespace": "shop",
+      "target": "bridge",
+      "kind": "service-pod",
+      "from": "api",
+      "state": "broken",
+      "text": "targetPort \"http\": no container port with this name"
+    },
+    {
+      "id": "A-5",
+      "namespace": "payments",
+      "target": "bridge",
+      "kind": "pod-configmap",
+      "from": "payments-api-6d8f-t2",
+      "state": "broken",
+      "text": "ConfigMap payments-config not found"
+    },
+    {
+      "id": "A-6",
+      "namespace": "db",
+      "target": "bridge",
+      "kind": "pvc-storageclass",
+      "from": "data-cache",
+      "state": "broken",
+      "text": "StorageClass \"fast\" not found (claim cannot bind)"
+    },
+    {
+      "id": "F-18",
+      "namespace": "shop",
+      "target": "bridge",
+      "kind": "httproute-service",
+      "from": "checkout",
+      "state": "broken",
+      "text": "Service checkout not found"
+    },
+    {
+      "id": "owner-missing",
+      "namespace": "batch",
+      "target": "node",
+      "kind": "ReplicaSet",
+      "name": "web-5d9c",
+      "state": "owner-missing",
+      "text": "Owner Deployment/web not found"
+    }
+  ]
+}

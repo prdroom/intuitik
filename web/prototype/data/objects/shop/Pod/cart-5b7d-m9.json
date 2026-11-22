@@ -1,0 +1,21 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "cart-5b7d-m9",
+    "namespace": "shop",
+    "uid": "u-shop-pod-cart-5b7d-m9",
+    "labels": {
+      "app": "cart"
+    },
+    "ownerReferences": [
+      {
+        "apiVersion": "apps/v1",
+        "kind": "ReplicaSet",
+        "name": "cart-5b7d",
+        "uid": "u-shop-replicaset-cart-5b7d",
+        "controller": true
+      }
+    ]
+  }
+}

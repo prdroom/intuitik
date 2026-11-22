@@ -1,0 +1,20 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "name": "transcoder",
+    "namespace": "media",
+    "uid": "u-media-deployment-transcoder",
+    "labels": {
+      "app": "transcoder"
+    }
+  },
+  "spec": {
+    "replicas": 2,
+    "selector": {
+      "matchLabels": {
+        "app": "transcoder"
+      }
+    }
+  }
+}

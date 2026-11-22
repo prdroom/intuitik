@@ -1,0 +1,21 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "crash-7d4b-p6",
+    "namespace": "batch",
+    "uid": "u-batch-pod-crash-7d4b-p6",
+    "labels": {
+      "app": "crash"
+    },
+    "ownerReferences": [
+      {
+        "apiVersion": "apps/v1",
+        "kind": "ReplicaSet",
+        "name": "crash-7d4b",
+        "uid": "u-batch-replicaset-crash-7d4b",
+        "controller": true
+      }
+    ]
+  }
+}

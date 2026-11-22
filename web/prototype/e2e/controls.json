@@ -1,0 +1,742 @@
+{
+  "controls": [
+    {
+      "class": "navigate",
+      "key": "context-selector",
+      "label": "context selector",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "find-field",
+      "label": "Find field",
+      "screens": [
+        "P42",
+        "P43",
+        "P44"
+      ]
+    },
+    {
+      "class": "navigate",
+      "key": "find-result",
+      "label": "Find results",
+      "screens": [
+        "P42",
+        "P44",
+        "P45"
+      ]
+    },
+    {
+      "class": "navigate",
+      "key": "tile",
+      "label": "tiles",
+      "screens": [
+        "P01"
+      ]
+    },
+    {
+      "class": "navigate",
+      "key": "card",
+      "label": "cards",
+      "screens": [
+        "P02"
+      ]
+    },
+    {
+      "class": "navigate",
+      "key": "expand",
+      "label": "expand",
+      "screens": [
+        "P03"
+      ]
+    },
+    {
+      "class": "navigate",
+      "key": "zoom-in",
+      "label": "zoom in",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "zoom-out",
+      "label": "zoom out",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "breadcrumb",
+      "label": "breadcrumb",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "esc",
+      "label": "Esc",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "needs-attention-row",
+      "label": "Needs attention rows",
+      "screens": [
+        "P02"
+      ]
+    },
+    {
+      "class": "navigate",
+      "key": "inspector-tab",
+      "label": "Inspector tabs",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "inspector-subtab",
+      "label": "Inspector sub-tabs",
+      "screens": [
+        "P20",
+        "P21",
+        "P22",
+        "P23",
+        "P24",
+        "P26"
+      ]
+    },
+    {
+      "class": "navigate",
+      "key": "container-selector",
+      "label": "container selector",
+      "screens": [
+        "P23"
+      ]
+    },
+    {
+      "class": "navigate",
+      "key": "follow",
+      "label": "Follow",
+      "screens": [
+        "P23"
+      ]
+    },
+    {
+      "class": "navigate",
+      "key": "previous-container",
+      "label": "Previous container",
+      "screens": [
+        "P23"
+      ]
+    },
+    {
+      "class": "navigate",
+      "key": "show-previous-logs",
+      "label": "\"Show previous container logs\"",
+      "screens": [
+        "P24"
+      ]
+    },
+    {
+      "class": "navigate",
+      "key": "open-namespace",
+      "label": "\"Open namespace\" field",
+      "screens": [
+        "P48",
+        "P49"
+      ]
+    },
+    {
+      "class": "navigate",
+      "key": "choose-another-context",
+      "label": "\"Choose another context\"",
+      "screens": [
+        "P47"
+      ]
+    },
+    {
+      "class": "navigate",
+      "key": "retry-connection",
+      "label": "Retry on connection failure",
+      "screens": [
+        "P47"
+      ]
+    },
+    {
+      "class": "navigate",
+      "key": "retry-partial",
+      "label": "Retry on the partial chip",
+      "screens": [
+        "P50"
+      ]
+    },
+    {
+      "class": "navigate",
+      "key": "shortcut-list",
+      "label": "\"?\" shortcut list",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "settings-link",
+      "label": "Settings link",
+      "screens": []
+    },
+    {
+      "class": "copy",
+      "key": "copy-yaml",
+      "label": "Copy in YAML",
+      "screens": [
+        "P21"
+      ]
+    },
+    {
+      "class": "copy",
+      "key": "copy-setting-value",
+      "label": "\"Copy selector\" and other setting-value copies",
+      "screens": [
+        "P25"
+      ]
+    },
+    {
+      "class": "copy",
+      "key": "copy-fix",
+      "label": "Copy in Fix",
+      "screens": [
+        "P31"
+      ]
+    },
+    {
+      "class": "local",
+      "key": "ask-why",
+      "label": "Ask why",
+      "screens": [
+        "P06"
+      ]
+    },
+    {
+      "class": "local",
+      "key": "ask",
+      "label": "Ask",
+      "screens": []
+    },
+    {
+      "class": "local",
+      "key": "question-field",
+      "label": "question field",
+      "screens": []
+    },
+    {
+      "class": "local",
+      "key": "send",
+      "label": "Send (to the mocked provider)",
+      "screens": [
+        "P28"
+      ]
+    },
+    {
+      "class": "local",
+      "key": "review-checkbox",
+      "label": "Review checkboxes",
+      "screens": [
+        "P28",
+        "P32"
+      ]
+    },
+    {
+      "class": "local",
+      "key": "review-remove",
+      "label": "Review per-resource x",
+      "screens": [
+        "P28"
+      ]
+    },
+    {
+      "class": "local",
+      "key": "attach",
+      "label": "Attach",
+      "screens": [
+        "P31"
+      ]
+    },
+    {
+      "class": "local",
+      "key": "agree-and-send",
+      "label": "\"Agree and send\"",
+      "screens": [
+        "P29"
+      ]
+    },
+    {
+      "class": "local",
+      "key": "dont-send",
+      "label": "\"Don't send\"",
+      "screens": [
+        "P29"
+      ]
+    },
+    {
+      "class": "local",
+      "key": "retry-error-card",
+      "label": "Retry on error cards",
+      "screens": [
+        "P33",
+        "P34",
+        "P35",
+        "P36"
+      ]
+    },
+    {
+      "class": "local",
+      "key": "provider-field",
+      "label": "provider field",
+      "screens": [
+        "P37"
+      ]
+    },
+    {
+      "class": "local",
+      "key": "model-field",
+      "label": "model field",
+      "screens": [
+        "P37"
+      ]
+    },
+    {
+      "class": "local",
+      "key": "api-key-field",
+      "label": "API key field",
+      "screens": [
+        "P37"
+      ]
+    },
+    {
+      "class": "local",
+      "key": "save-key-on-computer",
+      "label": "\"Save key on this computer\"",
+      "screens": [
+        "P37"
+      ]
+    },
+    {
+      "class": "local",
+      "key": "use-for-session",
+      "label": "\"Use for this session only\"",
+      "screens": [
+        "P37"
+      ]
+    },
+    {
+      "class": "local",
+      "key": "test-connection",
+      "label": "Test connection",
+      "screens": [
+        "P37"
+      ]
+    },
+    {
+      "class": "local",
+      "key": "delete-saved-key",
+      "label": "Delete saved key",
+      "screens": [
+        "P37"
+      ]
+    },
+    {
+      "class": "local",
+      "key": "log-default",
+      "label": "log default",
+      "screens": [
+        "P37"
+      ]
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P01",
+      "label": "prototype control strip: show P01",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P02",
+      "label": "prototype control strip: show P02",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P03",
+      "label": "prototype control strip: show P03",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P04",
+      "label": "prototype control strip: show P04",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P05",
+      "label": "prototype control strip: show P05",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P06",
+      "label": "prototype control strip: show P06",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P07",
+      "label": "prototype control strip: show P07",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P08",
+      "label": "prototype control strip: show P08",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P09",
+      "label": "prototype control strip: show P09",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P10",
+      "label": "prototype control strip: show P10",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P11",
+      "label": "prototype control strip: show P11",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P12",
+      "label": "prototype control strip: show P12",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P13",
+      "label": "prototype control strip: show P13",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P14",
+      "label": "prototype control strip: show P14",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P15",
+      "label": "prototype control strip: show P15",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P16",
+      "label": "prototype control strip: show P16",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P17",
+      "label": "prototype control strip: show P17",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P18",
+      "label": "prototype control strip: show P18",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P19",
+      "label": "prototype control strip: show P19",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P20",
+      "label": "prototype control strip: show P20",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P21",
+      "label": "prototype control strip: show P21",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P22",
+      "label": "prototype control strip: show P22",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P23",
+      "label": "prototype control strip: show P23",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P24",
+      "label": "prototype control strip: show P24",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P25",
+      "label": "prototype control strip: show P25",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P26",
+      "label": "prototype control strip: show P26",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P27",
+      "label": "prototype control strip: show P27",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P28",
+      "label": "prototype control strip: show P28",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P29",
+      "label": "prototype control strip: show P29",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P30",
+      "label": "prototype control strip: show P30",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P31",
+      "label": "prototype control strip: show P31",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P32",
+      "label": "prototype control strip: show P32",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P33",
+      "label": "prototype control strip: show P33",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P34",
+      "label": "prototype control strip: show P34",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P35",
+      "label": "prototype control strip: show P35",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P36",
+      "label": "prototype control strip: show P36",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P37",
+      "label": "prototype control strip: show P37",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P38",
+      "label": "prototype control strip: show P38",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P39",
+      "label": "prototype control strip: show P39",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P40",
+      "label": "prototype control strip: show P40",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P41",
+      "label": "prototype control strip: show P41",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P42",
+      "label": "prototype control strip: show P42",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P43",
+      "label": "prototype control strip: show P43",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P44",
+      "label": "prototype control strip: show P44",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P45",
+      "label": "prototype control strip: show P45",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P46",
+      "label": "prototype control strip: show P46",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P47",
+      "label": "prototype control strip: show P47",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P48",
+      "label": "prototype control strip: show P48",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P49",
+      "label": "prototype control strip: show P49",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P50",
+      "label": "prototype control strip: show P50",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P51",
+      "label": "prototype control strip: show P51",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P52",
+      "label": "prototype control strip: show P52",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P53",
+      "label": "prototype control strip: show P53",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P54",
+      "label": "prototype control strip: show P54",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P55",
+      "label": "prototype control strip: show P55",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P56",
+      "label": "prototype control strip: show P56",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P57",
+      "label": "prototype control strip: show P57",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P58",
+      "label": "prototype control strip: show P58",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P59",
+      "label": "prototype control strip: show P59",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P60",
+      "label": "prototype control strip: show P60",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P61",
+      "label": "prototype control strip: show P61",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P62",
+      "label": "prototype control strip: show P62",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P63",
+      "label": "prototype control strip: show P63",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P64",
+      "label": "prototype control strip: show P64",
+      "screens": []
+    },
+    {
+      "class": "navigate",
+      "key": "strip-P65",
+      "label": "prototype control strip: show P65",
+      "screens": []
+    }
+  ],
+  "packet": "FA2-T8 product 3.8; cluster change has no row, any such control fails C3",
+  "screens_meaning": "reference only, not an allow list (PMC 1771cf70): the screens where product 3.3 names the control. C3 (b) never reads it; a registered key on a screen not in its list is not a failure. C3 (c) may start its search for the control on these screens; an empty list means any screen where it appears."
+}

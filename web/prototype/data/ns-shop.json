@@ -1,0 +1,488 @@
+{
+  "namespace": "shop",
+  "namespaceState": {
+    "state": "ok",
+    "existenceChecked": true
+  },
+  "nodes": [
+    {
+      "uid": "u-shop-ingress-shop",
+      "apiVersion": "networking.k8s.io/v1",
+      "kind": "Ingress",
+      "name": "shop",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-shop-httproute-checkout",
+      "apiVersion": "gateway.networking.k8s.io/v1",
+      "kind": "HTTPRoute",
+      "name": "checkout",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-shop-service-web",
+      "apiVersion": "v1",
+      "kind": "Service",
+      "name": "web",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-shop-service-api",
+      "apiVersion": "v1",
+      "kind": "Service",
+      "name": "api",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-shop-service-cart",
+      "apiVersion": "v1",
+      "kind": "Service",
+      "name": "cart",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-shop-horizontalpodautoscaler-cart",
+      "apiVersion": "autoscaling/v2",
+      "kind": "HorizontalPodAutoscaler",
+      "name": "cart",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-shop-deployment-web",
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "name": "web",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-shop-replicaset-web-6c9f",
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "web-6c9f",
+      "parent": "u-shop-deployment-web",
+      "owner": {
+        "state": "contained"
+      }
+    },
+    {
+      "uid": "u-shop-pod-web-6c9f-a1",
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "name": "web-6c9f-a1",
+      "parent": "u-shop-replicaset-web-6c9f",
+      "owner": {
+        "state": "contained"
+      },
+      "nodeState": {
+        "state": "healthy"
+      }
+    },
+    {
+      "uid": "u-shop-pod-web-6c9f-b2",
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "name": "web-6c9f-b2",
+      "parent": "u-shop-replicaset-web-6c9f",
+      "owner": {
+        "state": "contained"
+      },
+      "nodeState": {
+        "state": "healthy"
+      }
+    },
+    {
+      "uid": "u-shop-deployment-api",
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "name": "api",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-shop-replicaset-api-7f9c",
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "api-7f9c",
+      "parent": "u-shop-deployment-api",
+      "owner": {
+        "state": "contained"
+      }
+    },
+    {
+      "uid": "u-shop-pod-api-7f9c-q2",
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "name": "api-7f9c-q2",
+      "parent": "u-shop-replicaset-api-7f9c",
+      "owner": {
+        "state": "contained"
+      },
+      "nodeState": {
+        "state": "healthy"
+      }
+    },
+    {
+      "uid": "u-shop-pod-api-7f9c-x8",
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "name": "api-7f9c-x8",
+      "parent": "u-shop-replicaset-api-7f9c",
+      "owner": {
+        "state": "contained"
+      },
+      "nodeState": {
+        "state": "healthy"
+      }
+    },
+    {
+      "uid": "u-shop-deployment-cart",
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "name": "cart",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-shop-replicaset-cart-5b7d",
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "cart-5b7d",
+      "parent": "u-shop-deployment-cart",
+      "owner": {
+        "state": "contained"
+      }
+    },
+    {
+      "uid": "u-shop-replicaset-cart-49c1",
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "cart-49c1",
+      "parent": "u-shop-deployment-cart",
+      "owner": {
+        "state": "contained"
+      }
+    },
+    {
+      "uid": "u-shop-pod-cart-5b7d-k4",
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "name": "cart-5b7d-k4",
+      "parent": "u-shop-replicaset-cart-5b7d",
+      "owner": {
+        "state": "contained"
+      },
+      "nodeState": {
+        "state": "healthy"
+      }
+    },
+    {
+      "uid": "u-shop-pod-cart-5b7d-m9",
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "name": "cart-5b7d-m9",
+      "parent": "u-shop-replicaset-cart-5b7d",
+      "owner": {
+        "state": "contained"
+      },
+      "nodeState": {
+        "state": "healthy"
+      }
+    },
+    {
+      "uid": "u-shop-configmap-cart-settings",
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "name": "cart-settings",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-shop-secret-db-credentials",
+      "apiVersion": "v1",
+      "kind": "Secret",
+      "name": "db-credentials",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    }
+  ],
+  "refused": [],
+  "bridges": [
+    {
+      "kind": "ingress-service",
+      "from": {
+        "uid": "u-shop-ingress-shop"
+      },
+      "to": {
+        "group": "",
+        "namespace": "shop",
+        "kind": "Service",
+        "name": "web",
+        "uid": "u-shop-service-web"
+      },
+      "state": "connected",
+      "settings": [
+        "/  shop.local \u2192 web:80"
+      ]
+    },
+    {
+      "kind": "ingress-service",
+      "from": {
+        "uid": "u-shop-ingress-shop"
+      },
+      "to": {
+        "group": "",
+        "namespace": "shop",
+        "kind": "Service",
+        "name": "api",
+        "uid": "u-shop-service-api"
+      },
+      "state": "connected",
+      "settings": [
+        "/api  shop.local \u2192 api:80"
+      ]
+    },
+    {
+      "kind": "httproute-service",
+      "from": {
+        "uid": "u-shop-httproute-checkout"
+      },
+      "to": {
+        "group": "",
+        "namespace": "shop",
+        "kind": "Service",
+        "name": "checkout",
+        "uid": null
+      },
+      "state": "broken",
+      "settings": [
+        "/checkout  shop.local \u2192 checkout:80"
+      ],
+      "text": "Service checkout not found"
+    },
+    {
+      "kind": "service-pod",
+      "from": {
+        "uid": "u-shop-service-web"
+      },
+      "to": {
+        "group": "",
+        "namespace": "shop",
+        "kind": "Pod",
+        "name": "",
+        "uid": null
+      },
+      "state": "broken",
+      "settings": [
+        "selector app=web",
+        ":80\u21928080"
+      ],
+      "text": "selector app=web matches 0 Pods"
+    },
+    {
+      "kind": "service-pod",
+      "from": {
+        "uid": "u-shop-service-api"
+      },
+      "to": {
+        "group": "",
+        "namespace": "shop",
+        "kind": "Pod",
+        "name": "api-7f9c-q2",
+        "uid": "u-shop-pod-api-7f9c-q2"
+      },
+      "state": "broken",
+      "settings": [
+        "selector app=api",
+        ":80\u2192http"
+      ],
+      "text": "targetPort \"http\": no container port with this name"
+    },
+    {
+      "kind": "service-pod",
+      "from": {
+        "uid": "u-shop-service-api"
+      },
+      "to": {
+        "group": "",
+        "namespace": "shop",
+        "kind": "Pod",
+        "name": "api-7f9c-x8",
+        "uid": "u-shop-pod-api-7f9c-x8"
+      },
+      "state": "broken",
+      "settings": [
+        "selector app=api",
+        ":80\u2192http"
+      ],
+      "text": "targetPort \"http\": no container port with this name"
+    },
+    {
+      "kind": "service-pod",
+      "from": {
+        "uid": "u-shop-service-cart"
+      },
+      "to": {
+        "group": "",
+        "namespace": "shop",
+        "kind": "Pod",
+        "name": "cart-5b7d-k4",
+        "uid": "u-shop-pod-cart-5b7d-k4"
+      },
+      "state": "connected",
+      "settings": [
+        "selector app=cart",
+        ":80\u21928080"
+      ]
+    },
+    {
+      "kind": "service-pod",
+      "from": {
+        "uid": "u-shop-service-cart"
+      },
+      "to": {
+        "group": "",
+        "namespace": "shop",
+        "kind": "Pod",
+        "name": "cart-5b7d-m9",
+        "uid": "u-shop-pod-cart-5b7d-m9"
+      },
+      "state": "connected",
+      "settings": [
+        "selector app=cart",
+        ":80\u21928080"
+      ]
+    },
+    {
+      "kind": "hpa-target",
+      "from": {
+        "uid": "u-shop-horizontalpodautoscaler-cart"
+      },
+      "to": {
+        "group": "apps",
+        "namespace": "shop",
+        "kind": "Deployment",
+        "name": "cart",
+        "uid": "u-shop-deployment-cart"
+      },
+      "state": "connected",
+      "settings": [
+        "min 2",
+        "max 5"
+      ]
+    },
+    {
+      "kind": "pod-secret",
+      "from": {
+        "uid": "u-shop-pod-api-7f9c-q2"
+      },
+      "to": {
+        "group": "",
+        "namespace": "shop",
+        "kind": "Secret",
+        "name": "db-credentials",
+        "uid": "u-shop-secret-db-credentials"
+      },
+      "state": "connected",
+      "settings": [
+        "env api:DB_PASSWORD \u2190 password",
+        "env api:DB_USER \u2190 username"
+      ],
+      "optional": [
+        false,
+        false
+      ]
+    },
+    {
+      "kind": "pod-secret",
+      "from": {
+        "uid": "u-shop-pod-api-7f9c-x8"
+      },
+      "to": {
+        "group": "",
+        "namespace": "shop",
+        "kind": "Secret",
+        "name": "db-credentials",
+        "uid": "u-shop-secret-db-credentials"
+      },
+      "state": "connected",
+      "settings": [
+        "env api:DB_PASSWORD \u2190 password",
+        "env api:DB_USER \u2190 username"
+      ],
+      "optional": [
+        false,
+        false
+      ]
+    },
+    {
+      "kind": "pod-configmap",
+      "from": {
+        "uid": "u-shop-pod-cart-5b7d-k4"
+      },
+      "to": {
+        "group": "",
+        "namespace": "shop",
+        "kind": "ConfigMap",
+        "name": "cart-settings",
+        "uid": "u-shop-configmap-cart-settings"
+      },
+      "state": "connected",
+      "settings": [
+        "envFrom cart"
+      ],
+      "optional": [
+        false
+      ]
+    },
+    {
+      "kind": "pod-configmap",
+      "from": {
+        "uid": "u-shop-pod-cart-5b7d-m9"
+      },
+      "to": {
+        "group": "",
+        "namespace": "shop",
+        "kind": "ConfigMap",
+        "name": "cart-settings",
+        "uid": "u-shop-configmap-cart-settings"
+      },
+      "state": "connected",
+      "settings": [
+        "envFrom cart"
+      ],
+      "optional": [
+        false
+      ]
+    }
+  ],
+  "unsupported": []
+}
