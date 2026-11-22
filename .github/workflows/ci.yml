@@ -1561,3 +1561,402 @@ jobs:
             done
           fi
           echo "kind clusters after delete: [$(kind get clusters 2>/dev/null | tr '\n' ' ')]"
+
+  # Clickable prototype of the relation map (packet FA2-T8): fixed tables, product build marker
+  # check, prototype build, the Playwright cases of web/prototype/e2e/REQUIRED_TESTS (project
+  # chromium), the evidence pack, and its guarded upload. Only agent/FA2-T8 with the marker file
+  # web/prototype/e2e/UPLOAD uploads, on attempt 1, one job of the group at a time, and only while
+  # the repository's listed and reserved artifact bytes stay at or under 300,000,000.
+  prototype:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: prototype-upload
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # The three fixed tables of the packet, checked against web/prototype/e2e/fixed.sha256,
+      # whose own sha256 is the delivery's value. Runs first and again right before the tests.
+      - name: Fixed tables
+        env:
+          FIXED_SHA256: f279fc6a1758218a6df044e52564e62876b06cc2259166a14a035db3dcd50a05
+        run: |
+          set -euo pipefail
+          list="web/prototype/e2e/fixed.sha256"
+          if [ ! -f "$list" ]; then
+            echo "FAIL fixed tables: ${list} missing"
+            exit 1
+          fi
+          got="$(sha256sum "$list" | cut -d' ' -f1)"
+          echo "fixed tables: ${list} sha256=${got} expected=${FIXED_SHA256}"
+          if [ "$got" != "$FIXED_SHA256" ]; then
+            echo "FAIL fixed tables: ${list} sha256 differs"
+            exit 1
+          fi
+          code=0
+          sha256sum -c "$list" || code=$?
+          if [ "$code" -ne 0 ]; then
+            echo "FAIL fixed tables: a table differs from ${list}"
+            exit 1
+          fi
+          echo "fixed tables: PASS"
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          package-manager-cache: false
+
+      - name: npm ci
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts
+
+      # As in build: Node must equal web/.nvmrc and npm the npm field of that Node version.
+      - name: Toolchain versions
+        run: |
+          set -euo pipefail
+          go run ./tools/verifymap/toolchain -nvmrc web/.nvmrc
+
+      - name: Install Playwright browser
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npx playwright --version
+          npx playwright install --with-deps chromium
+
+      # The product build must hold no prototype marker (packet 6.3); this is a check of built files.
+      - name: Product build and marker check
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm run build
+          out="../cmd/intuitik/dist"
+          # grep exit 1 = no marker; 0 = marker found; any other exit = grep could not read the build.
+          rc=0
+          hits="$(grep -r -l -E 'data-prototype|INTUITIK-CANARY|@xyflow|sigma|graphology|dagre' "$out")" || rc=$?
+          if [ "$rc" -eq 0 ]; then
+            echo "FAIL product build: prototype marker in"
+            echo "$hits"
+            exit 1
+          fi
+          if [ "$rc" -ne 1 ]; then
+            echo "FAIL product build: marker grep exit ${rc}"
+            exit 1
+          fi
+          echo "product build: no prototype marker in ${out}"
+
+      - name: Prototype build
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npx vite build --config prototype/vite.config.js
+          find prototype/dist -type f | sort
+
+      - name: Fixed-table check
+        env:
+          FIXED_SHA256: f279fc6a1758218a6df044e52564e62876b06cc2259166a14a035db3dcd50a05
+        run: |
+          set -euo pipefail
+          list="web/prototype/e2e/fixed.sha256"
+          if [ ! -f "$list" ]; then
+            echo "FAIL fixed tables: ${list} missing"
+            exit 1
+          fi
+          got="$(sha256sum "$list" | cut -d' ' -f1)"
+          echo "fixed tables: ${list} sha256=${got} expected=${FIXED_SHA256}"
+          if [ "$got" != "$FIXED_SHA256" ]; then
+            echo "FAIL fixed tables: ${list} sha256 differs"
+            exit 1
+          fi
+          code=0
+          sha256sum -c "$list" || code=$?
+          if [ "$code" -ne 0 ]; then
+            echo "FAIL fixed tables: a table differs from ${list}"
+            exit 1
+          fi
+          echo "fixed tables: PASS"
+
+      # Playwright reads web/prototype/e2e/playwright.config.js (project chromium, retries 0). The
+      # cases write captures, DOM dumps and measurement output to INTUITIK_PROTO_OUT; the list
+      # check fails unless every case of web/prototype/e2e/REQUIRED_TESTS passed.
+      - name: prototype tests and list check
+        working-directory: web
+        run: |
+          set -uo pipefail
+          export INTUITIK_PROTO_OUT="${RUNNER_TEMP}/prototype-out"
+          mkdir -p "$INTUITIK_PROTO_OUT"
+          report="${RUNNER_TEMP}/prototype.json"
+          log="${RUNNER_TEMP}/prototype-playwright.log"
+          PLAYWRIGHT_JSON_OUTPUT_NAME="$report" npx playwright test --config=prototype/e2e/playwright.config.js --reporter=list,json 2>&1 | tee "$log"
+          test_code="${PIPESTATUS[0]}"
+          list_code=0
+          python3 - prototype/e2e/REQUIRED_TESTS "$report" <<'PY' || list_code=$?
+          import json, sys
+          list_path, report_path = sys.argv[1], sys.argv[2]
+          projects = ["chromium"]
+          names = [l.strip() for l in open(list_path, encoding="utf-8") if l.strip() and not l.strip().startswith("#")]
+          with open(report_path, encoding="utf-8") as f:
+              data = json.load(f)
+          bad = 0
+          configured = {p.get("name"): p.get("retries") for p in data.get("config", {}).get("projects", [])}
+          print(f"list check: projects {sorted(configured)} retries {[configured[n] for n in sorted(configured)]}")
+          if sorted(configured) != projects or any(r != 0 for r in configured.values()):
+              print("list check: the projects must be exactly chromium, with retries 0")
+              bad = 1
+          seen = {}
+          # A case name is its describe titles and its test title joined with "/"; the file suite is left out.
+          def walk(suite, path):
+              for child in suite.get("suites") or []:
+                  walk(child, path + [child["title"]])
+              for spec in suite.get("specs") or []:
+                  name = "/".join(path + [spec["title"]])
+                  for test in spec.get("tests") or []:
+                      statuses = [r.get("status") for r in test.get("results") or []]
+                      seen.setdefault((name, test.get("projectName")), []).extend(statuses or ["missing"])
+          for file_suite in data.get("suites") or []:
+              walk(file_suite, [])
+          if not names:
+              print("list check: the list is empty")
+              bad = 1
+          if len(set(names)) != len(names):
+              print("list check: the list names a case more than once")
+              bad = 1
+          for name in names:
+              for project in projects:
+                  statuses = seen.get((name, project), [])
+                  result = "missing" if not statuses else "passed" if all(s == "passed" for s in statuses) else ",".join(sorted(set(map(str, statuses))))
+                  print(f"list check: {name} [{project}] {result}")
+                  if result != "passed":
+                      bad = 1
+          print(f"list check: {len(names)} listed x {len(projects)} projects, {'pass' if bad == 0 else 'fail'}")
+          sys.exit(bad)
+          PY
+          echo "playwright exit=${test_code} list check exit=${list_code}"
+          if [ "$test_code" -ne 0 ] || [ "$list_code" -ne 0 ]; then
+            exit 1
+          fi
+
+      # The pack (test output, the prototype dist, the Playwright log) is made reproducibly; its
+      # byte count and sha256 are printed before any upload.
+      - name: Evidence pack
+        run: |
+          set -euo pipefail
+          stage="${RUNNER_TEMP}/prototype-evidence"
+          rm -rf "$stage"
+          mkdir -p "$stage"
+          cp -R "${RUNNER_TEMP}/prototype-out" "$stage/out"
+          cp -R web/prototype/dist "$stage/dist"
+          cp "${RUNNER_TEMP}/prototype-playwright.log" "$stage/playwright.log"
+          pack="${RUNNER_TEMP}/prototype-evidence.tar.gz"
+          tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -C "$stage" -cf - . | gzip -n > "$pack"
+          echo "PROTO-PACK prototype-evidence.tar.gz bytes=$(stat -c %s "$pack") sha256=$(sha256sum "$pack" | cut -d' ' -f1) limit=20000000"
+
+      # Upload guard (packet FA2-T8 section 7). It reads the GitHub API without a token. No upload
+      # unless every condition holds; a skip prints "upload skipped", a refusal prints
+      # "upload refused reason=<...>" and fails the job. It deletes nothing.
+      - name: Upload guard
+        id: guard
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          PACK: ${{ runner.temp }}/prototype-evidence.tar.gz
+        run: |
+          set -uo pipefail
+          python3 - <<'PY'
+          import json, os, subprocess, sys, urllib.error, urllib.parse, urllib.request
+
+          API = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+          REPO = os.environ["GITHUB_REPOSITORY"]
+          RUN_ID = int(os.environ["GITHUB_RUN_ID"])
+          RUN_NUMBER = int(os.environ["GITHUB_RUN_NUMBER"])
+          ATTEMPT = int(os.environ["GITHUB_RUN_ATTEMPT"])
+          HEAD_REF = os.environ.get("HEAD_REF", "")
+          PACK = os.environ["PACK"]
+          BRANCH = "agent/FA2-T8"
+          MARKER = "web/prototype/e2e/UPLOAD"
+          PACK_LIMIT = 20000000
+          RESERVE = 20000000
+          ARCHIVE_ALLOWANCE = 65536
+          LIMIT = 300000000
+
+          def skip(text):
+              print(f"upload skipped {text}")
+              sys.exit(0)
+
+          def refuse(reason):
+              print(f"upload refused reason={reason}")
+              sys.exit(1)
+
+          def get(path, query):
+              url = f"{API}{path}?{urllib.parse.urlencode(query)}"
+              req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "intuitik-prototype-guard"})
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as resp:
+                      status = resp.status
+                      body = resp.read()
+              except urllib.error.HTTPError as e:
+                  refuse(f"api-status status={e.code} url={url}")
+              except Exception as e:
+                  refuse(f"api-read error={type(e).__name__} url={url}")
+              if status != 200:
+                  refuse(f"api-status status={status} url={url}")
+              try:
+                  return json.loads(body)
+              except Exception:
+                  refuse(f"api-parse url={url}")
+
+          def integer(value, what):
+              if isinstance(value, bool) or not isinstance(value, int):
+                  refuse(f"api-parse field={what}")
+              return value
+
+          def items_of(data, key, what):
+              if not isinstance(data, dict) or not isinstance(data.get(key), list):
+                  refuse(f"api-parse field={what}")
+              return data[key]
+
+          def has_marker(sha):
+              if subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True).returncode != 0:
+                  return True  # a commit absent locally is treated as containing the marker
+              return subprocess.run(["git", "cat-file", "-e", f"{sha}:{MARKER}"], capture_output=True).returncode == 0
+
+          # Where and when.
+          if HEAD_REF != BRANCH:
+              skip(f"branch={HEAD_REF}")
+          if not os.path.isfile(MARKER):
+              skip("marker=absent")
+          if ATTEMPT != 1:
+              skip(f"attempt={ATTEMPT}")
+
+          # Size of this pack.
+          pack = os.path.getsize(PACK)
+          print(f"pack bytes={pack} limit={PACK_LIMIT}")
+          if pack > PACK_LIMIT:
+              refuse(f"pack-size bytes={pack} limit={PACK_LIMIT}")
+
+          # (1) Live bytes: every unexpired artifact of the repository.
+          live, read, page, total = 0, 0, 0, None
+          while total is None or read < total:
+              page += 1
+              if page > 10:
+                  refuse("artifact-pages pages>10")
+              data = get(f"/repos/{REPO}/actions/artifacts", {"per_page": 100, "page": page})
+              if total is None:
+                  total = integer(data.get("total_count") if isinstance(data, dict) else None, "artifacts.total_count")
+              items = items_of(data, "artifacts", "artifacts.artifacts")
+              if not items and read < total:
+                  refuse(f"artifact-list-short read={read} total_count={total}")
+              for a in items:
+                  if not isinstance(a, dict) or not isinstance(a.get("expired"), bool):
+                      refuse("api-parse field=artifacts.expired")
+                  size = integer(a.get("size_in_bytes"), "artifacts.size_in_bytes")
+                  if a["expired"] is False:
+                      live += size
+              read += len(items)
+          print(f"artifacts read={read} total_count={total} pages={page} live={live}")
+
+          # (2) Earlier runs of this branch whose head has the marker: unknown uploads are reserved.
+          runs, read, page, total = [], 0, 0, None
+          while total is None or read < total:
+              page += 1
+              data = get(f"/repos/{REPO}/actions/workflows/ci.yml/runs", {"branch": BRANCH, "event": "pull_request", "per_page": 100, "page": page})
+              if total is None:
+                  total = integer(data.get("total_count") if isinstance(data, dict) else None, "branch-runs.total_count")
+                  if total > 300:
+                      refuse(f"branch-runs total_count={total} limit=300")
+              items = items_of(data, "workflow_runs", "branch-runs.workflow_runs")
+              if not items and read < total:
+                  refuse(f"branch-runs-short read={read} total_count={total}")
+              runs.extend(items)
+              read += len(items)
+          unknown, job_reads = 0, 0
+          for r in runs:
+              if not isinstance(r, dict):
+                  refuse("api-parse field=branch-runs.item")
+              rid = integer(r.get("id"), "branch-runs.id")
+              sha = r.get("head_sha")
+              if not isinstance(sha, str) or len(sha) != 40:
+                  refuse("api-parse field=branch-runs.head_sha")
+              if rid == RUN_ID or not has_marker(sha):
+                  continue
+              job_reads += 1
+              if job_reads > 20:
+                  refuse("job-reads reads>20")
+              data = get(f"/repos/{REPO}/actions/runs/{rid}/attempts/1/jobs", {"per_page": 100})
+              jobs = [j for j in items_of(data, "jobs", "jobs.jobs") if isinstance(j, dict) and j.get("name") == "prototype"]
+              state = "no-attempt"
+              if jobs:
+                  steps = jobs[0].get("steps")
+                  if steps is None:
+                      steps = []
+                  if not isinstance(steps, list):
+                      refuse("api-parse field=jobs.steps")
+                  begin = [s for s in steps if isinstance(s, dict) and s.get("name") == "upload begin"]
+                  upload = [s for s in steps if isinstance(s, dict) and s.get("name") == "Upload prototype evidence"]
+                  if not begin:
+                      state = "no-attempt"
+                  elif begin[0].get("status") != "completed":
+                      state = "unknown"
+                  elif begin[0].get("conclusion") == "skipped":
+                      state = "no-attempt"
+                  elif begin[0].get("conclusion") == "success" and upload and upload[0].get("status") == "completed" and upload[0].get("conclusion") == "success":
+                      state = "known"
+                  else:
+                      state = "unknown"
+              print(f"prior run={rid} head={sha} state={state}")
+              if state == "unknown":
+                  unknown += 1
+                  print(f"prior-unknown reserved run={rid} bytes={RESERVE + ARCHIVE_ALLOWANCE}")
+          print(f"branch runs read={read} total_count={total} job-reads={job_reads} unknown={unknown}")
+
+          # (3) No run of ci.yml numbered up to this run's number was deleted.
+          data = get(f"/repos/{REPO}/actions/workflows/ci.yml/runs", {"per_page": 100})
+          total = integer(data.get("total_count") if isinstance(data, dict) else None, "all-runs.total_count")
+          items = items_of(data, "workflow_runs", "all-runs.workflow_runs")
+          k = 0
+          for r in items:
+              if not isinstance(r, dict):
+                  refuse("api-parse field=all-runs.item")
+              if integer(r.get("run_number"), "all-runs.run_number") > RUN_NUMBER:
+                  k += 1
+          print(f"all runs total_count={total} newer={k} run_number={RUN_NUMBER}")
+          if k >= 100:
+              refuse(f"newer-runs k={k}")
+          if total - k != RUN_NUMBER:
+              refuse(f"run-deleted listed={total - k} run_number={RUN_NUMBER}")
+
+          # Decision.
+          print(f"artifact-bytes live={live} reserved={unknown}x{RESERVE + ARCHIVE_ALLOWANCE} pack={pack} archive={ARCHIVE_ALLOWANCE} limit={LIMIT}")
+          if live + (RESERVE + ARCHIVE_ALLOWANCE) * unknown + pack + ARCHIVE_ALLOWANCE > LIMIT:
+              refuse(f"limit bytes={live + (RESERVE + ARCHIVE_ALLOWANCE) * unknown + pack + ARCHIVE_ALLOWANCE} limit={LIMIT}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write("upload=yes\n")
+          print("upload allowed")
+          PY
+
+      - name: upload begin
+        if: steps.guard.outputs.upload == 'yes'
+        run: echo "UPLOAD-BEGIN run=${GITHUB_RUN_ID}"
+
+      - name: Upload prototype evidence
+        if: steps.guard.outputs.upload == 'yes'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: prototype-evidence-FA2-T8
+          path: ${{ runner.temp }}/prototype-evidence.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+          overwrite: false
