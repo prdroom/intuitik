@@ -163,9 +163,6 @@ function CardNode({ data }) {
           {'\u2922'}
         </button>
       )}
-      {ns.name === 'shop' && node.kind === 'Deployment' && node.name === 'api' && (
-        <button type="button" className="ds-button ds-button--secondary">Restart</button>
-      )}
       <Ports geo={item.geo} />
     </NodeShell>
   );

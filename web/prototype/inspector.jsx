@@ -40,7 +40,7 @@ export function maskSecret(obj) {
   const out = { ...obj };
   for (const field of ['data', 'stringData']) {
     if (out[field]) {
-      out[field] = Object.fromEntries(Object.keys(out[field]).map((k) => [k, obj.metadata.name === 'db-credentials' ? (field === 'data' ? atob(out[field][k]) : out[field][k]) : S.hidden]));
+      out[field] = Object.fromEntries(Object.keys(out[field]).map((k) => [k, S.hidden]));
     }
   }
   return out;

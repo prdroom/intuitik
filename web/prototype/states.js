@@ -207,6 +207,7 @@ export const SCREENS = {
   P49: [{ listed: false }, [['openNs', 'payments']]],
   P50: [{}, [['tile', 'media']]],
   P51: [{}, [['tile', 'default']]],
+  P52: [{ paused: true }, []],
   P53: [{ updated: '14:33:10' }, []],
   P54: [{ replaced: true, updated: '14:32:41' }, [['tile', 'shop'], ['expand', 'u-shop-deployment-cart']]],
   P55: [{}, [['tile', 'kube-system']]],

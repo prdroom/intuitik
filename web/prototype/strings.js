@@ -13,7 +13,7 @@ export const SESSION_LINES = { 'B-NS': NO_SESSION, 'B-RF': REFUSED, 'B-ST': STOP
 // `sentence` is what every place of the screen shows for it (map card reason line, Inspector,
 // Needs attention).
 export const BRIDGE_SENTENCES = [
-  { id: 'a3-selector', state: 'broken', cause: 'selector app=web matches 0 Pods', sentence: 'Broken \u2014 selector app=web matches 0 Podz' },
+  { id: 'a3-selector', state: 'broken', cause: 'selector app=web matches 0 Pods', sentence: 'Broken \u2014 selector app=web matches 0 Pods' },
   { id: 'a4-named-port', state: 'broken', cause: 'targetPort "http": no container port with this name', sentence: 'Broken \u2014 targetPort "http": no container port with this name' },
   { id: 'a5-configmap', state: 'broken', cause: 'ConfigMap payments-config not found', sentence: 'Broken \u2014 ConfigMap payments-config not found' },
   { id: 'a6-storageclass', state: 'broken', cause: 'StorageClass "fast" not found (claim cannot bind)', sentence: 'Broken \u2014 StorageClass "fast" not found (claim cannot bind)' },
