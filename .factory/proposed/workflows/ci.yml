@@ -1788,6 +1788,7 @@ jobs:
           MARKER = "web/prototype/e2e/UPLOAD"
           PACK_LIMIT = 20000000
           RESERVE = 20000000
+          ARCHIVE_ALLOWANCE = 65536
           LIMIT = 300000000
 
           def skip(text):
@@ -1917,7 +1918,7 @@ jobs:
               print(f"prior run={rid} head={sha} state={state}")
               if state == "unknown":
                   unknown += 1
-                  print(f"prior-unknown reserved run={rid} bytes={RESERVE}")
+                  print(f"prior-unknown reserved run={rid} bytes={RESERVE + ARCHIVE_ALLOWANCE}")
           print(f"branch runs read={read} total_count={total} job-reads={job_reads} unknown={unknown}")
 
           # (3) No run of ci.yml numbered up to this run's number was deleted.
@@ -1937,9 +1938,9 @@ jobs:
               refuse(f"run-deleted listed={total - k} run_number={RUN_NUMBER}")
 
           # Decision.
-          print(f"artifact-bytes live={live} reserved={unknown}x{RESERVE} pack={pack} limit={LIMIT}")
-          if live + RESERVE * unknown + pack > LIMIT:
-              refuse(f"limit bytes={live + RESERVE * unknown + pack} limit={LIMIT}")
+          print(f"artifact-bytes live={live} reserved={unknown}x{RESERVE + ARCHIVE_ALLOWANCE} pack={pack} archive={ARCHIVE_ALLOWANCE} limit={LIMIT}")
+          if live + (RESERVE + ARCHIVE_ALLOWANCE) * unknown + pack + ARCHIVE_ALLOWANCE > LIMIT:
+              refuse(f"limit bytes={live + (RESERVE + ARCHIVE_ALLOWANCE) * unknown + pack + ARCHIVE_ALLOWANCE} limit={LIMIT}")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
               f.write("upload=yes\n")
           print("upload allowed")
