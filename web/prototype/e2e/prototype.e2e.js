@@ -442,6 +442,39 @@ test('C3 controls', async ({ browser }) => {
 // ---------------------------------------------------------------------------------------
 // C4: no Secret value in any screen, YAML view, copy, send preview or Review.
 
+// selectCard is how C4 selects a card (decision T8-RED-R2): as a user does, the card is first
+// brought inside the visible map area with the map's zoom-out control when it is not there,
+// then its header gets a normal click, and the Inspector must show that same object.
+async function inMap(page, locator) {
+  const b = await locator.boundingBox();
+  const c = await page.locator('.proto-map__canvas').boundingBox();
+  return Boolean(b && c && b.x >= c.x && b.y >= c.y && b.x + b.width <= c.x + c.width && b.y + b.height <= c.y + c.height);
+}
+
+async function selectCard(page, target) {
+  const [ns, kind, name] = target.split('/');
+  await page.locator('.proto[data-ready="1"]').waitFor();
+  const header = page.locator(`[data-control="card"][data-target="${target}"] .ds-card__header`);
+  let zoomedOut = 0;
+  while (!(await inMap(page, header)) && zoomedOut < 5) {
+    await page.locator('[data-control="zoom-out"]').click();
+    zoomedOut++;
+  }
+  await header.click();
+  const shown = await page.locator('.proto-inspector .ds-inspector').first().evaluate((el) => {
+    const row = Array.from(el.querySelectorAll('.ds-deflist__row')).find((r) => r.querySelector('dt').textContent === 'Namespace');
+    return {
+      kind: el.getAttribute('data-kind'),
+      name: (el.querySelector('.ds-inspector__name') || {}).textContent,
+      ns: row ? row.querySelector('dd').textContent : null,
+    };
+  });
+  log(`C4 selected ${target} zoom-out=${zoomedOut} inspector=${shown.ns}/${shown.kind}/${shown.name}`);
+  if (shown.ns !== ns || shown.kind !== kind || shown.name !== name) {
+    throw new Error(`C4 selection of ${target} shows ${shown.ns}/${shown.kind}/${shown.name} in the Inspector`);
+  }
+}
+
 test('C4 secret canary', async ({ browser }) => {
   const table = fixedTable('web/prototype/data/canaries.json', 'C4');
   expect(table, 'canaries.json equals the fixed table').not.toBeNull();
@@ -481,7 +514,7 @@ test('C4 secret canary', async ({ browser }) => {
     } else {
       await goScreen(page, 'P01');
       await page.locator(`[data-control="tile"][data-target="${ns}"]`).click();
-      await clickCard(page, `${ns}/Secret/${name}`);
+      await selectCard(page, `${ns}/Secret/${name}`);
       await page.locator('[data-control="inspector-subtab"][data-subtab="yaml"]').click();
       await page.locator('.proto[data-ready="1"] .proto-yaml').waitFor();
       place = `yaml ${pair} DOM`;
@@ -505,7 +538,7 @@ test('C4 secret canary', async ({ browser }) => {
     const [refNs, refTarget] = referrer[pair];
     await goScreen(page, 'P01');
     await page.locator(`[data-control="tile"][data-target="${refNs}"]`).click();
-    await clickCard(page, refTarget);
+    await selectCard(page, refTarget);
     await page.locator('.proto-inspector [data-control="ask-why"]').click();
     await page.locator('[data-send-preview]').waitFor();
     const preview = await page.locator('[data-send-preview]').innerText();

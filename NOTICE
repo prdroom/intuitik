@@ -7,6 +7,10 @@ This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 Attribution notices for third-party code included in this product are listed in
 this section.
 
+The npm packages from @dagrejs/dagre to zustand below are used only by the relation
+map prototype (web/prototype, packet FA2-T8), as listed in web/package-lock.json;
+they are not part of the product build.
+
 ### Geist and Geist Mono fonts (SIL Open Font License 1.1)
 
 The design system bundles the Geist and Geist Mono fonts of the Geist project
@@ -16,18 +20,6 @@ Open Font License, Version 1.1.
 Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font)
 
 The licence text is in web/src/design-system/fonts/OFL.txt.
-
-## Kubernetes documentation (CC BY 4.0)
-
-Notices for content adapted from the Kubernetes documentation (kubernetes.io),
-licensed under the Creative Commons Attribution 4.0 International License
-(CC BY 4.0), are listed in this section.
-
-## Prototype renderer packages (npm)
-
-The relation map prototype (web/prototype, packet FA2-T8) uses the renderer packages
-@xyflow/react, @dagrejs/dagre, sigma, graphology and graphology-types and the packages
-they depend on, as listed in web/package-lock.json. They are not part of the product build.
 
 ### @dagrejs/dagre 3.1.3 (MIT)
 
@@ -137,3 +129,9 @@ Copyright (c) Meta Platforms, Inc. and affiliates.
 ### zustand 4.5.7 (MIT)
 
 Copyright (c) 2019 Paul Henschel
+
+## Kubernetes documentation (CC BY 4.0)
+
+Notices for content adapted from the Kubernetes documentation (kubernetes.io),
+licensed under the Creative Commons Attribution 4.0 International License
+(CC BY 4.0), are listed in this section.
