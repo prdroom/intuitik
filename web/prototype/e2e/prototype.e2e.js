@@ -506,19 +506,14 @@ test('C4 secret canary', async ({ browser }) => {
   const referrer = { 'shop/db-credentials': ['shop', 'shop/Deployment/api'], 'media/media-tls': ['media', 'media/Deployment/transcoder'] };
   for (const pair of opened) {
     const [ns, name] = pair.split('/');
-    // YAML view and its Copy.
-    let place;
-    if (pair === 'shop/db-credentials') {
-      await goScreen(page, 'P21');
-      place = 'P21 DOM';
-    } else {
-      await goScreen(page, 'P01');
-      await page.locator(`[data-control="tile"][data-target="${ns}"]`).click();
-      await selectCard(page, `${ns}/Secret/${name}`);
-      await page.locator('[data-control="inspector-subtab"][data-subtab="yaml"]').click();
-      await page.locator('.proto[data-ready="1"] .proto-yaml').waitFor();
-      place = `yaml ${pair} DOM`;
-    }
+    // YAML view and its Copy: every Secret of the opened set is selected by a normal click on
+    // its card header with the Inspector identity check (decision 48b9d689, correction 51d86b2b).
+    await goScreen(page, 'P01');
+    await page.locator(`[data-control="tile"][data-target="${ns}"]`).click();
+    await selectCard(page, `${ns}/Secret/${name}`);
+    await page.locator('[data-control="inspector-subtab"][data-subtab="yaml"]').click();
+    await page.locator('.proto[data-ready="1"] .proto-yaml').waitFor();
+    const place = `yaml ${pair} DOM`;
     await page.locator('.proto-yaml .ds-code').waitFor();
     const yamlText = await page.locator('.proto-yaml').innerText();
     counts.yaml++;
