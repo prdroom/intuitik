@@ -145,7 +145,8 @@ const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 // checkNotices compares the notice file with the installed packages: the set of package
 // sections must equal the final list of the module list (which holds the fixed set), each
 // section's version must equal the head lock and the installed package, and each license
-// file of the installed package must be in its section with the same bytes.
+// file of the installed package must be in its section with the same bytes, and no section may
+// hold the same license file name twice.
 export function checkNotices(noticeBytes, modules, head, nodeModules) {
   const lines = [];
   const findings = [];
@@ -203,14 +204,25 @@ export function checkNotices(noticeBytes, modules, head, nodeModules) {
     if (s.files.length === 0 || names.length === 0) {
       findings.push(`${path} has no license file`);
     }
+    // Two blocks of one section whose file names are equal with ASCII case ignored are a
+    // duplicate (hoan bbf1c78e); the names are kept as written for messages and bytes.
+    const seen = new Map();
+    for (const f of s.files) {
+      const key = f.file.replace(/[A-Z]/g, (c) => c.toLowerCase());
+      if (seen.has(key)) {
+        findings.push(`${path} has a duplicate license file: ${seen.get(key)} and ${f.file}`);
+      } else {
+        seen.set(key, f.file);
+      }
+    }
     for (const f of s.files) {
       if (!names.includes(f.file)) {
         findings.push(`${path}/${f.file} is in the section but not installed`);
       }
     }
     for (const name of names) {
-      const f = s.files.find((x) => x.file === name);
-      if (!f) {
+      const blocks = s.files.filter((x) => x.file === name);
+      if (blocks.length === 0) {
         missing++;
         findings.push(`${path}/${name} is missing from its section`);
         continue;
@@ -222,10 +234,12 @@ export function checkNotices(noticeBytes, modules, head, nodeModules) {
         findings.push(`${path}/${name} cannot be read: ${err.message}`);
         continue;
       }
-      files++;
-      lines.push(`${path} version=${s.version} ${name} bytes=${f.bytes.length} sha256=${sha256(f.bytes)}${disk.equals(f.bytes) ? '' : ' DIFFERS'}`);
-      if (!disk.equals(f.bytes)) {
-        findings.push(`${path}/${name} differs from the installed file`);
+      for (const f of blocks) {
+        files++;
+        lines.push(`${path} version=${s.version} ${name} bytes=${f.bytes.length} sha256=${sha256(f.bytes)}${disk.equals(f.bytes) ? '' : ' DIFFERS'}`);
+        if (!disk.equals(f.bytes)) {
+          findings.push(`${path}/${name} differs from the installed file`);
+        }
       }
     }
   }
