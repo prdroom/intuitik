@@ -1,0 +1,155 @@
+{
+  "namespace": "kube-system",
+  "namespaceState": {
+    "state": "ok",
+    "existenceChecked": true
+  },
+  "nodes": [
+    {
+      "uid": "u-kube-system-deployment-coredns",
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "name": "coredns",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-kube-system-replicaset-coredns-559f",
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "coredns-559f",
+      "parent": "u-kube-system-deployment-coredns",
+      "owner": {
+        "state": "contained"
+      }
+    },
+    {
+      "uid": "u-kube-system-pod-coredns-559f-j2",
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "name": "coredns-559f-j2",
+      "parent": "u-kube-system-replicaset-coredns-559f",
+      "owner": {
+        "state": "contained"
+      },
+      "nodeState": {
+        "state": "healthy"
+      }
+    },
+    {
+      "uid": "u-kube-system-pod-coredns-559f-k8",
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "name": "coredns-559f-k8",
+      "parent": "u-kube-system-replicaset-coredns-559f",
+      "owner": {
+        "state": "contained"
+      },
+      "nodeState": {
+        "state": "healthy"
+      }
+    },
+    {
+      "uid": "u-kube-system-service-kube-dns",
+      "apiVersion": "v1",
+      "kind": "Service",
+      "name": "kube-dns",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-kube-system-configmap-coredns",
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "name": "coredns",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    }
+  ],
+  "refused": [],
+  "bridges": [
+    {
+      "kind": "service-pod",
+      "from": {
+        "uid": "u-kube-system-service-kube-dns"
+      },
+      "to": {
+        "group": "",
+        "namespace": "kube-system",
+        "kind": "Pod",
+        "name": "coredns-559f-j2",
+        "uid": "u-kube-system-pod-coredns-559f-j2"
+      },
+      "state": "connected",
+      "settings": [
+        "selector k8s-app=kube-dns",
+        ":53\u219253"
+      ]
+    },
+    {
+      "kind": "service-pod",
+      "from": {
+        "uid": "u-kube-system-service-kube-dns"
+      },
+      "to": {
+        "group": "",
+        "namespace": "kube-system",
+        "kind": "Pod",
+        "name": "coredns-559f-k8",
+        "uid": "u-kube-system-pod-coredns-559f-k8"
+      },
+      "state": "connected",
+      "settings": [
+        "selector k8s-app=kube-dns",
+        ":53\u219253"
+      ]
+    },
+    {
+      "kind": "pod-configmap",
+      "from": {
+        "uid": "u-kube-system-pod-coredns-559f-j2"
+      },
+      "to": {
+        "group": "",
+        "namespace": "kube-system",
+        "kind": "ConfigMap",
+        "name": "coredns",
+        "uid": "u-kube-system-configmap-coredns"
+      },
+      "state": "connected",
+      "settings": [
+        "volume coredns:/etc/coredns: Corefile"
+      ],
+      "optional": [
+        false
+      ]
+    },
+    {
+      "kind": "pod-configmap",
+      "from": {
+        "uid": "u-kube-system-pod-coredns-559f-k8"
+      },
+      "to": {
+        "group": "",
+        "namespace": "kube-system",
+        "kind": "ConfigMap",
+        "name": "coredns",
+        "uid": "u-kube-system-configmap-coredns"
+      },
+      "state": "connected",
+      "settings": [
+        "volume coredns:/etc/coredns: Corefile"
+      ],
+      "optional": [
+        false
+      ]
+    }
+  ],
+  "unsupported": []
+}

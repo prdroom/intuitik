@@ -1,0 +1,20 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "name": "cache",
+    "namespace": "db",
+    "uid": "u-db-deployment-cache",
+    "labels": {
+      "app": "cache"
+    }
+  },
+  "spec": {
+    "replicas": 2,
+    "selector": {
+      "matchLabels": {
+        "app": "cache"
+      }
+    }
+  }
+}

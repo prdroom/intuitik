@@ -1,0 +1,32 @@
+{
+  "namespaces": {
+    "listed": true,
+    "items": [
+      "batch",
+      "db",
+      "default",
+      "kube-system",
+      "local-path-storage",
+      "media",
+      "payments",
+      "shop"
+    ],
+    "from": ""
+  },
+  "band": {
+    "nodes": {
+      "total": 1,
+      "ready": 1
+    },
+    "storageClasses": [
+      {
+        "name": "standard",
+        "default": true
+      }
+    ],
+    "persistentVolumes": {
+      "total": 0
+    }
+  },
+  "refused": []
+}

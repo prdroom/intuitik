@@ -1,0 +1,18 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "ReplicaSet",
+  "metadata": {
+    "name": "crash-7d4b",
+    "namespace": "batch",
+    "uid": "u-batch-replicaset-crash-7d4b",
+    "ownerReferences": [
+      {
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "name": "crash",
+        "uid": "u-batch-deployment-crash",
+        "controller": true
+      }
+    ]
+  }
+}

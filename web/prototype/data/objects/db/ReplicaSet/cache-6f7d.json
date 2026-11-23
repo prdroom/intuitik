@@ -1,0 +1,18 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "ReplicaSet",
+  "metadata": {
+    "name": "cache-6f7d",
+    "namespace": "db",
+    "uid": "u-db-replicaset-cache-6f7d",
+    "ownerReferences": [
+      {
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "name": "cache",
+        "uid": "u-db-deployment-cache",
+        "controller": true
+      }
+    ]
+  }
+}

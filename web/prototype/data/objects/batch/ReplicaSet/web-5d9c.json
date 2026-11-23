@@ -1,0 +1,9 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "ReplicaSet",
+  "metadata": {
+    "name": "web-5d9c",
+    "namespace": "batch",
+    "uid": "u-batch-replicaset-web-5d9c"
+  }
+}

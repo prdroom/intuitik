@@ -1,0 +1,18 @@
+{
+  "packet": "FA2-T8 6.4: the T12 L graph file, committed as test/e2e/prototype/testdata/l-graph.tar.gz",
+  "file": "l-graph.bin",
+  "sha256": "6a1bd4382805a3a66e78ac8d3a101bbfdf4943eca386b47a1cd84db07d793634",
+  "bytes": 1321711,
+  "perfBig": {
+    "member": "ns-perf-big.json",
+    "bytes": 1419745,
+    "sha256": "6e7de83016e4a7e1aaf75f0bdaaa19f8d02b70f83e413e542d66c65919f684a2"
+  },
+  "derived": {
+    "pods": 500,
+    "nodes": 908,
+    "bridges": 1160,
+    "bytes": 581045,
+    "sha256": "68705fbbeec7210420124f28ae5f5f169275601c93ef590826f0e45901c6ce90"
+  }
+}

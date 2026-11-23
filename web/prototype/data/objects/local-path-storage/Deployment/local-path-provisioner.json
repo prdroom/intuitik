@@ -1,0 +1,20 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "name": "local-path-provisioner",
+    "namespace": "local-path-storage",
+    "uid": "u-local-path-storage-deployment-local-path-provisioner",
+    "labels": {
+      "app": "local-path-provisioner"
+    }
+  },
+  "spec": {
+    "replicas": 2,
+    "selector": {
+      "matchLabels": {
+        "app": "local-path-provisioner"
+      }
+    }
+  }
+}

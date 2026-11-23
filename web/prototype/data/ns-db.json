@@ -1,0 +1,239 @@
+{
+  "namespace": "db",
+  "namespaceState": {
+    "state": "ok",
+    "existenceChecked": true
+  },
+  "nodes": [
+    {
+      "uid": "u-db-statefulset-db",
+      "apiVersion": "apps/v1",
+      "kind": "StatefulSet",
+      "name": "db",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-db-pod-db-0",
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "name": "db-0",
+      "parent": "u-db-statefulset-db",
+      "owner": {
+        "state": "contained"
+      },
+      "nodeState": {
+        "state": "progressing",
+        "text": "Pending \u00b7 scheduling"
+      }
+    },
+    {
+      "uid": "u-db-deployment-cache",
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "name": "cache",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-db-replicaset-cache-6f7d",
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "cache-6f7d",
+      "parent": "u-db-deployment-cache",
+      "owner": {
+        "state": "contained"
+      }
+    },
+    {
+      "uid": "u-db-pod-cache-6f7d-w5",
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "name": "cache-6f7d-w5",
+      "parent": "u-db-replicaset-cache-6f7d",
+      "owner": {
+        "state": "contained"
+      },
+      "nodeState": {
+        "state": "progressing",
+        "text": "Pending \u00b7 ContainerCreating"
+      }
+    },
+    {
+      "uid": "u-db-service-db",
+      "apiVersion": "v1",
+      "kind": "Service",
+      "name": "db",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-db-persistentvolumeclaim-data-db-0",
+      "apiVersion": "v1",
+      "kind": "PersistentVolumeClaim",
+      "name": "data-db-0",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-db-persistentvolumeclaim-data-cache",
+      "apiVersion": "v1",
+      "kind": "PersistentVolumeClaim",
+      "name": "data-cache",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-db-storageclass-standard",
+      "apiVersion": "storage.k8s.io/v1",
+      "kind": "StorageClass",
+      "name": "standard",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    }
+  ],
+  "refused": [],
+  "bridges": [
+    {
+      "kind": "service-pod",
+      "from": {
+        "uid": "u-db-service-db"
+      },
+      "to": {
+        "group": "",
+        "namespace": "db",
+        "kind": "Pod",
+        "name": "db-0",
+        "uid": "u-db-pod-db-0"
+      },
+      "state": "warning",
+      "settings": [
+        "selector app=db",
+        ":5432\u21929000"
+      ],
+      "text": "targetPort 9000 is not declared by the container (traffic not verifiable)"
+    },
+    {
+      "kind": "pod-pvc",
+      "from": {
+        "uid": "u-db-pod-db-0"
+      },
+      "to": {
+        "group": "",
+        "namespace": "db",
+        "kind": "PersistentVolumeClaim",
+        "name": "data-db-0",
+        "uid": "u-db-persistentvolumeclaim-data-db-0"
+      },
+      "state": "connected",
+      "settings": [
+        "volume data-db-0"
+      ]
+    },
+    {
+      "kind": "pod-pvc",
+      "from": {
+        "uid": "u-db-pod-cache-6f7d-w5"
+      },
+      "to": {
+        "group": "",
+        "namespace": "db",
+        "kind": "PersistentVolumeClaim",
+        "name": "data-cache",
+        "uid": "u-db-persistentvolumeclaim-data-cache"
+      },
+      "state": "connected",
+      "settings": [
+        "volume data-cache"
+      ]
+    },
+    {
+      "kind": "pvc-pv",
+      "from": {
+        "uid": "u-db-persistentvolumeclaim-data-db-0"
+      },
+      "to": {
+        "group": "",
+        "namespace": "",
+        "kind": "PersistentVolume",
+        "name": "",
+        "uid": null
+      },
+      "state": "waiting",
+      "settings": [
+        "access ReadWriteOnce",
+        "capacity 1Gi",
+        "class standard"
+      ],
+      "text": "data-db-0 waits for consumer Pod db-0"
+    },
+    {
+      "kind": "pvc-storageclass",
+      "from": {
+        "uid": "u-db-persistentvolumeclaim-data-db-0"
+      },
+      "to": {
+        "group": "storage.k8s.io",
+        "namespace": "",
+        "kind": "StorageClass",
+        "name": "standard",
+        "uid": "u-db-storageclass-standard"
+      },
+      "state": "connected",
+      "settings": [
+        "class standard"
+      ]
+    },
+    {
+      "kind": "pvc-pv",
+      "from": {
+        "uid": "u-db-persistentvolumeclaim-data-cache"
+      },
+      "to": {
+        "group": "",
+        "namespace": "",
+        "kind": "PersistentVolume",
+        "name": "",
+        "uid": null
+      },
+      "state": "broken",
+      "settings": [
+        "access ReadWriteOnce",
+        "capacity 5Gi",
+        "class fast"
+      ],
+      "text": "StorageClass \"fast\" not found (claim cannot bind)"
+    },
+    {
+      "kind": "pvc-storageclass",
+      "from": {
+        "uid": "u-db-persistentvolumeclaim-data-cache"
+      },
+      "to": {
+        "group": "storage.k8s.io",
+        "namespace": "",
+        "kind": "StorageClass",
+        "name": "fast",
+        "uid": null
+      },
+      "state": "broken",
+      "settings": [
+        "class fast"
+      ],
+      "text": "StorageClass \"fast\" not found (claim cannot bind)"
+    }
+  ],
+  "unsupported": []
+}

@@ -1,0 +1,377 @@
+{
+  "about": "FA2-T8 K4 expected Inspector state per screen with a selection (hoan 67a05f5d), derived from the raw fixtures by the rules of UI.md 4.3, 4.4 and 4.5 without product code. The Inspector shows the state in the element with data-inspector-state (value = state, text = state text) and the issue count in the element with data-inspector-issues (value = count, text = issuesText).",
+  "rules": [
+    "It reads web/prototype/data/ns-<namespace>.json and applies UI.md 4.3 / 4.4 / 4.5 by these",
+    "rules; it imports no prototype module and reads no DOM. The selection of each screen is",
+    "copied by hand from the screen table (packet 3.3) and the presets.",
+    "- Pods of a resource: the resource itself when it is a Pod, else every Pod whose parent",
+    "  chain reaches it.",
+    "- Box of a bridge: the top of its source's parent chain (a Pod inside a workload belongs to",
+    "  the workload's card). Rows of a box: one per (bridge kind, target); all service-pod",
+    "  bridges of one Service share one target, the Pods it selects (UI.md 4.5 \"one row per",
+    "  target\"). A row is broken when one of its bridges is.",
+    "- Broken links of a resource: its broken rows when it is a box (a top-level resource), else 0.",
+    "- State: the first of failing, unknown, progressing found among its Pods, with that Pod's",
+    "  text; \" \u00b7 N broken link\" is appended when it also has broken links (UI.md 4.3). Else",
+    "  \"attention\" with \"N broken link\" when it has broken links, else healthy \"Healthy\".",
+    "- Issues (UI.md 4.3 propagation): Failing Pods plus broken links. Text \"No issues\",",
+    "  \"1 issue\", \"N issues\".",
+    "- A selected link: its state, \"Connected\" or the UI.md 4.4 sentence; issues 1 when broken.",
+    "- A selected empty place (ghost): the state and sentence of the row that points to it."
+  ],
+  "notCompared": [
+    {
+      "screen": "P27",
+      "reason": "Diagnose tab open; the selection is shown as the Diagnose \"About\" line, not the Details state (UI.md 7)"
+    },
+    {
+      "screen": "P28",
+      "reason": "Diagnose tab open; the selection is shown as the Diagnose \"About\" line, not the Details state (UI.md 7)"
+    },
+    {
+      "screen": "P31",
+      "reason": "Diagnose tab open; the selection is shown as the Diagnose \"About\" line, not the Details state (UI.md 7)"
+    },
+    {
+      "screen": "P32",
+      "reason": "Diagnose tab open; the selection is shown as the Diagnose \"About\" line, not the Details state (UI.md 7)"
+    },
+    {
+      "screen": "P33",
+      "reason": "Diagnose tab open; the selection is shown as the Diagnose \"About\" line, not the Details state (UI.md 7)"
+    },
+    {
+      "screen": "P34",
+      "reason": "Diagnose tab open; the selection is shown as the Diagnose \"About\" line, not the Details state (UI.md 7)"
+    },
+    {
+      "screen": "P35",
+      "reason": "Diagnose tab open; the selection is shown as the Diagnose \"About\" line, not the Details state (UI.md 7)"
+    },
+    {
+      "screen": "P36",
+      "reason": "Diagnose tab open; the selection is shown as the Diagnose \"About\" line, not the Details state (UI.md 7)"
+    }
+  ],
+  "screens": [
+    {
+      "screen": "P03",
+      "selection": "node",
+      "uid": "u-shop-deployment-cart",
+      "kind": "Deployment",
+      "state": "healthy",
+      "text": "Healthy",
+      "issues": 0,
+      "issuesText": "No issues",
+      "input": "web/prototype/data/ns-shop.json: node u-shop-deployment-cart; Pods ['u-shop-pod-cart-5b7d-k4=healthy', 'u-shop-pod-cart-5b7d-m9=healthy']; broken rows from bridges []"
+    },
+    {
+      "screen": "P04",
+      "selection": "node",
+      "uid": "u-batch-deployment-crash",
+      "kind": "Deployment",
+      "state": "failing",
+      "text": "CrashLoopBackOff \u00b7 7 restarts",
+      "issues": 1,
+      "issuesText": "1 issue",
+      "input": "web/prototype/data/ns-batch.json: node u-batch-deployment-crash; Pods ['u-batch-pod-crash-7d4b-p6=failing']; broken rows from bridges []"
+    },
+    {
+      "screen": "P05",
+      "selection": "node",
+      "uid": "u-media-deployment-transcoder",
+      "kind": "Deployment",
+      "state": "failing",
+      "text": "ImagePullBackOff \u00b7 registry.example.com/media/transcoder:2.4-missing",
+      "issues": 1,
+      "issuesText": "1 issue",
+      "input": "web/prototype/data/ns-media.json: node u-media-deployment-transcoder; Pods ['u-media-pod-transcoder-58d6-r7=failing']; broken rows from bridges []"
+    },
+    {
+      "screen": "P06",
+      "selection": "node",
+      "uid": "u-shop-service-web",
+      "kind": "Service",
+      "state": "attention",
+      "text": "1 broken link",
+      "issues": 1,
+      "issuesText": "1 issue",
+      "input": "web/prototype/data/ns-shop.json: node u-shop-service-web; Pods []; broken rows from bridges [3]"
+    },
+    {
+      "screen": "P07",
+      "selection": "node",
+      "uid": "u-shop-service-api",
+      "kind": "Service",
+      "state": "attention",
+      "text": "1 broken link",
+      "issues": 1,
+      "issuesText": "1 issue",
+      "input": "web/prototype/data/ns-shop.json: node u-shop-service-api; Pods []; broken rows from bridges [4, 5]"
+    },
+    {
+      "screen": "P08",
+      "selection": "node",
+      "uid": "u-payments-deployment-payments-api",
+      "kind": "Deployment",
+      "state": "failing",
+      "text": "CreateContainerConfigError \u00b7 1 broken link",
+      "issues": 2,
+      "issuesText": "2 issues",
+      "input": "web/prototype/data/ns-payments.json: node u-payments-deployment-payments-api; Pods ['u-payments-pod-payments-api-6d8f-t2=failing']; broken rows from bridges [1]"
+    },
+    {
+      "screen": "P09",
+      "selection": "node",
+      "uid": "u-db-persistentvolumeclaim-data-cache",
+      "kind": "PersistentVolumeClaim",
+      "state": "attention",
+      "text": "2 broken link",
+      "issues": 2,
+      "issuesText": "2 issues",
+      "input": "web/prototype/data/ns-db.json: node u-db-persistentvolumeclaim-data-cache; Pods []; broken rows from bridges [5, 6]"
+    },
+    {
+      "screen": "P10",
+      "selection": "link",
+      "uid": "u-shop-service-cart|service-pod|*",
+      "kind": "service-pod",
+      "state": "connected",
+      "text": "Connected",
+      "issues": 0,
+      "issuesText": "No issues",
+      "input": "web/prototype/data/ns-shop.json: bridges [6, 7]"
+    },
+    {
+      "screen": "P11",
+      "selection": "link",
+      "uid": "u-db-persistentvolumeclaim-data-db-0|pvc-pv|*",
+      "kind": "pvc-pv",
+      "state": "waiting",
+      "text": "Waiting \u2014 data-db-0 waits for consumer Pod db-0",
+      "issues": 0,
+      "issuesText": "No issues",
+      "input": "web/prototype/data/ns-db.json: bridges [3]"
+    },
+    {
+      "screen": "P12",
+      "selection": "link",
+      "uid": "u-payments-deployment-payments-api|pod-configmap|payments-config",
+      "kind": "pod-configmap",
+      "state": "broken",
+      "text": "Broken \u2014 ConfigMap payments-config not found",
+      "issues": 1,
+      "issuesText": "1 issue",
+      "input": "web/prototype/data/ns-payments.json: bridges [1]"
+    },
+    {
+      "screen": "P13",
+      "selection": "link",
+      "uid": "u-db-service-db|service-pod|*",
+      "kind": "service-pod",
+      "state": "warning",
+      "text": "Warning \u2014 targetPort 9000 is not declared by the container (traffic not verifiable)",
+      "issues": 0,
+      "issuesText": "No issues",
+      "input": "web/prototype/data/ns-db.json: bridges [0]"
+    },
+    {
+      "screen": "P14",
+      "selection": "link",
+      "uid": "u-payments-deployment-payments-api|pod-secret|*",
+      "kind": "pod-secret",
+      "state": "unknown",
+      "text": "Unknown \u2014 no permission to read Secrets (the view role does not include Secrets)",
+      "issues": 0,
+      "issuesText": "No issues",
+      "input": "web/prototype/data/ns-payments.json: bridges [3]"
+    },
+    {
+      "screen": "P15",
+      "selection": "link",
+      "uid": "u-payments-deployment-payments-api|pod-configmap|feature-flags",
+      "kind": "pod-configmap",
+      "state": "optional",
+      "text": "Optional \u2014 ConfigMap feature-flags not found",
+      "issues": 0,
+      "issuesText": "No issues",
+      "input": "web/prototype/data/ns-payments.json: bridges [2]"
+    },
+    {
+      "screen": "P16",
+      "selection": "ghost",
+      "uid": "ghost:Pod:app=web",
+      "kind": "Pod",
+      "state": "broken",
+      "text": "Broken \u2014 selector app=web matches 0 Pods",
+      "issues": 1,
+      "issuesText": "1 issue",
+      "input": "web/prototype/data/ns-shop.json: bridge 3"
+    },
+    {
+      "screen": "P17",
+      "selection": "ghost",
+      "uid": "ghost:ConfigMap:payments-config",
+      "kind": "ConfigMap",
+      "state": "broken",
+      "text": "Broken \u2014 ConfigMap payments-config not found",
+      "issues": 1,
+      "issuesText": "1 issue",
+      "input": "web/prototype/data/ns-payments.json: bridge 1"
+    },
+    {
+      "screen": "P18",
+      "selection": "ghost",
+      "uid": "ghost:StorageClass:fast",
+      "kind": "StorageClass",
+      "state": "broken",
+      "text": "Broken \u2014 StorageClass \"fast\" not found (claim cannot bind)",
+      "issues": 1,
+      "issuesText": "1 issue",
+      "input": "web/prototype/data/ns-db.json: bridge 6"
+    },
+    {
+      "screen": "P19",
+      "selection": "ghost",
+      "uid": "ghost:Service:checkout",
+      "kind": "Service",
+      "state": "broken",
+      "text": "Broken \u2014 Service checkout not found",
+      "issues": 1,
+      "issuesText": "1 issue",
+      "input": "web/prototype/data/ns-shop.json: bridge 2"
+    },
+    {
+      "screen": "P20",
+      "selection": "node",
+      "uid": "u-shop-deployment-api",
+      "kind": "Deployment",
+      "state": "healthy",
+      "text": "Healthy",
+      "issues": 0,
+      "issuesText": "No issues",
+      "input": "web/prototype/data/ns-shop.json: node u-shop-deployment-api; Pods ['u-shop-pod-api-7f9c-q2=healthy', 'u-shop-pod-api-7f9c-x8=healthy']; broken rows from bridges []"
+    },
+    {
+      "screen": "P21",
+      "selection": "node",
+      "uid": "u-shop-secret-db-credentials",
+      "kind": "Secret",
+      "state": "healthy",
+      "text": "Healthy",
+      "issues": 0,
+      "issuesText": "No issues",
+      "input": "web/prototype/data/ns-shop.json: node u-shop-secret-db-credentials; Pods []; broken rows from bridges []"
+    },
+    {
+      "screen": "P22",
+      "selection": "node",
+      "uid": "u-shop-service-web",
+      "kind": "Service",
+      "state": "attention",
+      "text": "1 broken link",
+      "issues": 1,
+      "issuesText": "1 issue",
+      "input": "web/prototype/data/ns-shop.json: node u-shop-service-web; Pods []; broken rows from bridges [3]"
+    },
+    {
+      "screen": "P23",
+      "selection": "node",
+      "uid": "u-shop-pod-cart-5b7d-k4",
+      "kind": "Pod",
+      "state": "healthy",
+      "text": "Healthy",
+      "issues": 0,
+      "issuesText": "No issues",
+      "input": "web/prototype/data/ns-shop.json: node u-shop-pod-cart-5b7d-k4; Pods ['u-shop-pod-cart-5b7d-k4=healthy']; broken rows from bridges []"
+    },
+    {
+      "screen": "P24",
+      "selection": "node",
+      "uid": "u-batch-pod-crash-7d4b-p6",
+      "kind": "Pod",
+      "state": "failing",
+      "text": "CrashLoopBackOff \u00b7 7 restarts",
+      "issues": 1,
+      "issuesText": "1 issue",
+      "input": "web/prototype/data/ns-batch.json: node u-batch-pod-crash-7d4b-p6; Pods ['u-batch-pod-crash-7d4b-p6=failing']; broken rows from bridges []"
+    },
+    {
+      "screen": "P25",
+      "selection": "link",
+      "uid": "u-shop-service-web|service-pod|*",
+      "kind": "service-pod",
+      "state": "broken",
+      "text": "Broken \u2014 selector app=web matches 0 Pods",
+      "issues": 1,
+      "issuesText": "1 issue",
+      "input": "web/prototype/data/ns-shop.json: bridges [3]"
+    },
+    {
+      "screen": "P26",
+      "selection": "node",
+      "uid": "u-payments-deployment-payments-api",
+      "kind": "Deployment",
+      "state": "failing",
+      "text": "CreateContainerConfigError \u00b7 1 broken link",
+      "issues": 2,
+      "issuesText": "2 issues",
+      "input": "web/prototype/data/ns-payments.json: node u-payments-deployment-payments-api; Pods ['u-payments-pod-payments-api-6d8f-t2=failing']; broken rows from bridges [1]"
+    },
+    {
+      "screen": "P45",
+      "selection": "node",
+      "uid": "u-shop-deployment-cart",
+      "kind": "Deployment",
+      "state": "healthy",
+      "text": "Healthy",
+      "issues": 0,
+      "issuesText": "No issues",
+      "input": "web/prototype/data/ns-shop.json: node u-shop-deployment-cart; Pods ['u-shop-pod-cart-5b7d-k4=healthy', 'u-shop-pod-cart-5b7d-m9=healthy']; broken rows from bridges []"
+    },
+    {
+      "screen": "P54",
+      "selection": "node",
+      "uid": "u-shop-deployment-cart",
+      "kind": "Deployment",
+      "state": "healthy",
+      "text": "Healthy",
+      "issues": 0,
+      "issuesText": "No issues",
+      "input": "web/prototype/data/ns-shop.json: node u-shop-deployment-cart; Pods ['u-shop-pod-cart-5b7d-k4=healthy', 'u-shop-pod-cart-5b7d-m9=healthy']; broken rows from bridges []"
+    },
+    {
+      "screen": "P59",
+      "selection": "node",
+      "uid": "u-payments-pod-payments-api-6d8f-t2",
+      "kind": "Pod",
+      "state": "failing",
+      "text": "CreateContainerConfigError",
+      "issues": 1,
+      "issuesText": "1 issue",
+      "input": "web/prototype/data/ns-payments.json: node u-payments-pod-payments-api-6d8f-t2; Pods ['u-payments-pod-payments-api-6d8f-t2=failing']; broken rows from bridges []"
+    },
+    {
+      "screen": "P64",
+      "selection": "node",
+      "uid": "u-shop-deployment-api",
+      "kind": "Deployment",
+      "state": "healthy",
+      "text": "Healthy",
+      "issues": 0,
+      "issuesText": "No issues",
+      "input": "web/prototype/data/ns-shop.json: node u-shop-deployment-api; Pods ['u-shop-pod-api-7f9c-q2=healthy', 'u-shop-pod-api-7f9c-x8=healthy']; broken rows from bridges []"
+    },
+    {
+      "screen": "P65",
+      "selection": "node",
+      "uid": "u-shop-deployment-api",
+      "kind": "Deployment",
+      "state": "healthy",
+      "text": "Healthy",
+      "issues": 0,
+      "issuesText": "No issues",
+      "input": "web/prototype/data/ns-shop.json: node u-shop-deployment-api; Pods ['u-shop-pod-api-7f9c-q2=healthy', 'u-shop-pod-api-7f9c-x8=healthy']; broken rows from bridges []"
+    }
+  ]
+}

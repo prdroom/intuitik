@@ -1,0 +1,18 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "ReplicaSet",
+  "metadata": {
+    "name": "transcoder-58d6",
+    "namespace": "media",
+    "uid": "u-media-replicaset-transcoder-58d6",
+    "ownerReferences": [
+      {
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "name": "transcoder",
+        "uid": "u-media-deployment-transcoder",
+        "controller": true
+      }
+    ]
+  }
+}

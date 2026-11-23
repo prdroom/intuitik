@@ -1,0 +1,124 @@
+/* Layout of the relation map prototype (UI.md 2): top bar, Needs attention (left), map
+   (centre), Inspector (right). Below 1,100 px the Inspector lies over the map; below 760 px
+   Needs attention folds above the map. The control strip at the top is prototype-only. */
+
+html, body { margin: 0; height: 100%; }
+body { background: var(--color-canvas); color: var(--color-ink); font-family: var(--font-sans); font-size: var(--type-body-size); }
+#prototype { height: 100%; }
+.proto { display: flex; flex-direction: column; height: 100%; }
+
+.proto-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 3px 6px; background: var(--color-inset); border-bottom: 2px dashed var(--color-faint); font-size: 10px; }
+.proto-strip__title { margin-right: 6px; color: var(--color-sub); font-weight: 600; }
+.proto-strip__button { padding: 0 3px; font: inherit; font-family: var(--font-mono); color: var(--color-sub); background: var(--color-surface); border: 1px solid var(--color-line); border-radius: 3px; cursor: pointer; }
+
+.proto-app { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 8px; padding: 8px; box-sizing: border-box; }
+.proto-top { position: relative; display: flex; align-items: center; gap: 6px; }
+.proto-top > .ds-topbar { flex: 1; min-width: 0; flex-wrap: wrap; }
+.proto-find { position: absolute; top: 100%; left: 220px; z-index: 20; width: 360px; padding: 8px; background: var(--color-surface); border-radius: var(--size-radius-panel); box-shadow: 0 0 0 1px var(--color-line), 0 8px 24px rgba(0, 0, 0, 0.12); }
+.proto-find input { width: 100%; box-sizing: border-box; padding: 6px 8px; font: inherit; }
+.proto-find__results { list-style: none; margin: 6px 0 0; padding: 0; }
+.proto-find__result { display: flex; gap: 6px; width: 100%; padding: 6px; font: inherit; text-align: left; background: none; border: 0; border-radius: 6px; cursor: pointer; }
+.proto-find__result:hover { background: var(--color-inset); }
+.proto-find__kind, .proto-find__ns { color: var(--color-sub); }
+.proto-find__name { font-family: var(--font-mono); }
+.proto-shortcuts { position: absolute; top: 100%; right: 0; z-index: 20; margin: 4px 0 0; padding: 8px 12px; list-style: none; background: var(--color-surface); border-radius: var(--size-radius-panel); box-shadow: 0 0 0 1px var(--color-line); font-family: var(--font-mono); }
+
+.proto-body { position: relative; display: grid; grid-template-columns: 300px minmax(0, 1fr) 380px; gap: 8px; flex: 1; min-height: 0; }
+.proto-attention, .proto-inspector { overflow: auto; min-height: 0; }
+/* The design system's panels have fixed widths; inside the prototype's columns they take the
+   column's width so that nothing they show is cut or passes the column's edge. */
+.proto-attention > .ds-attention { width: auto; }
+.proto-attention .ds-attention-item__select { overflow-wrap: anywhere; }
+.proto-inspector .ds-card-panel, .proto-inspector .ds-answer { width: auto; max-width: 100%; }
+.proto-inspector .ds-answer code { overflow-wrap: anywhere; }
+.proto-inspector > .ds-inspector { min-height: 100%; box-sizing: border-box; }
+.proto-map { display: flex; flex-direction: column; gap: 6px; min-height: 0; min-width: 0; }
+.proto-map__bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.proto-map__canvas { position: relative; flex: 1; min-height: 360px; border-radius: var(--size-radius-panel); background-color: var(--color-canvas); background-image: radial-gradient(var(--color-grid-dot) 1px, transparent 1px); background-size: 16px 16px; box-shadow: 0 0 0 1px var(--color-line); overflow: hidden; }
+.proto-map__canvas > .react-flow { position: absolute; inset: 0; background: transparent; }
+.proto-map__canvas > .ds-loading, .proto-map__canvas > .ds-connection, .proto-map__canvas > .ds-empty { position: relative; z-index: 5; margin: 16px; }
+.proto-band { display: flex; gap: 8px; flex-wrap: wrap; }
+.proto-partial { display: flex; align-items: center; gap: 8px; }
+
+@media (max-width: 1100px) {
+  .proto-body { grid-template-columns: 260px minmax(0, 1fr); }
+  .proto-inspector { position: absolute; top: 0; right: 0; bottom: 0; width: 360px; z-index: 10; background: var(--color-surface); box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12); border-radius: var(--size-radius-panel); }
+}
+
+@media (max-width: 760px) {
+  .proto-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .proto-attention { max-height: 160px; }
+  .proto-inspector { width: 100%; top: auto; height: 45%; }
+}
+
+/* Map nodes (R1). Handles are anchors only: the design system draws the ports. */
+.react-flow__handle.proto-handle { width: 1px; height: 1px; min-width: 0; min-height: 0; border: 0; background: transparent; opacity: 0; }
+.react-flow__node { cursor: default; }
+.proto-node { position: relative; height: 100%; outline: none; border-radius: var(--size-radius-card); cursor: pointer; }
+.proto-node:focus-visible, .proto-card-host .ds-refrow[data-control]:focus-visible, .proto-expand:focus-visible, .proto-strip__button:focus-visible,
+.proto-find__result:focus-visible, .proto button:focus-visible, .proto input:focus-visible, .proto select:focus-visible, .proto textarea:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 3px;
+}
+.proto-node-static { position: relative; height: 100%; }
+.proto-card-host .ds-refrow[data-control] { cursor: pointer; }
+.proto-card-host .ds-refrow[data-row-selected] { box-shadow: inset 0 0 0 2px var(--color-ink); }
+.proto-expand { position: absolute; top: 10px; right: 10px; width: 24px; height: 24px; padding: 0; font: inherit; color: var(--color-sub); background: var(--color-surface); border: 1px solid var(--color-line); border-radius: 6px; cursor: pointer; }
+.proto-node--box { box-sizing: border-box; border: 1.5px solid var(--color-line); background: var(--color-inset); }
+.proto-node--box > .proto-card-host, .proto-node--box > .proto-card-host > .ds-card { width: 100%; }
+.proto-selected { border-radius: var(--size-radius-card); box-shadow: 0 0 0 2px var(--color-ink); }
+.proto-group { box-sizing: border-box; width: 100%; height: 100%; padding: 8px 10px; border: 1.5px dashed var(--color-line); border-radius: var(--size-radius-card); background: var(--color-surface); font-size: var(--type-rowLabel-size); }
+.proto-group__kind, .proto-pod__kind { color: var(--color-faint); }
+.proto-group__name, .proto-pod__name { font-family: var(--font-mono); }
+.proto-pod { position: relative; box-sizing: border-box; height: 56px; padding: 18px 10px 6px; border-radius: var(--size-radius-row); background: var(--color-surface); box-shadow: 0 0 0 1px var(--color-line); font-size: var(--type-rowLabel-size); }
+.proto-pod--selected { box-shadow: 0 0 0 2px var(--color-ink); }
+.proto-pod .ds-status-tab { position: absolute; top: -11px; left: 10px; }
+.proto-pod__note { display: block; color: var(--color-sub); font-size: 11px; }
+.proto-bundle { position: relative; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; height: 100%; padding: 12px; border-radius: var(--size-radius-card); background: var(--color-surface); box-shadow: 0 0 0 1px var(--color-line), 4px 4px 0 var(--color-line); }
+.proto-bundle__text { font-weight: 600; }
+/* A claim waiting for its volume: the empty place in the Waiting colour (the design system
+   draws Broken and Optional empty places). */
+.ds-ghost--waiting { border-color: var(--color-attention-border); background: repeating-linear-gradient(135deg, var(--color-attention-bg) 0 6px, var(--color-surface) 6px 12px); color: var(--color-attention-fg); }
+.proto-link--selected .ds-link__line { filter: drop-shadow(0 0 2px var(--color-ink)); }
+
+/* Inspector and Diagnose parts the design system leaves to the page. */
+.proto-h3 { margin: 14px 0 6px; font-size: var(--type-rowLabel-size); color: var(--color-sub); font-weight: 600; }
+.proto-note { color: var(--color-sub); }
+.proto-note--lock::before { content: ''; }
+.proto-secret-notice { padding: 6px 8px; border-radius: 6px; background: var(--color-inset); }
+.proto-linklist { list-style: none; margin: 0; padding: 0; }
+.proto-linklist__item { padding: 6px 0; box-shadow: inset 0 -1px 0 var(--color-line); }
+.proto-linklist__value { margin-left: 6px; font-family: var(--font-mono); font-size: var(--type-rowValue-size); }
+.proto-linklist__reason { margin-top: 2px; color: var(--color-sub); }
+.proto-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.proto-askwhy { margin-top: 12px; }
+.proto-status { margin: 0 0 10px; overflow-wrap: anywhere; }
+.proto-status__label { color: var(--color-sub); }
+.proto-status__issues { color: var(--color-sub); }
+.proto-looking__label { color: var(--color-sub); }
+.proto-looking__value { font-family: var(--font-mono); }
+.proto-field { display: inline-flex; align-items: center; gap: 6px; }
+.proto-field--block { display: flex; flex-direction: column; align-items: stretch; margin-top: 10px; }
+.proto-field textarea, .proto-field input, .proto-field select { font: inherit; padding: 4px 6px; }
+.proto-radios { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+.proto-result--ok { color: var(--color-sub); }
+.proto-result--bad { color: var(--color-broken-fg); }
+.proto-key-mask { font-family: var(--font-mono); color: var(--color-sub); }
+.proto-logs__bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.proto-logs__lines { padding: 8px; border-radius: 6px; background: var(--color-inset); font-family: var(--font-mono); font-size: 12px; white-space: pre-wrap; }
+.proto-events { list-style: none; margin: 0; padding: 0; }
+.proto-event { padding: 6px 0; box-shadow: inset 0 -1px 0 var(--color-line); }
+.proto-event--warning .proto-event__type { color: var(--color-attention-fg); font-weight: 600; }
+.proto-event__age, .proto-event__reason { color: var(--color-sub); }
+.proto-about__label { color: var(--color-sub); }
+.proto-preview__list { margin: 0; padding-left: 18px; font-family: var(--font-mono); font-size: 12px; }
+.proto-diagnose > * + * { margin-top: 12px; }
+.proto-summary-lines { margin: 0 0 8px; padding-left: 18px; }
+
+/* Browser session screens (S6 draft): the M1-T2 lines only. */
+.proto-session { display: flex; flex: 1; align-items: center; justify-content: center; }
+.proto-session__card { max-width: 560px; padding: 24px 28px; border-radius: var(--size-radius-panel); background: var(--color-surface); box-shadow: 0 0 0 1px var(--color-line); line-height: 1.5; }
+
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__viewport { transition: none; }
+}

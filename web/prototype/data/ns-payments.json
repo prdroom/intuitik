@@ -1,0 +1,145 @@
+{
+  "namespace": "payments",
+  "namespaceState": {
+    "state": "ok",
+    "existenceChecked": true
+  },
+  "nodes": [
+    {
+      "uid": "u-payments-deployment-payments-api",
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "name": "payments-api",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    },
+    {
+      "uid": "u-payments-replicaset-payments-api-6d8f",
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "payments-api-6d8f",
+      "parent": "u-payments-deployment-payments-api",
+      "owner": {
+        "state": "contained"
+      }
+    },
+    {
+      "uid": "u-payments-pod-payments-api-6d8f-t2",
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "name": "payments-api-6d8f-t2",
+      "parent": "u-payments-replicaset-payments-api-6d8f",
+      "owner": {
+        "state": "contained"
+      },
+      "nodeState": {
+        "state": "failing",
+        "text": "CreateContainerConfigError"
+      }
+    },
+    {
+      "uid": "u-payments-service-api",
+      "apiVersion": "v1",
+      "kind": "Service",
+      "name": "api",
+      "parent": null,
+      "owner": {
+        "state": "none"
+      }
+    }
+  ],
+  "refused": [
+    {
+      "kind": "Secret",
+      "status": 403,
+      "reason": "403",
+      "text": "Couldn't load Secrets (403)"
+    }
+  ],
+  "bridges": [
+    {
+      "kind": "service-pod",
+      "from": {
+        "uid": "u-payments-service-api"
+      },
+      "to": {
+        "group": "",
+        "namespace": "payments",
+        "kind": "Pod",
+        "name": "payments-api-6d8f-t2",
+        "uid": "u-payments-pod-payments-api-6d8f-t2"
+      },
+      "state": "connected",
+      "settings": [
+        "selector app=payments-api",
+        ":80\u21928080"
+      ]
+    },
+    {
+      "kind": "pod-configmap",
+      "from": {
+        "uid": "u-payments-pod-payments-api-6d8f-t2"
+      },
+      "to": {
+        "group": "",
+        "namespace": "payments",
+        "kind": "ConfigMap",
+        "name": "payments-config",
+        "uid": null
+      },
+      "state": "broken",
+      "settings": [
+        "envFrom payments-api"
+      ],
+      "optional": [
+        false
+      ],
+      "text": "ConfigMap payments-config not found"
+    },
+    {
+      "kind": "pod-configmap",
+      "from": {
+        "uid": "u-payments-pod-payments-api-6d8f-t2"
+      },
+      "to": {
+        "group": "",
+        "namespace": "payments",
+        "kind": "ConfigMap",
+        "name": "feature-flags",
+        "uid": null
+      },
+      "state": "optional",
+      "settings": [
+        "volume payments-api:/etc/flags (all keys)"
+      ],
+      "optional": [
+        true
+      ],
+      "text": "ConfigMap feature-flags not found"
+    },
+    {
+      "kind": "pod-secret",
+      "from": {
+        "uid": "u-payments-pod-payments-api-6d8f-t2"
+      },
+      "to": {
+        "group": "",
+        "namespace": "payments",
+        "kind": "Secret",
+        "name": "payment-api",
+        "uid": null
+      },
+      "state": "unknown",
+      "settings": [
+        "env payments-api:API_TOKEN \u2190 token"
+      ],
+      "optional": [
+        false
+      ],
+      "text": "no permission to read Secrets"
+    }
+  ],
+  "unsupported": []
+}

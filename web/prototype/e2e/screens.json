@@ -1,0 +1,424 @@
+{
+  "packet": "FA2-T8 product 3.3 and 3.7",
+  "paths": [
+    {
+      "failure": [
+        [
+          "P48",
+          "P49"
+        ]
+      ],
+      "journey": "J-2",
+      "success": [
+        [
+          "P48",
+          "P02"
+        ]
+      ]
+    },
+    {
+      "failure": [
+        [
+          "P14"
+        ]
+      ],
+      "journey": "J-3",
+      "success": [
+        [
+          "P01",
+          "P02",
+          "P06",
+          "P25",
+          "P22"
+        ]
+      ]
+    },
+    {
+      "failure": [
+        [
+          "P27"
+        ],
+        [
+          "P33"
+        ],
+        [
+          "P34"
+        ],
+        [
+          "P35"
+        ],
+        [
+          "P36"
+        ]
+      ],
+      "journey": "J-4",
+      "success": [
+        [
+          "P06",
+          "action:Ask why",
+          "P28",
+          "P31"
+        ]
+      ]
+    },
+    {
+      "failure": [
+        [
+          "P39"
+        ],
+        [
+          "P36"
+        ]
+      ],
+      "journey": "J-5",
+      "success": [
+        [
+          "P37",
+          "P38",
+          "action:first Send",
+          "P29"
+        ]
+      ]
+    },
+    {
+      "failure": [
+        [
+          "P50"
+        ]
+      ],
+      "journey": "J-6",
+      "success": [
+        [
+          "P46",
+          "P01",
+          "P02"
+        ]
+      ]
+    },
+    {
+      "failure": [],
+      "journey": "J-7",
+      "success": [
+        [
+          "P51"
+        ]
+      ]
+    },
+    {
+      "failure": [
+        [
+          "P52",
+          "P53"
+        ]
+      ],
+      "journey": "J-8",
+      "success": [
+        [
+          "P54"
+        ]
+      ]
+    },
+    {
+      "failure": [
+        [
+          "P59"
+        ]
+      ],
+      "journey": "J-10",
+      "success": [
+        [
+          "P21",
+          "action:Copy (C4)"
+        ]
+      ]
+    },
+    {
+      "failure": [],
+      "journey": "J-11",
+      "success": [
+        [
+          "P28",
+          "action:exclude Logs",
+          "P32"
+        ]
+      ]
+    },
+    {
+      "failure": [
+        [
+          "P37",
+          "P41"
+        ]
+      ],
+      "journey": "J-12",
+      "success": [
+        [
+          "P37",
+          "P40"
+        ]
+      ]
+    }
+  ],
+  "screens": [
+    {
+      "id": "P01",
+      "state": "Cluster level (far, S2): tiles sorted by problem score, status tabs, chips, bottom band, empty-selection Inspector"
+    },
+    {
+      "id": "P02",
+      "state": "Namespace level (middle, S1) for shop: columns, cards with reference lines, unlabeled links from reference-line ports, Needs attention"
+    },
+    {
+      "id": "P03",
+      "state": "Workload level (near, S3): a Deployment expanded to ReplicaSets and Pods, traffic link split per Pod"
+    },
+    {
+      "id": "P04",
+      "state": "Appendix A scenario A-1 with the string of UI.md 4.4 or FA2-T7b 3.1"
+    },
+    {
+      "id": "P05",
+      "state": "Appendix A scenario A-2 with the string of UI.md 4.4 or FA2-T7b 3.1"
+    },
+    {
+      "id": "P06",
+      "state": "Appendix A scenario A-3 with the string of UI.md 4.4 or FA2-T7b 3.1"
+    },
+    {
+      "id": "P07",
+      "state": "Appendix A scenario A-4 with the string of UI.md 4.4 or FA2-T7b 3.1"
+    },
+    {
+      "id": "P08",
+      "state": "Appendix A scenario A-5 with the string of UI.md 4.4 or FA2-T7b 3.1"
+    },
+    {
+      "id": "P09",
+      "state": "Appendix A scenario A-6 with the string of UI.md 4.4 or FA2-T7b 3.1"
+    },
+    {
+      "id": "P10",
+      "state": "Bridge state Connected (UI.md 4.2), the bridge selected"
+    },
+    {
+      "id": "P11",
+      "state": "Bridge state Waiting (UI.md 4.2), the bridge selected"
+    },
+    {
+      "id": "P12",
+      "state": "Bridge state Broken (UI.md 4.2), the bridge selected"
+    },
+    {
+      "id": "P13",
+      "state": "Bridge state Warning (UI.md 4.2), the bridge selected"
+    },
+    {
+      "id": "P14",
+      "state": "Bridge state Unknown (UI.md 4.2), the bridge selected"
+    },
+    {
+      "id": "P15",
+      "state": "Bridge state Optional (UI.md 4.2), the bridge selected"
+    },
+    {
+      "id": "P16",
+      "state": "Empty place (ghost): Pods by selector"
+    },
+    {
+      "id": "P17",
+      "state": "Empty place (ghost): ConfigMap"
+    },
+    {
+      "id": "P18",
+      "state": "Empty place (ghost): StorageClass"
+    },
+    {
+      "id": "P19",
+      "state": "Empty place (ghost): Service"
+    },
+    {
+      "id": "P20",
+      "state": "Details of a resource: Summary"
+    },
+    {
+      "id": "P21",
+      "state": "Details of a resource: YAML of a Secret"
+    },
+    {
+      "id": "P22",
+      "state": "Details of a resource: Events"
+    },
+    {
+      "id": "P23",
+      "state": "Details of a resource: Logs"
+    },
+    {
+      "id": "P24",
+      "state": "Details of a resource: \"No logs\" with \"Show previous container logs\""
+    },
+    {
+      "id": "P25",
+      "state": "Details of a bridge"
+    },
+    {
+      "id": "P26",
+      "state": "No-permission sub-tab (\"No permission to read events in shop\")"
+    },
+    {
+      "id": "P27",
+      "state": "Diagnose not configured"
+    },
+    {
+      "id": "P28",
+      "state": "Send-data summary and Review expanded with one exclusion"
+    },
+    {
+      "id": "P29",
+      "state": "First-use consent card"
+    },
+    {
+      "id": "P30",
+      "state": "\"Don't send\" with \"Use a local model instead\""
+    },
+    {
+      "id": "P31",
+      "state": "Answer with all seven parts"
+    },
+    {
+      "id": "P32",
+      "state": "Logs excluded in Review, answer marked \"Diagnosed without logs\" (J-11)"
+    },
+    {
+      "id": "P33",
+      "state": "Error card with Retry: \"Authentication failed — check the API key in Settings\" (UI.md 7)"
+    },
+    {
+      "id": "P34",
+      "state": "Error card with Retry: \"Rate limit reached — try again in 40 s\" (UI.md 7)"
+    },
+    {
+      "id": "P35",
+      "state": "Error card with Retry: \"No response after 60 s — try again or use a smaller question\" (UI.md 7)"
+    },
+    {
+      "id": "P36",
+      "state": "Error card with Retry: \"Can't reach http://localhost:11434 — is your model server running?\" (UI.md 7)"
+    },
+    {
+      "id": "P37",
+      "state": "Settings: provider, masked key, save-path line, log default, data paths"
+    },
+    {
+      "id": "P38",
+      "state": "Test connection: \"Connected · <model>\""
+    },
+    {
+      "id": "P39",
+      "state": "Test connection: authentication failure"
+    },
+    {
+      "id": "P40",
+      "state": "Delete saved key: \"Deleted\""
+    },
+    {
+      "id": "P41",
+      "state": "Delete saved key failure \"Couldn't delete — remove the key from <path> manually\""
+    },
+    {
+      "id": "P42",
+      "state": "Find: results"
+    },
+    {
+      "id": "P43",
+      "state": "Find: \"No matches\""
+    },
+    {
+      "id": "P44",
+      "state": "Find: same name in two namespaces"
+    },
+    {
+      "id": "P45",
+      "state": "Find: jump to the node"
+    },
+    {
+      "id": "P46",
+      "state": "Loading (\"Loading cluster · 7 of 12 resource types\")"
+    },
+    {
+      "id": "P47",
+      "state": "Connection failure (S5, K-strings of the M1-T3 packet)"
+    },
+    {
+      "id": "P48",
+      "state": "List permission missing with \"Open namespace\""
+    },
+    {
+      "id": "P49",
+      "state": "Typed namespace also \"No permission\""
+    },
+    {
+      "id": "P50",
+      "state": "Partial failure chip (\"Couldn't load HPAs (403)\")"
+    },
+    {
+      "id": "P51",
+      "state": "Empty namespace (\"No resources in default\")"
+    },
+    {
+      "id": "P52",
+      "state": "Updates paused band"
+    },
+    {
+      "id": "P53",
+      "state": "Reconnect succeeded, band gone, newer time"
+    },
+    {
+      "id": "P54",
+      "state": "Pod replacement shown on the map with the new last-update time (J-8 success; before and after captures)"
+    },
+    {
+      "id": "P55",
+      "state": "Nothing needs attention"
+    },
+    {
+      "id": "P56",
+      "state": "Browser session screen B-NS (S6 draft, M1-T2 fixed strings)"
+    },
+    {
+      "id": "P57",
+      "state": "Browser session screen B-RF (S6 draft, M1-T2 fixed strings)"
+    },
+    {
+      "id": "P58",
+      "state": "Browser session screen B-ST (S6 draft, M1-T2 fixed strings)"
+    },
+    {
+      "id": "P59",
+      "state": "Secret not readable: key names from the Pod spec, Secret shown as Unknown with the view-role string (J-10 failure)"
+    },
+    {
+      "id": "P60",
+      "state": "P01 at 1024 px wide (UI.md 2)"
+    },
+    {
+      "id": "P61",
+      "state": "P01 at 720 px wide (UI.md 2)"
+    },
+    {
+      "id": "P62",
+      "state": "P02 at 1024 px wide (UI.md 2)"
+    },
+    {
+      "id": "P63",
+      "state": "P02 at 720 px wide (UI.md 2)"
+    },
+    {
+      "id": "P64",
+      "state": "P20 at 1024 px wide (UI.md 2)"
+    },
+    {
+      "id": "P65",
+      "state": "P20 at 720 px wide (UI.md 2)"
+    }
+  ]
+}

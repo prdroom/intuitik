@@ -1,0 +1,30 @@
+{
+  "shop/Pod/cart-5b7d-k4": {
+    "containers": {
+      "cart": {
+        "current": [
+          "14:31:58 GET /cart 200 4ms",
+          "14:32:01 GET /cart/items 200 7ms",
+          "14:32:04 POST /cart/items 201 12ms"
+        ]
+      },
+      "proxy": {
+        "current": [
+          "14:31:50 proxy ready on :15001"
+        ]
+      }
+    }
+  },
+  "batch/Pod/crash-7d4b-p6": {
+    "containers": {
+      "crash": {
+        "current": [],
+        "terminated": true,
+        "previous": [
+          "14:31:12 starting job",
+          "14:31:12 error: input file /scripts/run.sh exited with status 1"
+        ]
+      }
+    }
+  }
+}
