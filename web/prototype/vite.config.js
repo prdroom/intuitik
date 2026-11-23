@@ -4,13 +4,15 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { designSystemTokens, fontLicence } from '../src/design-system/build/tokens-css.js';
+import { notices } from './tools/notices.js';
 
 // The relation map prototype (packet FA2-T8 6.3). It is not part of the product build: its
 // own pages, its own output directory web/prototype/dist (git-ignored) and relative paths.
 // Object files are copied next to the pages and fetched on demand, never bundled; an object
 // is copied only when its namespace's graph answer lists it as read, so the object of a
 // Secret the answer cannot read (payments/payment-api) is not served. The T12 L graph file is
-// copied byte for byte for the measurement page.
+// copied byte for byte for the measurement page. After the bundle is written, the notices
+// plugin writes the third-party notice file and the module list (tools/notices.js).
 const root = fileURLToPath(new URL('.', import.meta.url));
 const objectsDir = path.join(root, 'data', 'objects');
 const lGraph = path.join(root, '..', '..', 'test', 'e2e', 'prototype', 'testdata', 'l-graph.tar.gz');
@@ -48,7 +50,7 @@ export default defineConfig({
   root,
   base: './',
   publicDir: false,
-  plugins: [react(), designSystemTokens(), fontLicence(), staticFiles()],
+  plugins: [react(), designSystemTokens(), fontLicence(), staticFiles(), notices({ webDir: path.join(root, '..'), protoDir: root })],
   build: {
     outDir: 'dist',
     emptyOutDir: true,

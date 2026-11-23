@@ -5,10 +5,15 @@
 // integrity, or an added package missing from NOTICE.
 //
 // Usage: node prototype/tools/deps-check.js <base lock> <head lock> <node_modules dir> <NOTICE>
-// (B is `git show <base>:web/package-lock.json`.) Exit 0 = pass, 1 = a finding, 2 = an
-// input that cannot be read or parsed.
+//          [<THIRD_PARTY_LICENSES.txt> <modules.json>]
+// (B is `git show <base>:web/package-lock.json`.) With the two optional files it also checks
+// the notice file of E-NOTICE (hoan 59d7f40e): per package section, each license file's bytes
+// against the installed file. Exit 0 = pass, 1 = a finding, 2 = an input that cannot be read
+// or parsed.
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { NOTICE_SET, licenseFiles, parseNoticeFile } from './notices.js';
 
 export const ALLOWED_DIRECT = {
   '@xyflow/react': '12.12.1',
@@ -135,9 +140,103 @@ export function diffLocks(base, head, { nodeModules, notice }) {
   return { lines, findings };
 }
 
+const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+
+// checkNotices compares the notice file with the installed packages: the set of package
+// sections must equal the final list of the module list (which holds the fixed set), each
+// section's version must equal the head lock and the installed package, and each license
+// file of the installed package must be in its section with the same bytes.
+export function checkNotices(noticeBytes, modules, head, nodeModules) {
+  const lines = [];
+  const findings = [];
+  let packages = 0;
+  let files = 0;
+  let missing = 0;
+  const final = (modules.noticeSet ?? {}).final ?? [];
+  for (const path of NOTICE_SET) {
+    if (!final.includes(path)) {
+      findings.push(`${path} of the fixed set is not in the final list`);
+    }
+  }
+  if (final.length === 0) {
+    findings.push('the final list is empty');
+  }
+  const { sections, errors } = parseNoticeFile(noticeBytes);
+  for (const e of errors) {
+    findings.push(`notice file: ${e}`);
+  }
+  const byPath = new Map();
+  for (const s of sections) {
+    if (byPath.has(s.path)) {
+      findings.push(`${s.path} has a duplicate section`);
+      continue;
+    }
+    byPath.set(s.path, s);
+  }
+  for (const path of byPath.keys()) {
+    if (!final.includes(path)) {
+      findings.push(`${path} has a section but is not in the final list`);
+    }
+  }
+  for (const path of final) {
+    const s = byPath.get(path);
+    if (!s) {
+      missing++;
+      findings.push(`${path} has no section`);
+      continue;
+    }
+    packages++;
+    const lockEntry = (head.packages ?? {})[path];
+    const dir = join(nodeModules, path.replace(/^node_modules\//, ''));
+    let installed;
+    let names;
+    try {
+      installed = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+      names = licenseFiles(dir);
+    } catch (err) {
+      findings.push(`${path} cannot be read: ${err.message}`);
+      continue;
+    }
+    if (!lockEntry || s.version !== lockEntry.version || installed.version !== lockEntry.version) {
+      findings.push(`${path} version: section ${s.version} lock ${lockEntry ? lockEntry.version : '-'} installed ${installed.version}`);
+    }
+    if (s.files.length === 0 || names.length === 0) {
+      findings.push(`${path} has no license file`);
+    }
+    for (const f of s.files) {
+      if (!names.includes(f.file)) {
+        findings.push(`${path}/${f.file} is in the section but not installed`);
+      }
+    }
+    for (const name of names) {
+      const f = s.files.find((x) => x.file === name);
+      if (!f) {
+        missing++;
+        findings.push(`${path}/${name} is missing from its section`);
+        continue;
+      }
+      let disk;
+      try {
+        disk = readFileSync(join(dir, name));
+      } catch (err) {
+        findings.push(`${path}/${name} cannot be read: ${err.message}`);
+        continue;
+      }
+      files++;
+      lines.push(`${path} version=${s.version} ${name} bytes=${f.bytes.length} sha256=${sha256(f.bytes)}${disk.equals(f.bytes) ? '' : ' DIFFERS'}`);
+      if (!disk.equals(f.bytes)) {
+        findings.push(`${path}/${name} differs from the installed file`);
+      }
+    }
+  }
+  lines.push(`packages=${packages} files=${files} missing=${missing}`);
+  lines.push(`file bytes=${noticeBytes.length} sha256=${sha256(noticeBytes)}`);
+  return { lines, findings };
+}
+
 function main(argv) {
-  if (argv.length !== 4) {
-    console.log('usage: deps-check.js <base lock> <head lock> <node_modules dir> <NOTICE>');
+  if (argv.length !== 4 && argv.length !== 6) {
+    console.log('usage: deps-check.js <base lock> <head lock> <node_modules dir> <NOTICE> [<THIRD_PARTY_LICENSES.txt> <modules.json>]');
     return 2;
   }
   let base;
@@ -154,6 +253,22 @@ function main(argv) {
   const { lines, findings } = diffLocks(base, head, { nodeModules: argv[2], notice });
   for (const l of lines) {
     console.log(`DEPS ${l}`);
+  }
+  if (argv.length === 6) {
+    let noticeBytes;
+    let modules;
+    try {
+      noticeBytes = readFileSync(argv[4]);
+      modules = JSON.parse(readFileSync(argv[5], 'utf8'));
+    } catch (err) {
+      console.log(`DEPS-CHECK ERROR ${err.message}`);
+      return 2;
+    }
+    const checked = checkNotices(noticeBytes, modules, head, argv[2]);
+    for (const l of checked.lines) {
+      console.log(`NOTICES ${l}`);
+    }
+    findings.push(...checked.findings.map((f) => `notices: ${f}`));
   }
   for (const f of findings) {
     console.log(`DEPS-CHECK FAIL ${f}`);

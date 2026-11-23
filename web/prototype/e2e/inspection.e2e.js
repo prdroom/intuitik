@@ -79,10 +79,58 @@ async function targets(page) {
 
 // accessibleName reads the name Playwright computes for the element (its ARIA snapshot head).
 async function accessibleName(page, k) {
-  const snap = await page.locator(`[data-k-id="${k}"]`).ariaSnapshot();
+  // Playwright 1.64.1 (playwright-core/lib/coreBundle.js) writes a head line as "- " + key, then
+  // nothing, ":" (children) or ": " + value (renderAriaSnapshotAsYaml, L789-L800). The key is the
+  // role, then " " + JSON.stringify(name) when the name is not empty, then the attributes of
+  // createKey (L741-L781). yamlEscapeKeyIfNeeded (L670-L674) single-quotes a key that needs
+  // quotes (yamlStringNeedsQuotes, L699-L723; ": " is one reason) and doubles each inner "'";
+  // a key is never double-quoted. The page runs the same code (injected source, L20944). Any
+  // other head is a test tool error.
+  const el = page.locator(`[data-k-id="${k}"]`);
+  const snap = await el.ariaSnapshot();
   const head = snap.split('\n')[0];
-  const m = head.match(/^- [a-z]+(?: "((?:[^"\\]|\\.)*)")?/);
-  return m && m[1] !== undefined ? JSON.parse(`"${m[1]}"`).replace(/\s+/g, ' ').trim() : '';
+  const broken = async () => {
+    const screen = await page.locator('.proto').getAttribute('data-screen');
+    const target = await el.evaluate((e) => `${e.tagName.toLowerCase()}[data-control="${e.getAttribute('data-control')}"][data-target="${e.getAttribute('data-target')}"]`);
+    return new Error(`K1 snapshot head not parsed screen=${screen} target=${target} head=${JSON.stringify(head)}`);
+  };
+  if (!head.startsWith('- ')) {
+    throw await broken();
+  }
+  let rest = head.slice(2);
+  let key;
+  if (rest.startsWith("'")) {
+    const quoted = rest.match(/^'((?:[^']|'')*)'(?=$|:)/);
+    if (!quoted) {
+      throw await broken();
+    }
+    key = quoted[1].replace(/''/g, "'");
+    rest = rest.slice(quoted[0].length);
+  } else if (rest.startsWith('"')) {
+    throw await broken();
+  } else {
+    const end = rest.search(/:( |$)/);
+    key = end < 0 ? rest : rest.slice(0, end);
+    rest = end < 0 ? '' : rest.slice(end);
+  }
+  if (rest !== '' && rest !== ':' && !rest.startsWith(': ')) {
+    throw await broken();
+  }
+  const attribute = String.raw`(?: \[(?:checked=mixed|checked|disabled|expanded|active|invalid=grammar|invalid=spelling|invalid|level=\d+|pressed=mixed|pressed|selected|aria-hidden|ref=[^\]\s]+|cursor=pointer|box=-?[\d.]+,-?[\d.]+,-?[\d.]+,-?[\d.]+)\])*`;
+  const parts = key.match(new RegExp(String.raw`^[a-z]+(?: ("(?:[^"\\]|\\.)*"))?${attribute}$`));
+  if (!parts) {
+    throw await broken();
+  }
+  if (parts[1] === undefined) {
+    return '';
+  }
+  let name;
+  try {
+    name = JSON.parse(parts[1]);
+  } catch {
+    throw await broken();
+  }
+  return name.replace(/\s+/g, ' ').trim();
 }
 
 function summary(k, visited, checked, fails) {

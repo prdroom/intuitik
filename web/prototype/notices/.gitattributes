@@ -1,0 +1,4 @@
+# The notice file and the module list are compared byte for byte with the build's output
+# (FA2-T8 E-NOTICE); Git must not convert their line endings.
+THIRD_PARTY_LICENSES.txt -text
+modules.json -text

@@ -3,6 +3,7 @@
 // demand; a Secret's values are replaced by <hidden> before anything is shown or copied.
 import { useEffect, useState } from 'react';
 import { CodeBlock, DefinitionList, GhostCard, InspectorShell, LinkEnds, StatePill } from '../src/design-system/index.js';
+import { brokenLinks, withBrokenLinks } from '../src/design-system/strings.js';
 import { HANDLERS, run } from './controls.js';
 import { linkKind } from './map.jsx';
 import { shortKind } from './model.js';
@@ -151,6 +152,47 @@ function LogsView({ ns, node, logState, dispatch }) {
   );
 }
 
+// nodeStatus is the state of a resource with what it contains (UI.md 4.3): the first failing,
+// unknown or progressing Pod inside it with that Pod's text and its broken links appended,
+// else its broken links as attention, else healthy. Its issues are its Failing Pods and its
+// broken links (the rows of its card).
+export function nodeStatus(ns, node) {
+  const pods = node.kind === 'Pod' ? [node] : ns.pods(node.uid);
+  const card = ns.cards.get(node.uid);
+  const broken = card ? card.rows.filter((r) => r.state === 'broken').length : 0;
+  const issues = pods.filter((p) => p.nodeState && p.nodeState.state === 'failing').length + broken;
+  for (const state of ['failing', 'unknown', 'progressing']) {
+    const pod = pods.find((p) => p.nodeState && p.nodeState.state === state);
+    if (pod) {
+      return { state, text: broken > 0 ? withBrokenLinks(pod.nodeState.text, broken) : pod.nodeState.text, issues };
+    }
+  }
+  if (broken > 0) {
+    return { state: 'attention', text: brokenLinks(broken), issues };
+  }
+  return { state: 'healthy', text: S.healthy, issues };
+}
+
+// rowStatus is the state of a link: Connected, or its UI.md 4.4 sentence; a broken link is one issue.
+export function rowStatus(row) {
+  return { state: row.state, text: row.state === 'connected' ? S.connected : row.sentence, issues: row.state === 'broken' ? 1 : 0 };
+}
+
+// StatusLine shows the selection's state text and issue count on every Details sub tab.
+function StatusLine({ status }) {
+  return (
+    <p className="proto-status">
+      <span className="proto-status__label">{S.state}</span>{' '}
+      <span className="proto-status__text" data-inspector-state={status.state}>
+        {status.text}
+      </span>{' '}
+      <span className="proto-status__issues" data-inspector-issues={status.issues}>
+        {S.issues(status.issues)}
+      </span>
+    </p>
+  );
+}
+
 function AskWhy({ dispatch, sel }) {
   return (
     <button type="button" className="ds-button ds-button--primary proto-askwhy" data-control="ask-why" onClick={() => run(dispatch, 'ask-why', sel)}>
@@ -194,6 +236,7 @@ export function NodeDetails({ ns, node, state, dispatch, onPending }) {
   const sel = { t: 'node', id: node.uid };
   const card = ns.cards.get(node.uid);
   const st = node.nodeState && node.nodeState.state !== 'healthy' ? { state: node.nodeState.state, text: node.nodeState.text } : undefined;
+  const status = nodeStatus(ns, node);
   const rows = linksOf(ns, node.uid);
   const reason = (card && card.rows.find((r) => r.state === 'broken' || r.state === 'warning'))?.sentence ?? (node.owner.text || undefined);
   return (
@@ -208,6 +251,7 @@ export function NodeDetails({ ns, node, state, dispatch, onPending }) {
       onTabChange={(t) => run(dispatch, 'inspector-tab', t)}
       onSubTabChange={(t) => run(dispatch, 'inspector-subtab', t)}
     >
+      {state.tab === 'details' && <StatusLine status={status} />}
       {state.tab === 'details' && state.sub === 'summary' && (
         <div className="proto-summary">
           <DefinitionList
@@ -215,7 +259,6 @@ export function NodeDetails({ ns, node, state, dispatch, onPending }) {
               { key: S.kind, value: node.kind },
               { key: S.namespace, value: ns.name },
               { key: S.owner, value: node.owner.text || node.owner.reference || (node.parent ? ns.byUid.get(node.parent).kind + '/' + ns.byUid.get(node.parent).name : '-') },
-              { key: S.state, value: st ? st.text : S.healthy },
             ]}
           />
           <h3 className="proto-h3">{S.bridges}</h3>
@@ -266,6 +309,7 @@ export function RowDetails({ ns, row, dispatch }) {
       )}
       <OwnTabs dispatch={dispatch} tab="details" />
       <div className="ds-inspector__body">
+        <StatusLine status={rowStatus(row)} />
         <LinkEnds from={{ kind: shortKind(from.kind), name: from.name }} link={{ state: row.state, value: `${row.name} ${row.value}` }} to={to} ghost={ghost} />
         <h3 className="proto-h3">{S.settingsValues}</h3>
         <DefinitionList items={[...new Set(row.settings)].map((s, i) => ({ key: String(i + 1), value: s }))} />
@@ -298,6 +342,7 @@ export function PlaceDetails({ ns, target, dispatch }) {
       </div>
       <OwnTabs dispatch={dispatch} tab="details" />
       <div className="ds-inspector__body">
+        {into[0] && <StatusLine status={rowStatus(into[0])} />}
         {target.type === 'ghost' ? (
           <GhostCard variant={target.variant} kind={shortKind(target.kind)} target={title} result={target.selector ? S.ghostIn(0, ns.name) : ''} />
         ) : (

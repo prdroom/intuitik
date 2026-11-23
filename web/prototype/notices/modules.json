@@ -1,0 +1,682 @@
+{
+  "about": "FA2-T8 E-NOTICE module list of web/prototype/dist: every final JS and CSS file with each module id (relative to web/) and its owner; the notice set is the fixed 30 non-dev lock paths plus packages found here outside them.",
+  "chunks": [
+    {
+      "file": "assets/adapter-nMZz1JSY.js",
+      "type": "js",
+      "modules": [
+        {
+          "id": "\u0000rolldown/runtime.js",
+          "owner": "virtual",
+          "origin": "rolldown"
+        },
+        {
+          "id": "\u0000virtual:design-system-tokens.css",
+          "owner": "virtual",
+          "origin": "intuitik-design-system-tokens"
+        },
+        {
+          "id": "\u0000vite/modulepreload-polyfill.js",
+          "owner": "virtual",
+          "origin": "vite"
+        },
+        {
+          "id": "node_modules/@dagrejs/dagre/dist/dagre.esm.js",
+          "owner": "node_modules/@dagrejs/dagre"
+        },
+        {
+          "id": "node_modules/@xyflow/react/dist/esm/index.js",
+          "owner": "node_modules/@xyflow/react"
+        },
+        {
+          "id": "node_modules/@xyflow/react/dist/style.css",
+          "owner": "node_modules/@xyflow/react"
+        },
+        {
+          "id": "node_modules/@xyflow/system/dist/esm/index.js",
+          "owner": "node_modules/@xyflow/system"
+        },
+        {
+          "id": "node_modules/classcat/index.js",
+          "owner": "node_modules/classcat"
+        },
+        {
+          "id": "node_modules/d3-color/dist/d3-color.mjs",
+          "owner": "node_modules/d3-color"
+        },
+        {
+          "id": "node_modules/d3-dispatch/dist/d3-dispatch.mjs",
+          "owner": "node_modules/d3-dispatch"
+        },
+        {
+          "id": "node_modules/d3-drag/dist/d3-drag.mjs",
+          "owner": "node_modules/d3-drag"
+        },
+        {
+          "id": "node_modules/d3-ease/dist/d3-ease.mjs",
+          "owner": "node_modules/d3-ease"
+        },
+        {
+          "id": "node_modules/d3-interpolate/dist/d3-interpolate.mjs",
+          "owner": "node_modules/d3-interpolate"
+        },
+        {
+          "id": "node_modules/d3-selection/dist/d3-selection.mjs",
+          "owner": "node_modules/d3-selection"
+        },
+        {
+          "id": "node_modules/d3-timer/dist/d3-timer.mjs",
+          "owner": "node_modules/d3-timer"
+        },
+        {
+          "id": "node_modules/d3-transition/dist/d3-transition.mjs",
+          "owner": "node_modules/d3-transition"
+        },
+        {
+          "id": "node_modules/d3-zoom/dist/d3-zoom.mjs",
+          "owner": "node_modules/d3-zoom"
+        },
+        {
+          "id": "node_modules/react-dom/cjs/react-dom-client.production.js",
+          "owner": "node_modules/react-dom"
+        },
+        {
+          "id": "node_modules/react-dom/cjs/react-dom.production.js",
+          "owner": "node_modules/react-dom"
+        },
+        {
+          "id": "node_modules/react-dom/client.js",
+          "owner": "node_modules/react-dom"
+        },
+        {
+          "id": "node_modules/react-dom/index.js",
+          "owner": "node_modules/react-dom"
+        },
+        {
+          "id": "node_modules/react/cjs/react-jsx-runtime.production.js",
+          "owner": "node_modules/react"
+        },
+        {
+          "id": "node_modules/react/cjs/react.production.js",
+          "owner": "node_modules/react"
+        },
+        {
+          "id": "node_modules/react/index.js",
+          "owner": "node_modules/react"
+        },
+        {
+          "id": "node_modules/react/jsx-runtime.js",
+          "owner": "node_modules/react"
+        },
+        {
+          "id": "node_modules/scheduler/cjs/scheduler.production.js",
+          "owner": "node_modules/scheduler"
+        },
+        {
+          "id": "node_modules/scheduler/index.js",
+          "owner": "node_modules/scheduler"
+        },
+        {
+          "id": "node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js",
+          "owner": "node_modules/use-sync-external-store"
+        },
+        {
+          "id": "node_modules/use-sync-external-store/cjs/use-sync-external-store-shim/with-selector.production.js",
+          "owner": "node_modules/use-sync-external-store"
+        },
+        {
+          "id": "node_modules/use-sync-external-store/shim/index.js",
+          "owner": "node_modules/use-sync-external-store"
+        },
+        {
+          "id": "node_modules/use-sync-external-store/shim/with-selector.js",
+          "owner": "node_modules/use-sync-external-store"
+        },
+        {
+          "id": "node_modules/zustand/esm/shallow.mjs",
+          "owner": "node_modules/zustand"
+        },
+        {
+          "id": "node_modules/zustand/esm/traditional.mjs",
+          "owner": "node_modules/zustand"
+        },
+        {
+          "id": "node_modules/zustand/esm/vanilla.mjs",
+          "owner": "node_modules/zustand"
+        },
+        {
+          "id": "prototype/app.css",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/map.jsx",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/measure/adapter.js",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/model.js",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/strings.js",
+          "owner": "own"
+        },
+        {
+          "id": "src/auth/texts.js",
+          "owner": "own"
+        },
+        {
+          "id": "src/design-system/components.css",
+          "owner": "own"
+        },
+        {
+          "id": "src/design-system/components/basics.jsx",
+          "owner": "own"
+        },
+        {
+          "id": "src/design-system/components/diagnose.jsx",
+          "owner": "own"
+        },
+        {
+          "id": "src/design-system/components/map.jsx",
+          "owner": "own"
+        },
+        {
+          "id": "src/design-system/components/panels.jsx",
+          "owner": "own"
+        },
+        {
+          "id": "src/design-system/components/states.jsx",
+          "owner": "own"
+        },
+        {
+          "id": "src/design-system/copy.js",
+          "owner": "own"
+        },
+        {
+          "id": "src/design-system/fonts.css",
+          "owner": "own"
+        },
+        {
+          "id": "src/design-system/geometry.js",
+          "owner": "own"
+        },
+        {
+          "id": "src/design-system/index.js",
+          "owner": "own"
+        },
+        {
+          "id": "src/design-system/reason.js",
+          "owner": "own"
+        },
+        {
+          "id": "src/design-system/strings.js",
+          "owner": "own"
+        },
+        {
+          "id": "src/design-system/tokens.js",
+          "owner": "own"
+        },
+        {
+          "id": "src/design-system/tokens.json",
+          "owner": "own"
+        }
+      ]
+    },
+    {
+      "file": "assets/adapter-tOMIi6cO.css",
+      "type": "css",
+      "modules": [
+        {
+          "id": "\u0000virtual:design-system-tokens.css",
+          "owner": "virtual",
+          "origin": "intuitik-design-system-tokens"
+        },
+        {
+          "id": "node_modules/@xyflow/react/dist/style.css",
+          "owner": "node_modules/@xyflow/react"
+        },
+        {
+          "id": "prototype/app.css",
+          "owner": "own"
+        },
+        {
+          "id": "src/design-system/components.css",
+          "owner": "own"
+        },
+        {
+          "id": "src/design-system/fonts.css",
+          "owner": "own"
+        }
+      ]
+    },
+    {
+      "file": "assets/compare-CTkXO2rR.js",
+      "type": "js",
+      "modules": [
+        {
+          "id": "prototype/measure/compare.html",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/measure/compare.jsx",
+          "owner": "own"
+        }
+      ]
+    },
+    {
+      "file": "assets/data-_1fI29m8.js",
+      "type": "js",
+      "modules": [
+        {
+          "id": "prototype/data.js",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/data/ns-batch.json",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/data/ns-db.json",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/data/ns-default.json",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/data/ns-kube-system.json",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/data/ns-local-path-storage.json",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/data/ns-media.json",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/data/ns-payments.json",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/data/ns-shop.json",
+          "owner": "own"
+        }
+      ]
+    },
+    {
+      "file": "assets/main-D8yjFANw.js",
+      "type": "js",
+      "modules": [
+        {
+          "id": "prototype/App.jsx",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/controls.js",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/data/cluster.json",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/data/diagnose.json",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/data/events.json",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/data/logs.json",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/diagnose.jsx",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/index.html",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/inspector.jsx",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/main.jsx",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/states.js",
+          "owner": "own"
+        }
+      ]
+    },
+    {
+      "file": "assets/measure-CZbQhAHg.js",
+      "type": "js",
+      "modules": [
+        {
+          "id": "prototype/measure/derive500.js",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/measure/index.html",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/measure/input.json",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/measure/measure.jsx",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/measure/tar.js",
+          "owner": "own"
+        }
+      ]
+    },
+    {
+      "file": "assets/r2-B0-kQ7Ul.css",
+      "type": "css",
+      "modules": [
+        {
+          "id": "prototype/measure/measure.css",
+          "owner": "own"
+        }
+      ]
+    },
+    {
+      "file": "assets/r2-CWM1C5mt.js",
+      "type": "js",
+      "modules": [
+        {
+          "id": "node_modules/events/events.js",
+          "owner": "node_modules/events"
+        },
+        {
+          "id": "node_modules/graphology-utils/is-graph.js",
+          "owner": "node_modules/graphology-utils"
+        },
+        {
+          "id": "node_modules/graphology/dist/graphology.mjs",
+          "owner": "node_modules/graphology"
+        },
+        {
+          "id": "node_modules/sigma/dist/colors-3de957ad.esm.js",
+          "owner": "node_modules/sigma"
+        },
+        {
+          "id": "node_modules/sigma/dist/data-733c2ee0.esm.js",
+          "owner": "node_modules/sigma"
+        },
+        {
+          "id": "node_modules/sigma/dist/easings-65f8fcb8.esm.js",
+          "owner": "node_modules/sigma"
+        },
+        {
+          "id": "node_modules/sigma/dist/edge-data-texture-e4fbbc22.esm.js",
+          "owner": "node_modules/sigma"
+        },
+        {
+          "id": "node_modules/sigma/dist/factory-a8c46531.esm.js",
+          "owner": "node_modules/sigma"
+        },
+        {
+          "id": "node_modules/sigma/dist/loop-e859c0ba.esm.js",
+          "owner": "node_modules/sigma"
+        },
+        {
+          "id": "node_modules/sigma/dist/misc-0e506b5b.esm.js",
+          "owner": "node_modules/sigma"
+        },
+        {
+          "id": "node_modules/sigma/dist/normalization-4a46e800.esm.js",
+          "owner": "node_modules/sigma"
+        },
+        {
+          "id": "node_modules/sigma/dist/parser-cffea655.esm.js",
+          "owner": "node_modules/sigma"
+        },
+        {
+          "id": "node_modules/sigma/dist/shelf-atlas-9d18a043.esm.js",
+          "owner": "node_modules/sigma"
+        },
+        {
+          "id": "node_modules/sigma/dist/sigma.esm.js",
+          "owner": "node_modules/sigma"
+        },
+        {
+          "id": "node_modules/sigma/dist/types-d51059d8.esm.js",
+          "owner": "node_modules/sigma"
+        },
+        {
+          "id": "node_modules/sigma/dist/types-dba53cdc.esm.js",
+          "owner": "node_modules/sigma"
+        },
+        {
+          "id": "node_modules/sigma/settings/dist/sigma-settings.esm.js",
+          "owner": "node_modules/sigma"
+        },
+        {
+          "id": "prototype/measure/measure.css",
+          "owner": "own"
+        },
+        {
+          "id": "prototype/measure/r2.js",
+          "owner": "own"
+        }
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "path": "node_modules/@dagrejs/dagre",
+      "name": "@dagrejs/dagre",
+      "version": "3.1.3",
+      "modules": 1
+    },
+    {
+      "path": "node_modules/@xyflow/react",
+      "name": "@xyflow/react",
+      "version": "12.12.1",
+      "modules": 3
+    },
+    {
+      "path": "node_modules/@xyflow/system",
+      "name": "@xyflow/system",
+      "version": "0.0.84",
+      "modules": 1
+    },
+    {
+      "path": "node_modules/classcat",
+      "name": "classcat",
+      "version": "5.0.5",
+      "modules": 1
+    },
+    {
+      "path": "node_modules/d3-color",
+      "name": "d3-color",
+      "version": "3.1.1",
+      "modules": 1
+    },
+    {
+      "path": "node_modules/d3-dispatch",
+      "name": "d3-dispatch",
+      "version": "3.0.2",
+      "modules": 1
+    },
+    {
+      "path": "node_modules/d3-drag",
+      "name": "d3-drag",
+      "version": "3.0.1",
+      "modules": 1
+    },
+    {
+      "path": "node_modules/d3-ease",
+      "name": "d3-ease",
+      "version": "3.0.2",
+      "modules": 1
+    },
+    {
+      "path": "node_modules/d3-interpolate",
+      "name": "d3-interpolate",
+      "version": "3.0.2",
+      "modules": 1
+    },
+    {
+      "path": "node_modules/d3-selection",
+      "name": "d3-selection",
+      "version": "3.0.1",
+      "modules": 1
+    },
+    {
+      "path": "node_modules/d3-timer",
+      "name": "d3-timer",
+      "version": "3.0.2",
+      "modules": 1
+    },
+    {
+      "path": "node_modules/d3-transition",
+      "name": "d3-transition",
+      "version": "3.0.2",
+      "modules": 1
+    },
+    {
+      "path": "node_modules/d3-zoom",
+      "name": "d3-zoom",
+      "version": "3.0.1",
+      "modules": 1
+    },
+    {
+      "path": "node_modules/events",
+      "name": "events",
+      "version": "3.3.0",
+      "modules": 1
+    },
+    {
+      "path": "node_modules/graphology",
+      "name": "graphology",
+      "version": "0.26.0",
+      "modules": 1
+    },
+    {
+      "path": "node_modules/graphology-utils",
+      "name": "graphology-utils",
+      "version": "2.5.2",
+      "modules": 1
+    },
+    {
+      "path": "node_modules/react",
+      "name": "react",
+      "version": "19.3.1",
+      "modules": 4
+    },
+    {
+      "path": "node_modules/react-dom",
+      "name": "react-dom",
+      "version": "19.3.1",
+      "modules": 4
+    },
+    {
+      "path": "node_modules/scheduler",
+      "name": "scheduler",
+      "version": "0.28.0",
+      "modules": 2
+    },
+    {
+      "path": "node_modules/sigma",
+      "name": "sigma",
+      "version": "4.0.4",
+      "modules": 14
+    },
+    {
+      "path": "node_modules/use-sync-external-store",
+      "name": "use-sync-external-store",
+      "version": "1.7.0",
+      "modules": 4
+    },
+    {
+      "path": "node_modules/zustand",
+      "name": "zustand",
+      "version": "4.5.7",
+      "modules": 3
+    }
+  ],
+  "noticeSet": {
+    "fixed": [
+      "node_modules/@dagrejs/dagre",
+      "node_modules/@dagrejs/graphlib",
+      "node_modules/@types/d3-color",
+      "node_modules/@types/d3-drag",
+      "node_modules/@types/d3-interpolate",
+      "node_modules/@types/d3-selection",
+      "node_modules/@types/d3-transition",
+      "node_modules/@types/d3-zoom",
+      "node_modules/@xyflow/react",
+      "node_modules/@xyflow/system",
+      "node_modules/classcat",
+      "node_modules/d3-color",
+      "node_modules/d3-dispatch",
+      "node_modules/d3-drag",
+      "node_modules/d3-ease",
+      "node_modules/d3-interpolate",
+      "node_modules/d3-selection",
+      "node_modules/d3-timer",
+      "node_modules/d3-transition",
+      "node_modules/d3-zoom",
+      "node_modules/events",
+      "node_modules/graphology",
+      "node_modules/graphology-types",
+      "node_modules/graphology-utils",
+      "node_modules/react",
+      "node_modules/react-dom",
+      "node_modules/scheduler",
+      "node_modules/sigma",
+      "node_modules/use-sync-external-store",
+      "node_modules/zustand"
+    ],
+    "addedFromModules": [],
+    "final": [
+      "node_modules/@dagrejs/dagre",
+      "node_modules/@dagrejs/graphlib",
+      "node_modules/@types/d3-color",
+      "node_modules/@types/d3-drag",
+      "node_modules/@types/d3-interpolate",
+      "node_modules/@types/d3-selection",
+      "node_modules/@types/d3-transition",
+      "node_modules/@types/d3-zoom",
+      "node_modules/@xyflow/react",
+      "node_modules/@xyflow/system",
+      "node_modules/classcat",
+      "node_modules/d3-color",
+      "node_modules/d3-dispatch",
+      "node_modules/d3-drag",
+      "node_modules/d3-ease",
+      "node_modules/d3-interpolate",
+      "node_modules/d3-selection",
+      "node_modules/d3-timer",
+      "node_modules/d3-transition",
+      "node_modules/d3-zoom",
+      "node_modules/events",
+      "node_modules/graphology",
+      "node_modules/graphology-types",
+      "node_modules/graphology-utils",
+      "node_modules/react",
+      "node_modules/react-dom",
+      "node_modules/scheduler",
+      "node_modules/sigma",
+      "node_modules/use-sync-external-store",
+      "node_modules/zustand"
+    ]
+  }
+}

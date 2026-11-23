@@ -25,6 +25,12 @@ body { background: var(--color-canvas); color: var(--color-ink); font-family: va
 
 .proto-body { position: relative; display: grid; grid-template-columns: 300px minmax(0, 1fr) 380px; gap: 8px; flex: 1; min-height: 0; }
 .proto-attention, .proto-inspector { overflow: auto; min-height: 0; }
+/* The design system's panels have fixed widths; inside the prototype's columns they take the
+   column's width so that nothing they show is cut or passes the column's edge. */
+.proto-attention > .ds-attention { width: auto; }
+.proto-attention .ds-attention-item__select { overflow-wrap: anywhere; }
+.proto-inspector .ds-card-panel, .proto-inspector .ds-answer { width: auto; max-width: 100%; }
+.proto-inspector .ds-answer code { overflow-wrap: anywhere; }
 .proto-inspector > .ds-inspector { min-height: 100%; box-sizing: border-box; }
 .proto-map { display: flex; flex-direction: column; gap: 6px; min-height: 0; min-width: 0; }
 .proto-map__bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -49,17 +55,17 @@ body { background: var(--color-canvas); color: var(--color-ink); font-family: va
 .react-flow__handle.proto-handle { width: 1px; height: 1px; min-width: 0; min-height: 0; border: 0; background: transparent; opacity: 0; }
 .react-flow__node { cursor: default; }
 .proto-node { position: relative; height: 100%; outline: none; border-radius: var(--size-radius-card); cursor: pointer; }
-.proto-node:focus-visible, .proto-row-hit:focus-visible, .proto-expand:focus-visible, .proto-strip__button:focus-visible,
+.proto-node:focus-visible, .proto-card-host .ds-refrow[data-control]:focus-visible, .proto-expand:focus-visible, .proto-strip__button:focus-visible,
 .proto-find__result:focus-visible, .proto button:focus-visible, .proto input:focus-visible, .proto select:focus-visible, .proto textarea:focus-visible {
   outline: 2px solid var(--color-ink);
   outline-offset: 3px;
 }
 .proto-node-static { position: relative; height: 100%; }
-.proto-row-hit { position: absolute; left: 0; right: 0; padding: 0; background: transparent; border: 0; border-radius: var(--size-radius-row); cursor: pointer; }
-.proto-row-hit--selected { box-shadow: inset 0 0 0 2px var(--color-ink); }
+.proto-card-host .ds-refrow[data-control] { cursor: pointer; }
+.proto-card-host .ds-refrow[data-row-selected] { box-shadow: inset 0 0 0 2px var(--color-ink); }
 .proto-expand { position: absolute; top: 10px; right: 10px; width: 24px; height: 24px; padding: 0; font: inherit; color: var(--color-sub); background: var(--color-surface); border: 1px solid var(--color-line); border-radius: 6px; cursor: pointer; }
 .proto-node--box { box-sizing: border-box; border: 1.5px solid var(--color-line); background: var(--color-inset); }
-.proto-node--box > .ds-card { width: 100%; }
+.proto-node--box > .proto-card-host, .proto-node--box > .proto-card-host > .ds-card { width: 100%; }
 .proto-selected { border-radius: var(--size-radius-card); box-shadow: 0 0 0 2px var(--color-ink); }
 .proto-group { box-sizing: border-box; width: 100%; height: 100%; padding: 8px 10px; border: 1.5px dashed var(--color-line); border-radius: var(--size-radius-card); background: var(--color-surface); font-size: var(--type-rowLabel-size); }
 .proto-group__kind, .proto-pod__kind { color: var(--color-faint); }
@@ -86,6 +92,9 @@ body { background: var(--color-canvas); color: var(--color-ink); font-family: va
 .proto-linklist__reason { margin-top: 2px; color: var(--color-sub); }
 .proto-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
 .proto-askwhy { margin-top: 12px; }
+.proto-status { margin: 0 0 10px; overflow-wrap: anywhere; }
+.proto-status__label { color: var(--color-sub); }
+.proto-status__issues { color: var(--color-sub); }
 .proto-looking__label { color: var(--color-sub); }
 .proto-looking__value { font-family: var(--font-mono); }
 .proto-field { display: inline-flex; align-items: center; gap: 6px; }

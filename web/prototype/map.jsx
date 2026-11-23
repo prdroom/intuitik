@@ -130,6 +130,46 @@ function CardNode({ data }) {
   const target = `${ns.name}/${node.kind}/${node.name}`;
   const mode = item.type === 'box' ? 'expanded' : 'compact';
   const shown = new Set(foldRows(rows, mode).filter((v) => v.type === 'row').map((v) => v.row.id));
+  const hostRef = useRef(null);
+  const selectedRow = ctx.sel && ctx.sel.t === 'row' ? ctx.sel.id : null;
+  // Each shown row of the card is itself the control that selects its link: its visible text
+  // is its name (UI.md 9), and a click or Enter / Space on it does not select the card.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !ctx.onRow) {
+      return undefined;
+    }
+    const offs = [];
+    for (const el of host.querySelectorAll('.ds-refrow[data-row-id]')) {
+      const id = el.dataset.rowId;
+      if (!shown.has(id)) {
+        continue;
+      }
+      el.setAttribute('role', 'button');
+      el.setAttribute('tabindex', '0');
+      el.setAttribute('data-control', 'card');
+      el.setAttribute('data-target', `row:${id}`);
+      el.toggleAttribute('data-row-selected', id === selectedRow);
+      const onClick = (e) => {
+        e.stopPropagation();
+        ctx.onRow(id);
+      };
+      const onKey = (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          ctx.onRow(id);
+        }
+      };
+      el.addEventListener('click', onClick);
+      el.addEventListener('keydown', onKey);
+      offs.push(() => {
+        el.removeEventListener('click', onClick);
+        el.removeEventListener('keydown', onKey);
+      });
+    }
+    return () => offs.forEach((off) => off());
+  });
   return (
     <NodeShell
       control="card"
@@ -139,25 +179,9 @@ function CardNode({ data }) {
       onSelect={ctx.onCard && (() => ctx.onCard({ t: 'node', id: node.uid }))}
       onExpand={ctx.onExpand && expandable ? () => ctx.onExpand(node.uid) : undefined}
     >
-      <NodeCard kind={shortKind(node.kind)} name={node.name} rows={rows} chips={chipsOf(ns, node)} status={statusOf(ns, node.uid)} mode={mode} selected={selected} />
-      {ctx.onRow &&
-        item.card.rows
-          .filter((r) => shown.has(r.id))
-          .map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              className={`proto-row-hit${ctx.sel && ctx.sel.t === 'row' && ctx.sel.id === r.id ? ' proto-row-hit--selected' : ''}`}
-              data-control="card"
-              data-target={`row:${r.id}`}
-              aria-label={`${r.name} ${r.value}${r.sentence ? `, ${r.sentence}` : ''}`}
-              style={{ top: item.geo.ports[r.id] - (r.state !== 'connected' && r.sentence ? 24 : 15), height: r.state !== 'connected' && r.sentence ? 48 : 30 }}
-              onClick={(e) => {
-                e.stopPropagation();
-                ctx.onRow(r.id);
-              }}
-            />
-          ))}
+      <div className="proto-card-host" ref={hostRef}>
+        <NodeCard kind={shortKind(node.kind)} name={node.name} rows={rows} chips={chipsOf(ns, node)} status={statusOf(ns, node.uid)} mode={mode} selected={selected} />
+      </div>
       {ctx.onExpand && expandable && (
         <button type="button" className="proto-expand" data-control="expand" data-target={target} aria-label={`${S.stage.workload}: ${node.kind} ${node.name}`} onClick={(e) => { e.stopPropagation(); ctx.onExpand(node.uid); }}>
           {'\u2922'}
